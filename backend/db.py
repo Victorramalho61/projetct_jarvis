@@ -1,16 +1,23 @@
-from supabase import create_client, Client
+from functools import lru_cache
+
 from pydantic_settings import BaseSettings
+from supabase import Client, create_client
 
 
 class Settings(BaseSettings):
     supabase_url: str
     supabase_key: str
+    allowed_origins: str = "http://localhost:5173"
 
     model_config = {"env_file": ".env"}
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
 
 
+@lru_cache
 def get_supabase() -> Client:
-    return create_client(settings.supabase_url, settings.supabase_key)
+    s = get_settings()
+    return create_client(s.supabase_url, s.supabase_key)
