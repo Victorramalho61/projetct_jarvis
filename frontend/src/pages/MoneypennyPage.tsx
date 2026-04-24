@@ -119,6 +119,7 @@ export default function MoneypennyPage() {
   async function handleTest() {
     setTesting(true);
     try {
+      await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: prefs });
       await apiFetch("/api/moneypenny/test", { method: "POST", token });
       const label = prefs.delivery_channel === "teams"
         ? "Mensagem enviada no Teams!"
