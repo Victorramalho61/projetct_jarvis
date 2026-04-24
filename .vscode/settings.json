@@ -1,11 +1,15 @@
 {
-  // Editor
+  // ─── Editor ───────────────────────────────────────────────────────────────
   "editor.formatOnSave": true,
   "editor.tabSize": 2,
   "editor.rulers": [88],
   "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.minimap.enabled": false,
+  "editor.stickyScroll.enabled": true,
+  "editor.bracketPairColorization.enabled": true,
+  "editor.guides.bracketPairs": true,
 
-  // Python
+  // ─── Python ───────────────────────────────────────────────────────────────
   "[python]": {
     "editor.defaultFormatter": "charliermarsh.ruff",
     "editor.tabSize": 4
@@ -15,7 +19,7 @@
   "ruff.lint.enable": true,
   "ruff.format.enable": true,
 
-  // TypeScript / React
+  // ─── TypeScript / React ───────────────────────────────────────────────────
   "[typescriptreact]": {
     "editor.defaultFormatter": "esbenp.prettier-vscode"
   },
@@ -24,21 +28,45 @@
   },
   "typescript.tsdk": "frontend/node_modules/typescript/lib",
 
-  // Tailwind
+  // ─── Tailwind ─────────────────────────────────────────────────────────────
   "tailwindCSS.includeLanguages": {
     "typescriptreact": "html"
   },
 
-  // Files
+  // ─── Explorer ─────────────────────────────────────────────────────────────
+  "explorer.sortOrder": "type",
+  "explorer.compactFolders": false,
+
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    // Frontend — agrupa config files abaixo do package.json
+    "package.json": "package-lock.json, .npmrc, vite.config.*, tsconfig*.json, tailwind.config.*, postcss.config.*, .eslintrc*, eslint.config.*, .prettierrc*",
+    // Backend — agrupa config abaixo do requirements
+    "requirements.txt": "requirements*.txt, pyproject.toml, setup.cfg, .python-version",
+    // Variáveis de ambiente
+    ".env": ".env.*, .env",
+    // Componentes React — agrupa index abaixo do componente principal
+    "*.tsx": "$(capture).test.tsx, $(capture).stories.tsx",
+    // Python — agrupa arquivos de teste
+    "*.py": "$(capture).test.py, test_$(capture).py"
+  },
+
+  // ─── Arquivos ocultos no Explorer ─────────────────────────────────────────
   "files.exclude": {
     "**/__pycache__": true,
     "**/.pytest_cache": true,
+    "**/*.pyc": true,
     "**/node_modules": true,
-    "backend/venv": true
+    "backend/venv": true,
+    "frontend/dist": true,
+    "**/.DS_Store": true,
+    "**/Thumbs.db": true
   },
   "search.exclude": {
     "**/node_modules": true,
     "backend/venv": true,
-    "**/__pycache__": true
+    "**/__pycache__": true,
+    "frontend/dist": true
   }
 }
