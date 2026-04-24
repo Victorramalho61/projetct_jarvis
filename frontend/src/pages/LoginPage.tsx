@@ -78,11 +78,17 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-4 border-t pt-4 text-center">
+        <div className="mt-4 border-t pt-4 text-center space-y-1">
           <p className="text-sm text-gray-500">
             Primeiro acesso?{" "}
             <Link to="/solicitar-acesso" className="font-medium text-blue-600 hover:underline">
               Solicitar Acesso
+            </Link>
+          </p>
+          <p className="text-sm text-gray-500">
+            Admin sem senha?{" "}
+            <Link to="/definir-senha" className="font-medium text-blue-600 hover:underline">
+              Definir senha
             </Link>
           </p>
         </div>

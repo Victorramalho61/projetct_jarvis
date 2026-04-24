@@ -1,16 +1,17 @@
 import logging
 from typing import Annotated
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from auth import create_access_token, get_current_user
-from db import get_settings, get_supabase
-from ldap_client import authenticate_ldap
-from services.azure_auth import ALLOWED_DOMAINS, authenticate_azure_ad
+from db import get_supabase
 
 router = APIRouter(prefix="/auth")
 logger = logging.getLogger(__name__)
+
+ALLOWED_DOMAINS = ["voetur.com.br", "vtclog.com.br"]
 
 
 class LoginRequest(BaseModel):
@@ -37,85 +38,38 @@ class LoginResponse(BaseModel):
     user: UserInfo
 
 
-def _authenticate(username: str, password: str) -> dict:
-    """
-    Tenta autenticar na ordem: LDAP → Azure AD → dev mode.
-    Retorna dict com username, display_name, email.
-    Lança HTTPException 401 se falhar.
-    """
-    settings = get_settings()
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
-    if settings.ldap_server:
-        user_info = authenticate_ldap(
-            username=username,
-            password=password,
-            server_url=settings.ldap_server,
-            domain=settings.ldap_domain,
-            base_dn=settings.ldap_base_dn,
-        )
-        if user_info:
-            return user_info
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
 
-    if settings.microsoft_client_id:
-        user_info = authenticate_azure_ad(username, password)
-        if user_info:
-            return user_info
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciais inválidas ou domínio não autorizado. Use @voetur.com.br ou @vtclog.com.br",
-        )
+def _verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
 
-    # Dev mode
-    logger.warning("Sem LDAP/Azure AD configurado — modo dev ativo")
-    if not username.strip() or not password.strip():
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
-    return {
-        "username": username.strip(),
-        "display_name": username.strip().capitalize(),
-        "email": f"{username.strip()}@dev.local",
-    }
+
+def _lookup_profile(identifier: str) -> dict | None:
+    db = get_supabase()
+    result = db.table("profiles").select("*").eq("username", identifier).execute()
+    if not result.data:
+        result = db.table("profiles").select("*").eq("email", identifier).execute()
+    return result.data[0] if result.data else None
 
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest) -> LoginResponse:
-    user_info = _authenticate(body.username, body.password)
-    db = get_supabase()
+    identifier = body.username.strip().lower()
+    profile = _lookup_profile(identifier)
 
-    # Busca perfil pelo username ou email
-    result = db.table("profiles").select("*").eq("username", user_info["username"]).execute()
-    if not result.data:
-        result = db.table("profiles").select("*").eq("email", user_info["email"]).execute()
+    if not profile or not profile.get("password_hash"):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
 
-    if not result.data:
-        # Primeiro usuário vira admin automaticamente
-        count = db.table("profiles").select("id", count="exact").execute()
-        if (count.count or 0) == 0:
-            created = db.table("profiles").insert({
-                "username": user_info["username"],
-                "display_name": user_info["display_name"],
-                "email": user_info["email"],
-                "role": "admin",
-                "active": True,
-            }).execute()
-            profile = created.data[0]
-            logger.info("Primeiro usuário criado como admin: %s", profile["username"])
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Acesso não solicitado. Use 'Solicitar Acesso' na página de login.",
-            )
-    else:
-        profile = result.data[0]
-        if not profile["active"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Seu acesso está pendente de aprovação pelo administrador.",
-            )
-        db.table("profiles").update({
-            "display_name": user_info["display_name"],
-            "email": user_info["email"],
-        }).eq("id", profile["id"]).execute()
+    if not _verify_password(body.password, profile["password_hash"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
+
+    if not profile["active"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seu acesso está pendente de aprovação pelo administrador.",
+        )
 
     payload = {
         "id": profile["id"],
@@ -130,13 +84,29 @@ async def login(body: LoginRequest) -> LoginResponse:
 
 @router.post("/request-access")
 async def request_access(body: AccessRequest) -> dict:
-    user_info = _authenticate(body.username, body.password)
-    db = get_supabase()
+    email = body.username.strip().lower()
 
-    # Verifica se já existe perfil
-    result = db.table("profiles").select("*").eq("username", user_info["username"]).execute()
-    if not result.data:
-        result = db.table("profiles").select("*").eq("email", user_info["email"]).execute()
+    if "@" not in email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use seu e-mail corporativo completo (@voetur.com.br ou @vtclog.com.br).",
+        )
+
+    domain = email.split("@")[1]
+    if domain not in ALLOWED_DOMAINS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Domínio não autorizado. Use @voetur.com.br ou @vtclog.com.br.",
+        )
+
+    if not body.password or len(body.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Senha deve ter no mínimo 6 caracteres.",
+        )
+
+    db = get_supabase()
+    result = db.table("profiles").select("*").eq("email", email).execute()
 
     if result.data:
         profile = result.data[0]
@@ -144,21 +114,55 @@ async def request_access(body: AccessRequest) -> dict:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Você já tem acesso. Faça login normalmente.")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sua solicitação já está pendente de aprovação.")
 
+    username = email.split("@")[0]
+    display_name = username.replace(".", " ").title()
+    password_hash = _hash_password(body.password)
+
     count = db.table("profiles").select("id", count="exact").execute()
     is_first = (count.count or 0) == 0
 
     db.table("profiles").insert({
-        "username": user_info["username"],
-        "display_name": user_info["display_name"],
-        "email": user_info["email"],
+        "username": username,
+        "display_name": display_name,
+        "email": email,
         "role": "admin" if is_first else "user",
         "active": is_first,
+        "password_hash": password_hash,
     }).execute()
 
-    logger.info("Solicitação de acesso: %s (%s)", user_info["username"], user_info["email"])
+    logger.info("Solicitação de acesso: %s", email)
     if is_first:
         return {"message": "Acesso concedido como administrador. Faça login."}
     return {"message": "Solicitação enviada. Aguardando aprovação do administrador."}
+
+
+@router.post("/initialize")
+async def initialize_password(body: LoginRequest) -> dict:
+    """Define senha para contas sem senha. Só funciona enquanto nenhuma senha estiver configurada."""
+    db = get_supabase()
+
+    existing = db.table("profiles").select("id").not_.is_("password_hash", "null").execute()
+    if existing.data:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inicialização já concluída.")
+
+    identifier = body.username.strip().lower()
+    profile = _lookup_profile(identifier)
+
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado.")
+
+    if not profile["active"]:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conta inativa.")
+
+    if not body.password or len(body.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Senha deve ter no mínimo 6 caracteres.",
+        )
+
+    db.table("profiles").update({"password_hash": _hash_password(body.password)}).eq("id", profile["id"]).execute()
+    logger.info("Senha inicializada para: %s", profile["username"])
+    return {"message": "Senha definida com sucesso. Faça login normalmente."}
 
 
 @router.get("/me", response_model=UserInfo)

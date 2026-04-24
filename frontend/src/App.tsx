@@ -7,6 +7,7 @@ import RequestAccessPage from "./pages/RequestAccessPage";
 import HomePage from "./pages/HomePage";
 import AccessManagementPage from "./pages/admin/AccessManagementPage";
 import MoneypennyPage from "./pages/MoneypennyPage";
+import InitializePasswordPage from "./pages/InitializePasswordPage";
 
 export default function App() {
   return (
@@ -15,6 +16,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/solicitar-acesso" element={<RequestAccessPage />} />
+          <Route path="/definir-senha" element={<InitializePasswordPage />} />
 
           <Route
             element={
