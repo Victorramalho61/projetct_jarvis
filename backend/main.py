@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from db import get_settings, get_supabase
 from routes.auth import router as auth_router
 from routes.health import router as health_router
+from routes.users import router as users_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -48,3 +49,4 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 app.include_router(health_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
+app.include_router(users_router, prefix="/api")

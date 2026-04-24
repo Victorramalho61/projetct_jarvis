@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 import jwt
 from fastapi import Depends, HTTPException, status
@@ -28,3 +28,13 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expirado")
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido")
+
+
+def require_role(*roles: str) -> Callable:
+    def dependency(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
+        if not current_user.get("active", True):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuário desativado")
+        if current_user.get("role") not in roles:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")
+        return current_user
+    return dependency

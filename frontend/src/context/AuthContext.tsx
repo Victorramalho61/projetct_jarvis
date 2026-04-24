@@ -1,9 +1,13 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 
+export type Role = "admin" | "user";
+
 export type User = {
   username: string;
   display_name: string;
   email: string;
+  role: Role;
+  active: boolean;
 };
 
 type AuthContextType = {
@@ -25,16 +29,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = localStorage.getItem(TOKEN_KEY);
-    if (!stored) {
-      setLoading(false);
-      return;
-    }
+    if (!stored) { setLoading(false); return; }
     fetch("/api/auth/me", { headers: { Authorization: `Bearer ${stored}` } })
       .then((r) => (r.ok ? (r.json() as Promise<User>) : Promise.reject()))
-      .then((u) => {
-        setToken(stored);
-        setUser(u);
-      })
+      .then((u) => { setToken(stored); setUser(u); })
       .catch(() => localStorage.removeItem(TOKEN_KEY))
       .finally(() => setLoading(false));
   }, []);
