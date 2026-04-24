@@ -9,7 +9,6 @@ from pydantic import BaseModel
 from auth import get_current_user
 from db import get_settings, get_supabase
 from services.microsoft_graph import GraphClient, build_auth_url, exchange_code_for_tokens
-from services.summary import _build_html
 
 router = APIRouter(prefix="/moneypenny", tags=["moneypenny"])
 logger = logging.getLogger(__name__)
@@ -147,6 +146,7 @@ async def send_test_summary(current_user: dict = Depends(get_current_user)):
         graph = GraphClient(account["access_token"])
         emails = graph.get_unread_emails_yesterday()
         events = graph.get_today_events()
+        from services.summary import _build_html
         html = _build_html(current_user["display_name"], emails, events)
         graph.send_mail(
             to_address=account["email"],
