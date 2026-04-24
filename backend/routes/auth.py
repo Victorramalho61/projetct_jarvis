@@ -2,7 +2,7 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 
 from auth import create_access_token, get_current_user
 from db import get_settings, get_supabase
@@ -15,13 +15,6 @@ logger = logging.getLogger(__name__)
 class LoginRequest(BaseModel):
     username: str
     password: str
-
-    @field_validator("username", "password")
-    @classmethod
-    def not_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("não pode ser vazio")
-        return v.strip()
 
 
 class UserInfo(BaseModel):
