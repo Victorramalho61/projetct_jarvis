@@ -1,0 +1,21 @@
+{
+  "folders": [
+    { "name": "Raiz", "path": "." },
+    { "name": "Backend (FastAPI)", "path": "backend" },
+    { "name": "Frontend (React)", "path": "frontend" }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "${workspaceFolder:Backend (FastAPI)}/venv/Scripts/python.exe"
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "charliermarsh.ruff",
+      "bradlc.vscode-tailwindcss",
+      "esbenp.prettier-vscode",
+      "dbaeumer.vscode-eslint",
+      "anthropic.claude-code"
+    ]
+  }
+}

@@ -5,6 +5,7 @@ import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import AccessManagementPage from "./pages/admin/AccessManagementPage";
+import MoneypennyPage from "./pages/MoneypennyPage";
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
             }
           >
             <Route path="/" element={<HomePage />} />
+            <Route path="/moneypenny" element={<MoneypennyPage />} />
             <Route
               path="/admin/acesso"
               element={

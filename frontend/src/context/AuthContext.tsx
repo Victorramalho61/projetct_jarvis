@@ -30,11 +30,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const stored = localStorage.getItem(TOKEN_KEY);
     if (!stored) { setLoading(false); return; }
-    fetch("/api/auth/me", { headers: { Authorization: `Bearer ${stored}` } })
+    const controller = new AbortController();
+    fetch("/api/auth/me", {
+      headers: { Authorization: `Bearer ${stored}` },
+      signal: controller.signal,
+    })
       .then((r) => (r.ok ? (r.json() as Promise<User>) : Promise.reject()))
       .then((u) => { setToken(stored); setUser(u); })
-      .catch(() => localStorage.removeItem(TOKEN_KEY))
+      .catch((e) => { if (e?.name !== "AbortError") localStorage.removeItem(TOKEN_KEY); })
       .finally(() => setLoading(false));
+    return () => controller.abort();
   }, []);
 
   async function login(username: string, password: string) {

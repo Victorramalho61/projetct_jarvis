@@ -16,6 +16,7 @@ export default function AccessManagementPage() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -29,23 +30,35 @@ export default function AccessManagementPage() {
 
   async function handleRoleChange(username: string, role: string) {
     setBusy(username);
-    await fetch(`/api/users/${username}/role`, {
+    setError(null);
+    const r = await fetch(`/api/users/${username}/role`, {
       method: "PATCH",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ role }),
     });
-    await fetchProfiles();
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      setError((data as { detail?: string }).detail ?? "Erro ao alterar perfil.");
+    } else {
+      await fetchProfiles();
+    }
     setBusy(null);
   }
 
   async function handleToggleActive(username: string, active: boolean) {
     setBusy(username);
-    await fetch(`/api/users/${username}/active`, {
+    setError(null);
+    const r = await fetch(`/api/users/${username}/active`, {
       method: "PATCH",
       headers: { ...headers, "Content-Type": "application/json" },
       body: JSON.stringify({ active }),
     });
-    await fetchProfiles();
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      setError((data as { detail?: string }).detail ?? "Erro ao alterar status.");
+    } else {
+      await fetchProfiles();
+    }
     setBusy(null);
   }
 
@@ -55,6 +68,12 @@ export default function AccessManagementPage() {
       <p className="mt-1 text-sm text-gray-500">
         Gerencie usuários e perfis de acesso
       </p>
+
+      {error && (
+        <div className="mt-4 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="mt-6 overflow-hidden rounded-xl border bg-white shadow-sm">
         {loading ? (

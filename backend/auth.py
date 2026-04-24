@@ -32,7 +32,7 @@ def get_current_user(
 
 def require_role(*roles: str) -> Callable:
     def dependency(current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
-        if not current_user.get("active", True):
+        if not current_user.get("active", False):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuário desativado")
         if current_user.get("role") not in roles:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso negado")

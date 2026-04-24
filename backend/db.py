@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     ldap_server: str = ""
     ldap_domain: str = ""
     ldap_base_dn: str = ""
+    microsoft_client_id: str = ""
+    microsoft_tenant_id: str = ""
+    microsoft_client_secret: str = ""
+    microsoft_redirect_uri: str = "http://localhost:8000/api/moneypenny/auth/microsoft/callback"
+    frontend_url: str = "http://localhost:5173"
 
     model_config = {"env_file": ".env"}
 

@@ -84,6 +84,7 @@ async def login(body: LoginRequest) -> LoginResponse:
     profile = _get_or_create_profile(**user_info)
 
     payload = {
+        "id": profile["id"],
         "username": profile["username"],
         "display_name": profile["display_name"],
         "email": profile["email"],

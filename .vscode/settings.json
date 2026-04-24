@@ -1,0 +1,44 @@
+{
+  // Editor
+  "editor.formatOnSave": true,
+  "editor.tabSize": 2,
+  "editor.rulers": [88],
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  // Python
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.tabSize": 4
+  },
+  "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/Scripts/python.exe",
+  "python.analysis.extraPaths": ["${workspaceFolder}/backend"],
+  "ruff.lint.enable": true,
+  "ruff.format.enable": true,
+
+  // TypeScript / React
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "typescript.tsdk": "frontend/node_modules/typescript/lib",
+
+  // Tailwind
+  "tailwindCSS.includeLanguages": {
+    "typescriptreact": "html"
+  },
+
+  // Files
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/.pytest_cache": true,
+    "**/node_modules": true,
+    "backend/venv": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "backend/venv": true,
+    "**/__pycache__": true
+  }
+}

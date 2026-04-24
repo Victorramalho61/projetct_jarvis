@@ -27,8 +27,8 @@ frontend/dist/
 npm-debug.log*
 yarn-error.log*
 
-# IDE
-.vscode/
+# IDE — ignorar configurações pessoais, mas commitar as de equipe
+.vscode/*.log
 .idea/
 *.swp
 *.swo
