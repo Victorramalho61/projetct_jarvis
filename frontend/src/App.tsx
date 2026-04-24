@@ -3,6 +3,7 @@ import { AuthProvider } from "./context/AuthContext";
 import AppLayout from "./components/AppLayout";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LoginPage from "./pages/LoginPage";
+import RequestAccessPage from "./pages/RequestAccessPage";
 import HomePage from "./pages/HomePage";
 import AccessManagementPage from "./pages/admin/AccessManagementPage";
 import MoneypennyPage from "./pages/MoneypennyPage";
@@ -13,6 +14,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/solicitar-acesso" element={<RequestAccessPage />} />
 
           <Route
             element={

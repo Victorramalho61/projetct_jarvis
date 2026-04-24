@@ -22,6 +22,11 @@ export default function AccessManagementPage() {
   const fetchProfiles = useCallback(async () => {
     try {
       const data = await apiFetch<Profile[]>("/api/users", { token });
+      // Pendentes primeiro, depois por data de criação
+      data.sort((a, b) => {
+        if (a.active !== b.active) return a.active ? 1 : -1;
+        return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      });
       setProfiles(data);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Erro ao carregar usuários.");
@@ -58,6 +63,8 @@ export default function AccessManagementPage() {
     }
   }
 
+  const pending = profiles.filter((p) => !p.active);
+
   return (
     <div className="p-8">
       <h2 className="text-xl font-bold text-gray-900">Gestão de Acesso</h2>
@@ -69,7 +76,32 @@ export default function AccessManagementPage() {
         </div>
       )}
 
-      <div className="mt-6 overflow-hidden rounded-xl border bg-white shadow-sm">
+      {pending.length > 0 && (
+        <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-800">
+            {pending.length} solicitação{pending.length > 1 ? "ões" : ""} de acesso pendente{pending.length > 1 ? "s" : ""}
+          </p>
+          <div className="mt-3 space-y-2">
+            {pending.map((p) => (
+              <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-3 shadow-sm">
+                <div>
+                  <p className="text-sm font-medium text-gray-900">{p.display_name}</p>
+                  <p className="text-xs text-gray-500">{p.email}</p>
+                </div>
+                <button
+                  disabled={busy === p.username}
+                  onClick={() => handleToggleActive(p.username, true)}
+                  className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50 transition-colors"
+                >
+                  {busy === p.username ? "..." : "Aprovar"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
         {loading ? (
           <div className="p-10 text-center text-sm text-gray-400">Carregando...</div>
         ) : profiles.length === 0 ? (
@@ -90,7 +122,7 @@ export default function AccessManagementPage() {
                 const isSelf = p.username === currentUser?.username;
                 const isDisabled = busy === p.username;
                 return (
-                  <tr key={p.id} className={isDisabled ? "opacity-50" : ""}>
+                  <tr key={p.id} className={`${isDisabled ? "opacity-50" : ""} ${!p.active ? "bg-amber-50/40" : ""}`}>
                     <td className="px-6 py-4">
                       <p className="font-medium text-gray-900">{p.display_name}</p>
                       <p className="text-xs text-gray-400">@{p.username}</p>
@@ -99,7 +131,7 @@ export default function AccessManagementPage() {
                     <td className="px-6 py-4">
                       <select
                         value={p.role}
-                        disabled={isSelf || isDisabled}
+                        disabled={isSelf || isDisabled || !p.active}
                         onChange={(e) => handleRoleChange(p.username, e.target.value)}
                         className="rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
@@ -112,10 +144,12 @@ export default function AccessManagementPage() {
                         disabled={isSelf || isDisabled}
                         onClick={() => handleToggleActive(p.username, !p.active)}
                         className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
-                          p.active ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-red-100 text-red-700 hover:bg-red-200"
+                          p.active
+                            ? "bg-green-100 text-green-700 hover:bg-green-200"
+                            : "bg-amber-100 text-amber-700 hover:bg-amber-200"
                         }`}
                       >
-                        {p.active ? "Ativo" : "Inativo"}
+                        {p.active ? "Ativo" : "Pendente"}
                       </button>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-400">

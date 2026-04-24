@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { ApiError } from "../lib/api";
 
 export default function LoginPage() {
   const { login, user } = useAuth();
@@ -20,7 +21,7 @@ export default function LoginPage() {
       await login(username, password);
       navigate("/", { replace: true });
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Erro ao fazer login");
+      setError(err instanceof ApiError ? err.message : "Erro ao fazer login");
     } finally {
       setLoading(false);
     }
@@ -31,20 +32,20 @@ export default function LoginPage() {
       <div className="w-full max-w-sm rounded-xl border bg-white p-8 shadow-md">
         <h1 className="text-xl font-bold text-gray-900">Acesso ao sistema</h1>
         <p className="mt-1 text-sm text-gray-500">
-          Use suas credenciais corporativas (AD)
+          Use suas credenciais corporativas Microsoft
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700">
-              Usuário
+              E-mail ou usuário
             </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="seu.usuario"
+              placeholder="nome@voetur.com.br"
               required
               autoComplete="username"
               autoFocus
@@ -76,6 +77,15 @@ export default function LoginPage() {
             {loading ? "Entrando..." : "Entrar"}
           </button>
         </form>
+
+        <div className="mt-4 border-t pt-4 text-center">
+          <p className="text-sm text-gray-500">
+            Primeiro acesso?{" "}
+            <Link to="/solicitar-acesso" className="font-medium text-blue-600 hover:underline">
+              Solicitar Acesso
+            </Link>
+          </p>
+        </div>
       </div>
     </main>
   );
