@@ -1,6 +1,4 @@
 import logging
-import sys
-import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
@@ -13,15 +11,6 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-# Diagnostic block — printed before any imports that could fail
-logger.info("=== STARTUP DIAGNOSTIC ===")
-logger.info("Python: %s", sys.version)
-logger.info("CWD: %s", os.getcwd())
-logger.info("SUPABASE_URL set: %s", bool(os.environ.get("SUPABASE_URL")))
-logger.info("SUPABASE_KEY set: %s", bool(os.environ.get("SUPABASE_KEY")))
-logger.info("JWT_SECRET set: %s", bool(os.environ.get("JWT_SECRET")))
-logger.info("PORT: %s", os.environ.get("PORT", "NOT SET"))
 
 from db import get_settings, get_supabase
 from routes.auth import router as auth_router
