@@ -11,6 +11,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { id: "home", label: "Início", path: "/", roles: ["admin", "user"] },
   { id: "moneypenny", label: "Moneypenny", path: "/moneypenny", roles: ["admin", "user"] },
+  { id: "perfil", label: "Perfil", path: "/perfil", roles: ["admin", "user"] },
   { id: "access", label: "Gestão de Acesso", path: "/admin/acesso", roles: ["admin"] },
 ];
 

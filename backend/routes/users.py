@@ -21,6 +21,11 @@ class UpdateActiveRequest(BaseModel):
     active: bool
 
 
+class UpdateProfileRequest(BaseModel):
+    display_name: str = ""
+    whatsapp_phone: str = ""
+
+
 @router.get("")
 async def list_users(
     _: Annotated[dict, Depends(require_role("admin"))],
@@ -48,6 +53,37 @@ async def update_role(
 
     logger.info("Role de %s alterada para %s por %s", username, body.role, current_user["username"])
     return result.data[0]
+
+
+@router.get("/{username}/profile")
+async def get_user_profile(
+    username: str,
+    _: Annotated[dict, Depends(require_role("admin"))],
+) -> dict:
+    db = get_supabase()
+    result = db.table("profiles").select("display_name,email,whatsapp_phone").eq("username", username).execute()
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    return result.data[0]
+
+
+@router.patch("/{username}/profile")
+async def update_user_profile(
+    username: str,
+    body: UpdateProfileRequest,
+    _: Annotated[dict, Depends(require_role("admin"))],
+) -> dict:
+    db = get_supabase()
+    updates: dict = {}
+    if body.display_name.strip():
+        updates["display_name"] = body.display_name.strip()
+    if body.whatsapp_phone.strip():
+        updates["whatsapp_phone"] = body.whatsapp_phone.strip()
+    if updates:
+        result = db.table("profiles").update(updates).eq("username", username).execute()
+        if not result.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    return {"ok": True}
 
 
 @router.patch("/{username}/active")
