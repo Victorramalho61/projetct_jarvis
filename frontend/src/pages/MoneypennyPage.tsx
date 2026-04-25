@@ -46,6 +46,14 @@ export default function MoneypennyPage() {
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
+  const savePrefs = useCallback(async (updated: Prefs) => {
+    try {
+      await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: updated });
+    } catch {
+      showToast("Erro ao salvar preferências.");
+    }
+  }, [token]);
+
   const fetchData = useCallback(async () => {
     try {
       const [acc, pref] = await Promise.all([
@@ -205,7 +213,11 @@ export default function MoneypennyPage() {
           {channels.map((ch) => (
             <button
               key={ch.value}
-              onClick={() => setPrefs((p) => ({ ...p, delivery_channel: ch.value }))}
+              onClick={() => {
+                const updated = { ...prefs, delivery_channel: ch.value };
+                setPrefs(updated);
+                savePrefs(updated);
+              }}
               className={`flex flex-col items-center gap-1 rounded-xl border-2 py-4 text-sm font-medium transition-colors ${
                 prefs.delivery_channel === ch.value
                   ? "border-blue-500 bg-blue-50 text-blue-700"

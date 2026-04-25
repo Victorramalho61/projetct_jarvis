@@ -204,6 +204,10 @@ async def send_test_summary(current_user: dict = Depends(get_current_user)):
         elif channel == "whatsapp":
             phone = prefs.get("whatsapp_phone") or ""
             if not phone:
+                profile_result = db.table("profiles").select("whatsapp_phone").eq("id", user_id).execute()
+                if profile_result.data:
+                    phone = profile_result.data[0].get("whatsapp_phone") or ""
+            if not phone:
                 raise HTTPException(400, "Número de WhatsApp não configurado.")
             from services.summary import send_whatsapp
             await send_whatsapp(phone, current_user["display_name"], emails, events)
