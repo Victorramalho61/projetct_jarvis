@@ -235,18 +235,18 @@ export default function MoneypennyPage() {
         )}
 
         {prefs.delivery_channel === "whatsapp" && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700">Número do WhatsApp</label>
-            <p className="mt-0.5 text-xs text-gray-400">
-              Formato internacional, sem espaços ou traços (ex: 5511999999999)
-            </p>
-            <input
-              type="tel"
-              value={prefs.whatsapp_phone}
-              onChange={(e) => setPrefs((p) => ({ ...p, whatsapp_phone: e.target.value }))}
-              className="mt-2 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="5511999999999"
-            />
+          <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
+            {prefs.whatsapp_phone ? (
+              <p className="text-sm text-gray-700">
+                Resumo será enviado para{" "}
+                <span className="font-medium text-gray-900">+{prefs.whatsapp_phone}</span>
+              </p>
+            ) : (
+              <p className="text-sm text-red-500">
+                Nenhum número cadastrado.{" "}
+                <a href="/admin/acesso" className="underline">Atualize seu perfil</a>.
+              </p>
+            )}
           </div>
         )}
       </section>
