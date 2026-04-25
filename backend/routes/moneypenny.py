@@ -17,10 +17,17 @@ logger = logging.getLogger(__name__)
 _pending_states: dict[str, str] = {}
 
 
+DEFAULT_CHANNELS: dict = {
+    "email":    {"enabled": False, "content": ["emails", "calendar"]},
+    "teams":    {"enabled": False, "content": ["emails", "calendar"]},
+    "whatsapp": {"enabled": False, "content": ["calendar"]},
+}
+
+
 class PrefsIn(BaseModel):
     send_hour_utc: int
     active: bool
-    delivery_channel: str = "email"
+    channels: dict = {}
     teams_webhook_url: str = ""
     whatsapp_phone: str = ""
 
@@ -116,12 +123,19 @@ def get_prefs(current_user: dict = Depends(get_current_user)):
 
     result = db.table("notification_prefs").select("*").eq("user_id", user_id).execute()
     if not result.data:
-        return {"send_hour_utc": 10, "active": True, "delivery_channel": "email", "teams_webhook_url": "", "whatsapp_phone": profile_phone}
+        return {
+            "send_hour_utc": 10,
+            "active": True,
+            "channels": DEFAULT_CHANNELS,
+            "teams_webhook_url": "",
+            "whatsapp_phone": profile_phone,
+        }
     row = result.data[0]
+    channels = row.get("channels_config") or DEFAULT_CHANNELS
     return {
         "send_hour_utc": row.get("send_hour_utc", 10),
         "active": row.get("active", True),
-        "delivery_channel": row.get("delivery_channel") or "email",
+        "channels": channels,
         "teams_webhook_url": row.get("teams_webhook_url") or "",
         "whatsapp_phone": row.get("whatsapp_phone") or profile_phone,
     }
@@ -131,8 +145,6 @@ def get_prefs(current_user: dict = Depends(get_current_user)):
 def save_prefs(body: PrefsIn, current_user: dict = Depends(get_current_user)):
     if not (0 <= body.send_hour_utc <= 23):
         raise HTTPException(400, "send_hour_utc deve ser entre 0 e 23")
-    if body.delivery_channel not in ("email", "teams", "whatsapp"):
-        raise HTTPException(400, "Canal inválido. Use email, teams ou whatsapp.")
     db = get_supabase()
     user_id = _resolve_user_id(current_user)
     db.table("notification_prefs").upsert(
@@ -140,7 +152,7 @@ def save_prefs(body: PrefsIn, current_user: dict = Depends(get_current_user)):
             "user_id": user_id,
             "send_hour_utc": body.send_hour_utc,
             "active": body.active,
-            "delivery_channel": body.delivery_channel,
+            "channels_config": body.channels,
             "teams_webhook_url": body.teams_webhook_url,
             "whatsapp_phone": body.whatsapp_phone,
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -152,15 +164,38 @@ def save_prefs(body: PrefsIn, current_user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-async def _do_send_whatsapp(phone: str, display_name: str, user_id: str) -> None:
-    from services.summary import send_whatsapp
+async def _send_whatsapp_bg(phone: str, display_name: str, events: list[dict], user_id: str) -> None:
+    from services.summary import _build_calendar_text
+    import httpx as _httpx
     try:
-        await send_whatsapp(phone, display_name, [], [])
-        log_event("info", "moneypenny", "Resumo de teste enviado via whatsapp", user_id=user_id)
+        text = _build_calendar_text(display_name, events)
+        s = get_settings()
+        url = f"{s.whatsapp_api_url.rstrip('/')}/message/sendText/{s.whatsapp_instance}"
+        timeout = _httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=5.0)
+        async with _httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(url, json={"number": phone, "text": text}, headers={"apikey": s.whatsapp_api_key})
+            resp.raise_for_status()
+        log_event("info", "moneypenny", "Resumo WhatsApp enviado com sucesso", user_id=user_id)
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc!r}"
         logger.exception("Erro ao enviar WhatsApp em background para user %s", user_id)
         log_event("error", "moneypenny", "Erro ao enviar WhatsApp (background)", user_id=user_id, detail=detail)
+
+
+def _get_access_token(account: dict, db) -> str:
+    from services.microsoft_graph import refresh_access_token
+    token_expiry = datetime.fromisoformat(account["token_expiry"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) >= token_expiry:
+        refreshed = refresh_access_token(account["refresh_token"])
+        new_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(refreshed.get("expires_in", 3600)))
+        db.table("connected_accounts").update({
+            "access_token": refreshed["access_token"],
+            "refresh_token": refreshed.get("refresh_token") or account["refresh_token"],
+            "token_expiry": new_expiry.isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", account["id"]).execute()
+        return refreshed["access_token"]
+    return account["access_token"]
 
 
 @router.post("/test")
@@ -180,63 +215,57 @@ async def send_test_summary(
     )
     if not account_result.data:
         raise HTTPException(400, "Conta Microsoft não conectada")
-
     account = account_result.data[0]
 
     prefs_result = db.table("notification_prefs").select("*").eq("user_id", user_id).execute()
     prefs = prefs_result.data[0] if prefs_result.data else {}
-    channel = prefs.get("delivery_channel") or "email"
+    channels: dict = prefs.get("channels_config") or {}
+    enabled = {k: v for k, v in channels.items() if v.get("enabled")}
+
+    if not enabled:
+        raise HTTPException(400, "Nenhum canal de entrega habilitado. Configure e salve primeiro.")
 
     try:
-        from services.microsoft_graph import refresh_access_token
-
-        token_expiry = datetime.fromisoformat(account["token_expiry"].replace("Z", "+00:00"))
-        if datetime.now(timezone.utc) >= token_expiry:
-            refreshed = refresh_access_token(account["refresh_token"])
-            new_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(refreshed.get("expires_in", 3600)))
-            db.table("connected_accounts").update({
-                "access_token": refreshed["access_token"],
-                "refresh_token": refreshed.get("refresh_token") or account["refresh_token"],
-                "token_expiry": new_expiry.isoformat(),
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", account["id"]).execute()
-            access_token = refreshed["access_token"]
-        else:
-            access_token = account["access_token"]
-
+        access_token = _get_access_token(account, db)
         graph = GraphClient(access_token)
         emails = graph.get_unread_emails_yesterday()
         events = graph.get_today_events()
         date_str = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+        display_name = current_user["display_name"]
+        sent: list[str] = []
+        has_background = False
 
-        if channel == "teams":
-            webhook_url = prefs.get("teams_webhook_url") or ""
-            if not webhook_url:
-                raise HTTPException(400, "URL do webhook do Teams não configurada.")
-            from services.summary import send_teams
-            await send_teams(webhook_url, current_user["display_name"], emails, events)
+        for ch_name, ch_cfg in enabled.items():
+            if ch_name == "email":
+                from services.summary import _build_html
+                html = _build_html(display_name, emails, events)
+                graph.send_mail(
+                    to_address=account["email"],
+                    subject=f"[TESTE] Resumo Moneypenny — {date_str}",
+                    html_body=html,
+                )
+                sent.append("email")
 
-        elif channel == "whatsapp":
-            phone = prefs.get("whatsapp_phone") or ""
-            if not phone:
-                profile_result = db.table("profiles").select("whatsapp_phone").eq("id", user_id).execute()
-                if profile_result.data:
-                    phone = profile_result.data[0].get("whatsapp_phone") or ""
-            if not phone:
-                raise HTTPException(400, "Número de WhatsApp não configurado.")
-            # Dispara em background — Evolution API pode demorar mais de 30s
-            background_tasks.add_task(_do_send_whatsapp, phone, current_user["display_name"], user_id)
-            log_event("info", "moneypenny", "Envio WhatsApp agendado em background", user_id=user_id)
-            return {"ok": True, "channel": channel, "background": True}
+            elif ch_name == "teams":
+                webhook_url = prefs.get("teams_webhook_url") or ""
+                if not webhook_url:
+                    raise HTTPException(400, "URL do webhook do Teams não configurada.")
+                from services.summary import send_teams
+                await send_teams(webhook_url, display_name, emails, events)
+                sent.append("teams")
 
-        else:
-            from services.summary import _build_html
-            html = _build_html(current_user["display_name"], emails, events)
-            graph.send_mail(
-                to_address=account["email"],
-                subject=f"[TESTE] Resumo Moneypenny — {date_str}",
-                html_body=html,
-            )
+            elif ch_name == "whatsapp":
+                phone = prefs.get("whatsapp_phone") or ""
+                if not phone:
+                    pr = db.table("profiles").select("whatsapp_phone").eq("id", user_id).execute()
+                    if pr.data:
+                        phone = pr.data[0].get("whatsapp_phone") or ""
+                if not phone:
+                    raise HTTPException(400, "Número de WhatsApp não configurado.")
+                background_tasks.add_task(_send_whatsapp_bg, phone, display_name, events, user_id)
+                log_event("info", "moneypenny", "Envio WhatsApp agendado em background", user_id=user_id)
+                sent.append("whatsapp")
+                has_background = True
 
     except HTTPException:
         raise
@@ -246,5 +275,5 @@ async def send_test_summary(
         log_event("error", "moneypenny", "Erro ao enviar resumo de teste", user_id=user_id, detail=detail)
         raise HTTPException(500, f"Erro ao enviar resumo: {detail}")
 
-    log_event("info", "moneypenny", f"Resumo de teste enviado via {channel}", user_id=user_id)
-    return {"ok": True, "channel": channel}
+    log_event("info", "moneypenny", f"Resumo de teste enviado via {sent}", user_id=user_id)
+    return {"ok": True, "sent": sent, "background": has_background}

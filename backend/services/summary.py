@@ -73,6 +73,27 @@ def _build_html(display_name: str, emails: list[dict], events: list[dict]) -> st
 </html>"""
 
 
+def _build_calendar_text(display_name: str, events: list[dict]) -> str:
+    today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+    lines = [f"☀️ Bom dia, {display_name}! Sua agenda — {today}", ""]
+    lines.append("📅 *Compromissos de hoje*")
+    if events:
+        for e in events:
+            if e.get("isAllDay"):
+                time_str = "Dia todo"
+            else:
+                start = _format_time(e.get("start", {}).get("dateTime", ""))
+                end = _format_time(e.get("end", {}).get("dateTime", ""))
+                time_str = f"{start} – {end}"
+            subject = e.get("subject", "(sem título)")
+            lines.append(f"• {time_str} — {subject}")
+    else:
+        lines.append("Sem compromissos hoje.")
+    lines.append("")
+    lines.append("_Moneypenny_")
+    return "\n".join(lines)
+
+
 def _build_text(display_name: str, emails: list[dict], events: list[dict]) -> str:
     today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
     lines = [f"☀️ Bom dia, {display_name}! Resumo Moneypenny — {today}", ""]

@@ -3,20 +3,46 @@ import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
 
-type Account = {
-  connected: boolean;
-  email?: string;
-  updated_at?: string;
+type ChannelConfig = {
+  enabled: boolean;
+  content: string[];
 };
-
-type DeliveryChannel = "email" | "teams" | "whatsapp";
 
 type Prefs = {
   send_hour_utc: number;
   active: boolean;
-  delivery_channel: DeliveryChannel;
+  channels: {
+    email: ChannelConfig;
+    teams: ChannelConfig;
+    whatsapp: ChannelConfig;
+  };
   teams_webhook_url: string;
   whatsapp_phone: string;
+};
+
+const DEFAULT_PREFS: Prefs = {
+  send_hour_utc: 10,
+  active: true,
+  channels: {
+    email:    { enabled: false, content: ["emails", "calendar"] },
+    teams:    { enabled: false, content: ["emails", "calendar"] },
+    whatsapp: { enabled: false, content: ["calendar"] },
+  },
+  teams_webhook_url: "",
+  whatsapp_phone: "",
+};
+
+type Account = { connected: boolean; email?: string; updated_at?: string };
+
+const CONTENT_LABELS: Record<string, { icon: string; label: string }> = {
+  emails:   { icon: "📬", label: "E-mails não lidos" },
+  calendar: { icon: "📅", label: "Agenda do dia" },
+};
+
+const CHANNEL_META: Record<string, { icon: string; label: string }> = {
+  email:    { icon: "📧", label: "E-mail" },
+  teams:    { icon: "💬", label: "Teams" },
+  whatsapp: { icon: "📱", label: "WhatsApp" },
 };
 
 export default function MoneypennyPage() {
@@ -24,13 +50,7 @@ export default function MoneypennyPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [account, setAccount] = useState<Account | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>({
-    send_hour_utc: 10,
-    active: true,
-    delivery_channel: "email",
-    teams_webhook_url: "",
-    whatsapp_phone: "",
-  });
+  const [prefs, setPrefs] = useState<Prefs>(DEFAULT_PREFS);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
@@ -41,7 +61,7 @@ export default function MoneypennyPage() {
   const showToast = (msg: string) => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast(msg);
-    toastTimer.current = setTimeout(() => setToast(null), 4000);
+    toastTimer.current = setTimeout(() => setToast(null), 5000);
   };
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
@@ -120,15 +140,14 @@ export default function MoneypennyPage() {
     setTesting(true);
     try {
       await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: prefs });
-      const result = await apiFetch<{ ok: boolean; channel: string; background?: boolean }>("/api/moneypenny/test", { method: "POST", token });
-      const label = result.background
-        ? "WhatsApp sendo enviado em segundo plano. Verifique em instantes."
-        : prefs.delivery_channel === "teams"
-        ? "Mensagem enviada no Teams!"
-        : prefs.delivery_channel === "whatsapp"
-        ? "Mensagem enviada no WhatsApp!"
-        : "E-mail de teste enviado! Verifique sua caixa de entrada.";
-      showToast(label);
+      const result = await apiFetch<{ ok: boolean; sent: string[]; background?: boolean }>(
+        "/api/moneypenny/test", { method: "POST", token }
+      );
+      const channels = result.sent.map((ch) => CHANNEL_META[ch]?.label ?? ch).join(", ");
+      const msg = result.background
+        ? `Enviando via ${channels} em segundo plano. Verifique os Logs em instantes.`
+        : `Resumo enviado via ${channels}!`;
+      showToast(msg);
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : "Falha ao enviar.");
     } finally {
@@ -136,11 +155,17 @@ export default function MoneypennyPage() {
     }
   }
 
-  const channels: { value: DeliveryChannel; label: string; icon: string }[] = [
-    { value: "email", label: "E-mail", icon: "📧" },
-    { value: "teams", label: "Teams", icon: "💬" },
-    { value: "whatsapp", label: "WhatsApp", icon: "📱" },
-  ];
+  function toggleChannel(ch: keyof Prefs["channels"]) {
+    setPrefs((p) => ({
+      ...p,
+      channels: {
+        ...p.channels,
+        [ch]: { ...p.channels[ch], enabled: !p.channels[ch].enabled },
+      },
+    }));
+  }
+
+  const anyEnabled = Object.values(prefs.channels).some((c) => c.enabled);
 
   if (loading) {
     return (
@@ -153,7 +178,7 @@ export default function MoneypennyPage() {
   return (
     <div className="p-8 max-w-2xl">
       {toast && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg">
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg max-w-sm">
           {toast}
         </div>
       )}
@@ -198,59 +223,68 @@ export default function MoneypennyPage() {
         )}
       </section>
 
-      {/* Canal de entrega */}
-      <section className="mt-4 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="font-semibold text-gray-900">Canal de entrega</h3>
-        <p className="mt-0.5 text-xs text-gray-500">Onde você quer receber o resumo diário</p>
+      {/* Canais de entrega */}
+      <section className="mt-4">
+        <h3 className="font-semibold text-gray-900">Canais de entrega</h3>
+        <p className="mt-0.5 text-xs text-gray-500">Ative um ou mais canais para receber o resumo</p>
 
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {channels.map((ch) => (
-            <button
-              key={ch.value}
-              onClick={() => setPrefs((p) => ({ ...p, delivery_channel: ch.value }))}
-              className={`flex flex-col items-center gap-1 rounded-xl border-2 py-4 text-sm font-medium transition-colors ${
-                prefs.delivery_channel === ch.value
-                  ? "border-blue-500 bg-blue-50 text-blue-700"
-                  : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
-              }`}
-            >
-              <span className="text-2xl">{ch.icon}</span>
-              {ch.label}
-            </button>
-          ))}
-        </div>
+        <div className="mt-3 space-y-3">
+          {/* E-mail */}
+          <ChannelCard
+            id="email"
+            meta={CHANNEL_META.email}
+            enabled={prefs.channels.email?.enabled ?? false}
+            content={prefs.channels.email?.content ?? []}
+            onToggle={() => toggleChannel("email")}
+          />
 
-        {prefs.delivery_channel === "teams" && (
-          <div className="mt-4">
-            <label className="block text-sm font-medium text-gray-700">URL do Webhook do Teams</label>
-            <p className="mt-0.5 text-xs text-gray-400">
-              Configure um Incoming Webhook no Teams e cole a URL abaixo.
-            </p>
-            <input
-              type="url"
-              value={prefs.teams_webhook_url}
-              onChange={(e) => setPrefs((p) => ({ ...p, teams_webhook_url: e.target.value }))}
-              className="mt-2 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              placeholder="https://..."
-            />
-          </div>
-        )}
-
-        {prefs.delivery_channel === "whatsapp" && (
-          <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 px-4 py-3">
-            {prefs.whatsapp_phone ? (
-              <p className="text-sm text-gray-700">
-                Resumo será enviado para{" "}
-                <span className="font-medium text-gray-900">+{prefs.whatsapp_phone}</span>
-              </p>
-            ) : (
-              <p className="text-sm text-red-500">
-                Nenhum número cadastrado.{" "}
-                <a href="/admin/acesso" className="underline">Atualize seu perfil</a>.
-              </p>
+          {/* Teams */}
+          <ChannelCard
+            id="teams"
+            meta={CHANNEL_META.teams}
+            enabled={prefs.channels.teams?.enabled ?? false}
+            content={prefs.channels.teams?.content ?? []}
+            onToggle={() => toggleChannel("teams")}
+          >
+            {prefs.channels.teams?.enabled && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                <label className="block text-xs font-medium text-gray-600">URL do Webhook</label>
+                <input
+                  type="url"
+                  value={prefs.teams_webhook_url}
+                  onChange={(e) => setPrefs((p) => ({ ...p, teams_webhook_url: e.target.value }))}
+                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  placeholder="https://..."
+                />
+              </div>
             )}
-          </div>
-        )}
+          </ChannelCard>
+
+          {/* WhatsApp */}
+          <ChannelCard
+            id="whatsapp"
+            meta={CHANNEL_META.whatsapp}
+            enabled={prefs.channels.whatsapp?.enabled ?? false}
+            content={prefs.channels.whatsapp?.content ?? []}
+            onToggle={() => toggleChannel("whatsapp")}
+          >
+            {prefs.channels.whatsapp?.enabled && (
+              <div className="mt-3 pt-3 border-t border-gray-100">
+                {prefs.whatsapp_phone ? (
+                  <p className="text-xs text-gray-600">
+                    Envio para{" "}
+                    <span className="font-medium text-gray-900">+{prefs.whatsapp_phone}</span>
+                  </p>
+                ) : (
+                  <p className="text-xs text-red-500">
+                    Nenhum número cadastrado.{" "}
+                    <a href="/admin/acesso" className="underline">Atualize seu perfil</a>.
+                  </p>
+                )}
+              </div>
+            )}
+          </ChannelCard>
+        </div>
       </section>
 
       {/* Agendamento */}
@@ -280,7 +314,7 @@ export default function MoneypennyPage() {
         {prefs.active && (
           <div className="mt-5 border-t pt-5">
             <label className="text-sm font-medium text-gray-700">Horário de envio (BRT)</label>
-            <div className="mt-2 flex items-center gap-3">
+            <div className="mt-2">
               <select
                 value={prefs.send_hour_utc}
                 onChange={(e) => setPrefs((p) => ({ ...p, send_hour_utc: Number(e.target.value) }))}
@@ -291,43 +325,90 @@ export default function MoneypennyPage() {
                   return <option key={utcH} value={utcH}>{brt}:00</option>;
                 })}
               </select>
-              <button
-                onClick={handleSavePrefs}
-                disabled={saving}
-                className="rounded-lg bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              >
-                {saving ? "Salvando..." : "Salvar"}
-              </button>
-              {account?.connected && (
-                <button
-                  onClick={handleTest}
-                  disabled={testing}
-                  className="rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                >
-                  {testing ? "Enviando..." : "Enviar agora"}
-                </button>
-              )}
             </div>
-          </div>
-        )}
-
-        {!prefs.active && account?.connected && (
-          <div className="mt-4">
-            <button
-              onClick={handleTest}
-              disabled={testing}
-              className="rounded-lg border border-gray-300 px-4 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-            >
-              {testing ? "Enviando..." : "Enviar resumo agora"}
-            </button>
           </div>
         )}
       </section>
 
+      {/* Ações */}
+      <div className="mt-4 flex gap-3">
+        <button
+          onClick={handleSavePrefs}
+          disabled={saving}
+          className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
+        >
+          {saving ? "Salvando..." : "Salvar"}
+        </button>
+        {account?.connected && anyEnabled && (
+          <button
+            onClick={handleTest}
+            disabled={testing}
+            className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          >
+            {testing ? "Enviando..." : "Enviar agora"}
+          </button>
+        )}
+      </div>
+
       <p className="mt-4 text-xs text-gray-400">
-        O resumo inclui e-mails não lidos do dia anterior e compromissos do dia atual.
-        A conta Microsoft é necessária independente do canal escolhido.
+        A conta Microsoft é necessária para buscar e-mails e agenda, independente do canal escolhido.
       </p>
+    </div>
+  );
+}
+
+function ChannelCard({
+  id: _id,
+  meta,
+  enabled,
+  content,
+  onToggle,
+  children,
+}: {
+  id: string;
+  meta: { icon: string; label: string };
+  enabled: boolean;
+  content: string[];
+  onToggle: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div
+      className={`rounded-xl border-2 bg-white p-4 transition-colors ${
+        enabled ? "border-blue-500" : "border-gray-200"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{meta.icon}</span>
+          <div>
+            <p className="text-sm font-semibold text-gray-900">{meta.label}</p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {content.map((c) => (
+                <span
+                  key={c}
+                  className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
+                >
+                  {CONTENT_LABELS[c]?.icon} {CONTENT_LABELS[c]?.label ?? c}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+        <button
+          onClick={onToggle}
+          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
+            enabled ? "bg-blue-600" : "bg-gray-300"
+          }`}
+        >
+          <span
+            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+              enabled ? "translate-x-6" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+      {children}
     </div>
   );
 }
