@@ -8,11 +8,11 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: gitleaks/gitleaks-action@v2.3.4
+      - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -23,7 +23,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5.3.0
         with:
@@ -47,11 +47,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4.2.0
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20.18.0"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -66,11 +66,11 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4.2.0
+      - uses: actions/setup-node@v4
         with:
-          node-version: "20.18.0"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -92,7 +92,7 @@ jobs:
     needs: [test-backend, test-frontend]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
 
       - uses: appleboy/ssh-action@v1.2.0
         with:
