@@ -2,7 +2,7 @@ import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
@@ -152,8 +152,22 @@ def save_prefs(body: PrefsIn, current_user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+async def _do_send_whatsapp(phone: str, display_name: str, user_id: str) -> None:
+    from services.summary import send_whatsapp
+    try:
+        await send_whatsapp(phone, display_name, [], [])
+        log_event("info", "moneypenny", "Resumo de teste enviado via whatsapp", user_id=user_id)
+    except Exception as exc:
+        detail = f"{type(exc).__name__}: {exc!r}"
+        logger.exception("Erro ao enviar WhatsApp em background para user %s", user_id)
+        log_event("error", "moneypenny", "Erro ao enviar WhatsApp (background)", user_id=user_id, detail=detail)
+
+
 @router.post("/test")
-async def send_test_summary(current_user: dict = Depends(get_current_user)):
+async def send_test_summary(
+    background_tasks: BackgroundTasks,
+    current_user: dict = Depends(get_current_user),
+):
     db = get_supabase()
     user_id = _resolve_user_id(current_user)
 
@@ -210,8 +224,10 @@ async def send_test_summary(current_user: dict = Depends(get_current_user)):
                     phone = profile_result.data[0].get("whatsapp_phone") or ""
             if not phone:
                 raise HTTPException(400, "Número de WhatsApp não configurado.")
-            from services.summary import send_whatsapp
-            await send_whatsapp(phone, current_user["display_name"], emails, events)
+            # Dispara em background — Evolution API pode demorar mais de 30s
+            background_tasks.add_task(_do_send_whatsapp, phone, current_user["display_name"], user_id)
+            log_event("info", "moneypenny", "Envio WhatsApp agendado em background", user_id=user_id)
+            return {"ok": True, "channel": channel, "background": True}
 
         else:
             from services.summary import _build_html

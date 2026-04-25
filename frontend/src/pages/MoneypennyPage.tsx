@@ -120,8 +120,10 @@ export default function MoneypennyPage() {
     setTesting(true);
     try {
       await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: prefs });
-      await apiFetch("/api/moneypenny/test", { method: "POST", token });
-      const label = prefs.delivery_channel === "teams"
+      const result = await apiFetch<{ ok: boolean; channel: string; background?: boolean }>("/api/moneypenny/test", { method: "POST", token });
+      const label = result.background
+        ? "WhatsApp sendo enviado em segundo plano. Verifique em instantes."
+        : prefs.delivery_channel === "teams"
         ? "Mensagem enviada no Teams!"
         : prefs.delivery_channel === "whatsapp"
         ? "Mensagem enviada no WhatsApp!"
