@@ -79,6 +79,16 @@ class GraphClient:
     def get_me(self) -> dict:
         return self._get("/me", params={"$select": "displayName,mail,userPrincipalName"})
 
+    _NOREPLY_PATTERNS = (
+        "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
+        "do_not_reply", "mailer-daemon", "mailer_daemon", "notifications@",
+        "notification@", "automated@", "automailer@", "bounce@",
+    )
+
+    def _is_automated(self, email: dict) -> bool:
+        addr = email.get("from", {}).get("emailAddress", {}).get("address", "").lower()
+        return any(p in addr for p in self._NOREPLY_PATTERNS)
+
     def get_unread_emails_yesterday(self) -> list[dict]:
         from datetime import datetime, timedelta, timezone
 
@@ -94,7 +104,8 @@ class GraphClient:
                 "$orderby": "receivedDateTime desc",
             },
         )
-        return data.get("value", [])
+        emails = data.get("value", [])
+        return [e for e in emails if not self._is_automated(e)]
 
     def get_today_events(self) -> list[dict]:
         from datetime import datetime, timezone
