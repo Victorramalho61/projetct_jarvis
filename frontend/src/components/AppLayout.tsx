@@ -71,12 +71,7 @@ export default function AppLayout() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // Foca o input quando a busca abre
-  useEffect(() => {
-    if (searchOpen) setTimeout(() => searchInputRef.current?.focus(), 50);
-  }, [searchOpen]);
-
-  const filteredNav = visible.filter((i) =>
+const filteredNav = visible.filter((i) =>
     i.label.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -84,6 +79,7 @@ export default function AppLayout() {
     navigate(path);
     setSearchOpen(false);
     setSearchQuery("");
+    searchInputRef.current?.blur();
   }
 
   const notifTypeStyle: Record<string, string> = {
@@ -188,26 +184,23 @@ export default function AppLayout() {
 
         {/* Busca */}
         <div className="relative hidden md:block ml-4" ref={searchRef}>
-          <button
-            onClick={() => { setSearchOpen((v) => !v); setSearchQuery(""); }}
-            className="flex items-center gap-2 h-9 px-3 rounded-lg bg-white/[0.08] hover:bg-white/[0.12] text-emerald-50/70 hover:text-white text-[13px] w-64 lg:w-80 transition-colors"
-          >
-            <Icon name="search" size={15} />
-            <span>Buscar…</span>
-            <span className="ml-auto font-mono text-[10px] text-emerald-50/40 border border-white/15 rounded px-1.5 py-0.5">⌘K</span>
-          </button>
+          <div className="relative flex items-center">
+            <span className="absolute left-3 text-emerald-50/50 pointer-events-none">
+              <Icon name="search" size={15} />
+            </span>
+            <input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => { setSearchQuery(e.target.value); setSearchOpen(true); }}
+              onFocus={() => setSearchOpen(true)}
+              placeholder="Buscar…"
+              className="h-9 w-64 lg:w-80 rounded-lg bg-white/[0.08] pl-8 pr-14 text-[13px] text-white placeholder:text-emerald-50/50 focus:outline-none focus:bg-white/[0.15] transition-colors"
+            />
+            <span className="absolute right-3 font-mono text-[10px] text-emerald-50/40 border border-white/15 rounded px-1.5 py-0.5 pointer-events-none">⌘K</span>
+          </div>
 
           {searchOpen && (
-            <div className="absolute top-full left-0 mt-2 w-80 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-pop z-50 overflow-hidden">
-              <div className="p-2 border-b border-gray-100 dark:border-gray-800">
-                <input
-                  ref={searchInputRef}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar página..."
-                  className="w-full rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none"
-                />
-              </div>
+            <div className="absolute top-full left-0 mt-2 w-64 lg:w-80 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-pop z-50 overflow-hidden">
               <div className="py-1 max-h-64 overflow-y-auto">
                 {filteredNav.length === 0 && (
                   <p className="px-4 py-3 text-sm text-gray-400 dark:text-gray-500">Nenhum resultado</p>
