@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS public.monitored_systems (
     name                  text NOT NULL,
     description           text NOT NULL DEFAULT '',
     url                   text NOT NULL DEFAULT '',
-    system_type           text NOT NULL CHECK (system_type IN ('http','evolution','metrics','custom')),
+    system_type           text NOT NULL CHECK (system_type IN ('http','evolution','metrics','tcp','custom')),
     config                jsonb NOT NULL DEFAULT '{}',
     check_interval_minutes integer NOT NULL DEFAULT 5,
     enabled               boolean NOT NULL DEFAULT true,

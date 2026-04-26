@@ -4,6 +4,7 @@ import { apiFetch, ApiError } from "../../lib/api";
 
 const TYPE_OPTIONS: { value: SystemType; label: string }[] = [
   { value: "http",      label: "HTTP — health check de URL" },
+  { value: "tcp",       label: "TCP — verifica porta (banco de dados, etc.)" },
   { value: "evolution", label: "WhatsApp — Evolution API" },
   { value: "metrics",   label: "Servidor — CPU/RAM/disco" },
   { value: "custom",    label: "Custom — endpoint configurável" },
@@ -111,9 +112,12 @@ export default function SystemFormModal({ system, token, onClose, onSaved }: Pro
 
             {type !== "metrics" && (
               <div>
-                <label className="mb-1 block text-sm font-medium text-gray-700">URL</label>
+                <label className="mb-1 block text-sm font-medium text-gray-700">
+                  {type === "tcp" ? "Host:Porta" : "URL"}
+                </label>
                 <input value={url} onChange={(e) => setUrl(e.target.value)}
-                  className={FIELD_CLASS} placeholder="http://..." />
+                  className={FIELD_CLASS}
+                  placeholder={type === "tcp" ? "ex: 10.141.0.32:5432" : "http://..."} />
               </div>
             )}
 

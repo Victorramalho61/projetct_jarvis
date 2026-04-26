@@ -1,5 +1,5 @@
 export type SystemStatus = "up" | "down" | "degraded" | "unknown";
-export type SystemType = "http" | "evolution" | "metrics" | "custom";
+export type SystemType = "http" | "evolution" | "metrics" | "tcp" | "custom";
 
 export interface SystemCheck {
   id: string;

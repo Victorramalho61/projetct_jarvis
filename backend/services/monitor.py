@@ -107,6 +107,49 @@ async def check_metrics(system: dict) -> CheckResult:
         return CheckResult("down", detail=f"{type(exc).__name__}: {exc}")
 
 
+async def check_tcp(system: dict) -> CheckResult:
+    import asyncio as _asyncio
+    cfg = system.get("config") or {}
+    timeout = float(cfg.get("timeout_seconds", 5))
+    url = system.get("url", "")
+
+    # url formato: "host:porta" ou apenas "host" (porta via config)
+    port = int(cfg.get("port", 0))
+    if ":" in url:
+        host, p = url.rsplit(":", 1)
+        if not port:
+            try:
+                port = int(p)
+            except ValueError:
+                host = url
+    else:
+        host = url
+
+    if not host or not port:
+        return CheckResult("unknown", detail="Configure URL como host:porta (ex: 10.141.0.32:5432)")
+
+    t0 = time.monotonic()
+    try:
+        reader, writer = await _asyncio.wait_for(
+            _asyncio.open_connection(host, port),
+            timeout=timeout,
+        )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except Exception:
+            pass
+        return CheckResult("up", latency_ms, detail=f"TCP {host}:{port} acessível")
+    except _asyncio.TimeoutError:
+        return CheckResult("down", int((time.monotonic() - t0) * 1000),
+                           detail=f"TCP timeout — {host}:{port} não responde")
+    except OSError as exc:
+        return CheckResult("down", detail=f"TCP {host}:{port} — {exc.strerror}")
+    except Exception as exc:
+        return CheckResult("down", detail=f"{type(exc).__name__}: {exc}")
+
+
 async def check_custom(system: dict) -> CheckResult:
     cfg = system.get("config") or {}
     url = cfg.get("endpoint") or system.get("url", "")
@@ -137,6 +180,7 @@ _CHECKERS = {
     "http":      check_http,
     "evolution": check_evolution,
     "metrics":   check_metrics,
+    "tcp":       check_tcp,
     "custom":    check_custom,
 }
 

@@ -19,7 +19,7 @@ class SystemIn(BaseModel):
     name: str
     description: str = ""
     url: str = ""
-    system_type: Literal["http", "evolution", "metrics", "custom"]
+    system_type: Literal["http", "evolution", "metrics", "tcp", "custom"]
     config: dict = {}
     check_interval_minutes: int = 5
     enabled: bool = True
@@ -29,7 +29,7 @@ class SystemPatch(BaseModel):
     name: str | None = None
     description: str | None = None
     url: str | None = None
-    system_type: Literal["http", "evolution", "metrics", "custom"] | None = None
+    system_type: Literal["http", "evolution", "metrics", "tcp", "custom"] | None = None
     config: dict | None = None
     check_interval_minutes: int | None = None
     enabled: bool | None = None
