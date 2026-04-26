@@ -13,6 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "moneypenny", label: "Moneypenny", path: "/moneypenny", roles: ["admin", "user"] },
   { id: "access", label: "Gestão de Acesso", path: "/admin/acesso", roles: ["admin", "user"] },
   { id: "logs", label: "Logs", path: "/admin/logs", roles: ["admin"] },
+  { id: "monitoring", label: "Monitoramento", path: "/admin/monitoramento", roles: ["admin"] },
 ];
 
 export default function AppLayout() {

@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "0.0.0.0:8000:8000"
+    env_file: ./backend/.env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "0.0.0.0:80:80"
+    restart: unless-stopped
+
+  monitor-agent:
+    image: python:3.12-slim
+    command: sh -c "pip install psutil -q && python /app/agent.py"
+    ports:
+      - "127.0.0.1:9100:9100"
+    volumes:
+      - ./monitor-agent:/app
+    restart: unless-stopped
