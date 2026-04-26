@@ -5,6 +5,8 @@ from typing import AsyncGenerator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 
 logging.basicConfig(
     level=logging.INFO,
@@ -13,6 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from db import get_settings, get_supabase
+from limiter import limiter
 from routes.admin import router as admin_router
 from routes.auth import router as auth_router
 from routes.health import router as health_router
@@ -33,6 +36,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(title="Jarvis", lifespan=lifespan)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 _settings = get_settings()
 _origins = [o.strip() for o in _settings.allowed_origins.split(",")]

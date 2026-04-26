@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -9,13 +11,19 @@ from pydantic import BaseModel
 from auth import get_current_user
 from db import get_settings, get_supabase
 from services.app_logger import log_event
-from services.microsoft_graph import GraphClient, build_auth_url, exchange_code_for_tokens
+from services.microsoft_graph import (
+    GraphClient,
+    build_auth_url,
+    exchange_code_for_tokens,
+    get_valid_access_token,
+)
 
 router = APIRouter(prefix="/moneypenny", tags=["moneypenny"])
 logger = logging.getLogger(__name__)
 
-_pending_states: dict[str, str] = {}
-
+# state → (user_id, expires_at)
+_pending_states: dict[str, tuple[str, float]] = {}
+_STATE_TTL = 600  # 10 minutos
 
 DEFAULT_CHANNELS: dict = {
     "email":    {"enabled": False, "content": ["emails", "calendar"]},
@@ -32,6 +40,13 @@ class PrefsIn(BaseModel):
     whatsapp_phone: str = ""
 
 
+def _clean_expired_states() -> None:
+    now = time.monotonic()
+    expired = [k for k, (_, exp) in _pending_states.items() if now > exp]
+    for k in expired:
+        _pending_states.pop(k, None)
+
+
 def _resolve_user_id(current_user: dict) -> str:
     if uid := current_user.get("id"):
         return uid
@@ -44,22 +59,28 @@ def _resolve_user_id(current_user: dict) -> str:
 
 @router.get("/auth/microsoft/url")
 def get_microsoft_auth_url(current_user: dict = Depends(get_current_user)):
+    _clean_expired_states()
     state = secrets.token_urlsafe(24)
-    _pending_states[state] = _resolve_user_id(current_user)
+    _pending_states[state] = (_resolve_user_id(current_user), time.monotonic() + _STATE_TTL)
     return {"url": build_auth_url(state)}
 
 
 @router.get("/auth/microsoft/callback")
-def microsoft_callback(
+async def microsoft_callback(
     code: str = Query(...),
     state: str = Query(...),
 ):
-    user_id = _pending_states.pop(state, None)
-    if not user_id:
+    entry = _pending_states.pop(state, None)
+    if not entry:
         raise HTTPException(400, "Estado OAuth inválido ou expirado")
 
+    user_id, expires_at = entry
+    if time.monotonic() > expires_at:
+        raise HTTPException(400, "Estado OAuth expirado")
+
     try:
-        tokens = exchange_code_for_tokens(code)
+        loop = asyncio.get_running_loop()
+        tokens = await loop.run_in_executor(None, exchange_code_for_tokens, code)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -69,7 +90,7 @@ def microsoft_callback(
     expiry = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
     graph = GraphClient(access_token)
-    me = graph.get_me()
+    me = await graph.get_me()
     email = me.get("mail") or me.get("userPrincipalName", "")
 
     db = get_supabase()
@@ -171,39 +192,19 @@ async def _send_whatsapp_bg(phone: str, display_name: str, events: list[dict], u
         text = _build_calendar_text(display_name, events)
         s = get_settings()
         url = f"{s.whatsapp_api_url.rstrip('/')}/message/sendText/{s.whatsapp_instance}"
-        # Timeout curto de leitura: a Evolution API em OCI free tier processa a mensagem
-        # mas raramente responde dentro do prazo. ReadTimeout = servidor recebeu o pedido.
         timeout = _httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
         async with _httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json={"number": phone, "text": text}, headers={"apikey": s.whatsapp_api_key})
             resp.raise_for_status()
         log_event("info", "moneypenny", "WhatsApp: mensagem enviada com confirmação", user_id=user_id)
     except _httpx.ReadTimeout:
-        # Servidor recebeu o request mas não respondeu a tempo — mensagem provavelmente entregue
         log_event("warning", "moneypenny", "WhatsApp: enviado (sem confirmação — Evolution API lenta)", user_id=user_id)
     except _httpx.ConnectError as exc:
-        # Servidor inacessível — erro real
         log_event("error", "moneypenny", "WhatsApp: servidor inacessível", user_id=user_id, detail=str(exc))
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc!r}"
         logger.exception("Erro ao enviar WhatsApp em background para user %s", user_id)
         log_event("error", "moneypenny", "WhatsApp: erro ao enviar", user_id=user_id, detail=detail)
-
-
-def _get_access_token(account: dict, db) -> str:
-    from services.microsoft_graph import refresh_access_token
-    token_expiry = datetime.fromisoformat(account["token_expiry"].replace("Z", "+00:00"))
-    if datetime.now(timezone.utc) >= token_expiry:
-        refreshed = refresh_access_token(account["refresh_token"])
-        new_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(refreshed.get("expires_in", 3600)))
-        db.table("connected_accounts").update({
-            "access_token": refreshed["access_token"],
-            "refresh_token": refreshed.get("refresh_token") or account["refresh_token"],
-            "token_expiry": new_expiry.isoformat(),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", account["id"]).execute()
-        return refreshed["access_token"]
-    return account["access_token"]
 
 
 @router.post("/test")
@@ -234,20 +235,33 @@ async def send_test_summary(
         raise HTTPException(400, "Nenhum canal de entrega habilitado. Configure e salve primeiro.")
 
     try:
-        access_token = _get_access_token(account, db)
+        access_token = await get_valid_access_token(account, db)
         graph = GraphClient(access_token)
-        emails = graph.get_unread_emails_yesterday()
-        events = graph.get_today_events()
         date_str = datetime.now(timezone.utc).strftime("%d/%m/%Y")
         display_name = current_user["display_name"]
         sent: list[str] = []
         has_background = False
 
+        emails_data: list[dict] | None = None
+        events_data: list[dict] | None = None
+
         for ch_name, ch_cfg in enabled.items():
+            content = ch_cfg.get("content", [])
+            needs_emails = "emails" in content
+            needs_events = "calendar" in content
+
+            if needs_emails and emails_data is None:
+                emails_data = await graph.get_unread_emails_yesterday()
+            if needs_events and events_data is None:
+                events_data = await graph.get_today_events()
+
+            emails_out = emails_data if needs_emails else []
+            events_out = events_data if needs_events else []
+
             if ch_name == "email":
                 from services.summary import _build_html
-                html = _build_html(display_name, emails, events)
-                graph.send_mail(
+                html = _build_html(display_name, emails_out, events_out)
+                await graph.send_mail(
                     to_address=account["email"],
                     subject=f"[TESTE] Resumo Moneypenny — {date_str}",
                     html_body=html,
@@ -259,7 +273,7 @@ async def send_test_summary(
                 if not webhook_url:
                     raise HTTPException(400, "URL do webhook do Teams não configurada.")
                 from services.summary import send_teams
-                await send_teams(webhook_url, display_name, emails, events)
+                await send_teams(webhook_url, display_name, emails_out, events_out)
                 sent.append("teams")
 
             elif ch_name == "whatsapp":
@@ -270,7 +284,7 @@ async def send_test_summary(
                         phone = pr.data[0].get("whatsapp_phone") or ""
                 if not phone:
                     raise HTTPException(400, "Número de WhatsApp não configurado.")
-                background_tasks.add_task(_send_whatsapp_bg, phone, display_name, events, user_id)
+                background_tasks.add_task(_send_whatsapp_bg, phone, display_name, events_out, user_id)
                 log_event("info", "moneypenny", "Envio WhatsApp agendado em background", user_id=user_id)
                 sent.append("whatsapp")
                 has_background = True

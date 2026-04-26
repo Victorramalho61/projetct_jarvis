@@ -119,6 +119,8 @@ export default function AccessManagementPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const initialSelectionDone = useRef(false);
+
   const fetchProfiles = useCallback(async () => {
     try {
       const data = await apiFetch<Profile[]>("/api/users", { token });
@@ -127,7 +129,8 @@ export default function AccessManagementPage() {
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
       setProfiles(data);
-      if (!selectedUsername) {
+      if (!initialSelectionDone.current) {
+        initialSelectionDone.current = true;
         const self = data.find((u) => u.username === currentUser?.username);
         setSelectedUsername(self?.username ?? data[0]?.username ?? "");
       }
@@ -136,7 +139,7 @@ export default function AccessManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [token, currentUser, selectedUsername]);
+  }, [token, currentUser]);
 
   useEffect(() => { fetchProfiles(); }, [fetchProfiles]);
 

@@ -1,3 +1,6 @@
+import asyncio
+from datetime import datetime, timedelta, timezone
+
 import httpx
 import msal
 
@@ -55,6 +58,22 @@ def refresh_access_token(refresh_token: str) -> dict:
     return result
 
 
+async def get_valid_access_token(account: dict, db) -> str:
+    expiry = datetime.fromisoformat(account["token_expiry"].replace("Z", "+00:00"))
+    if datetime.now(timezone.utc) < expiry:
+        return account["access_token"]
+    loop = asyncio.get_running_loop()
+    refreshed = await loop.run_in_executor(None, refresh_access_token, account["refresh_token"])
+    new_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(refreshed.get("expires_in", 3600)))
+    db.table("connected_accounts").update({
+        "access_token": refreshed["access_token"],
+        "refresh_token": refreshed.get("refresh_token") or account["refresh_token"],
+        "token_expiry": new_expiry.isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", account["id"]).execute()
+    return refreshed["access_token"]
+
+
 class GraphClient:
     BASE = "https://graph.microsoft.com/v1.0"
 
@@ -64,20 +83,20 @@ class GraphClient:
             "Content-Type": "application/json",
         }
 
-    def _get(self, path: str, params: dict | None = None) -> dict:
-        with httpx.Client(timeout=20) as client:
-            r = client.get(f"{self.BASE}{path}", headers=self._headers, params=params)
+    async def _get(self, path: str, params: dict | None = None) -> dict:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(f"{self.BASE}{path}", headers=self._headers, params=params)
             r.raise_for_status()
             return r.json()
 
-    def _post(self, path: str, body: dict) -> dict | None:
-        with httpx.Client(timeout=20) as client:
-            r = client.post(f"{self.BASE}{path}", headers=self._headers, json=body)
+    async def _post(self, path: str, body: dict) -> dict | None:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(f"{self.BASE}{path}", headers=self._headers, json=body)
             r.raise_for_status()
             return r.json() if r.content else None
 
-    def get_me(self) -> dict:
-        return self._get("/me", params={"$select": "displayName,mail,userPrincipalName"})
+    async def get_me(self) -> dict:
+        return await self._get("/me", params={"$select": "displayName,mail,userPrincipalName"})
 
     _NOREPLY_PATTERNS = (
         "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
@@ -89,13 +108,11 @@ class GraphClient:
         addr = email.get("from", {}).get("emailAddress", {}).get("address", "").lower()
         return any(p in addr for p in self._NOREPLY_PATTERNS)
 
-    def get_unread_emails_yesterday(self) -> list[dict]:
-        from datetime import datetime, timedelta, timezone
-
+    async def get_unread_emails_yesterday(self) -> list[dict]:
         yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%dT00:00:00Z")
         today = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
 
-        data = self._get(
+        data = await self._get(
             "/me/messages",
             params={
                 "$filter": f"isRead eq false and receivedDateTime ge {yesterday} and receivedDateTime lt {today}",
@@ -107,14 +124,12 @@ class GraphClient:
         emails = data.get("value", [])
         return [e for e in emails if not self._is_automated(e)]
 
-    def get_today_events(self) -> list[dict]:
-        from datetime import datetime, timezone
-
+    async def get_today_events(self) -> list[dict]:
         now = datetime.now(timezone.utc)
         start = now.strftime("%Y-%m-%dT00:00:00Z")
         end = now.strftime("%Y-%m-%dT23:59:59Z")
 
-        data = self._get(
+        data = await self._get(
             "/me/calendarView",
             params={
                 "startDateTime": start,
@@ -126,8 +141,8 @@ class GraphClient:
         )
         return data.get("value", [])
 
-    def send_mail(self, to_address: str, subject: str, html_body: str) -> None:
-        self._post(
+    async def send_mail(self, to_address: str, subject: str, html_body: str) -> None:
+        await self._post(
             "/me/sendMail",
             {
                 "message": {

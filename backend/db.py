@@ -10,9 +10,6 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5173"
     jwt_secret: str
     jwt_expire_minutes: int = 480
-    ldap_server: str = ""
-    ldap_domain: str = ""
-    ldap_base_dn: str = ""
     microsoft_client_id: str = ""
     microsoft_tenant_id: str = ""
     microsoft_client_secret: str = ""

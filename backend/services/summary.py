@@ -1,10 +1,10 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import httpx
 
 from db import get_settings, get_supabase
-from services.microsoft_graph import GraphClient, refresh_access_token
+from services.microsoft_graph import GraphClient, get_valid_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -94,39 +94,6 @@ def _build_calendar_text(display_name: str, events: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def _build_text(display_name: str, emails: list[dict], events: list[dict]) -> str:
-    today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
-    lines = [f"☀️ Bom dia, {display_name}! Resumo Moneypenny — {today}", ""]
-
-    lines.append("📬 *E-mails não lidos (ontem)*")
-    if emails:
-        for m in emails[:10]:
-            sender = m.get("from", {}).get("emailAddress", {}).get("address", "?")
-            subject = m.get("subject", "(sem assunto)")
-            lines.append(f"• {sender} — {subject}")
-    else:
-        lines.append("Nenhum e-mail não lido.")
-
-    lines.append("")
-    lines.append("📅 *Agenda de hoje*")
-    if events:
-        for e in events:
-            if e.get("isAllDay"):
-                time_str = "Dia todo"
-            else:
-                start = _format_time(e.get("start", {}).get("dateTime", ""))
-                end = _format_time(e.get("end", {}).get("dateTime", ""))
-                time_str = f"{start} – {end}"
-            subject = e.get("subject", "(sem título)")
-            lines.append(f"• {time_str} — {subject}")
-    else:
-        lines.append("Sem compromissos hoje.")
-
-    lines.append("")
-    lines.append("_Moneypenny — enviado automaticamente_")
-    return "\n".join(lines)
-
-
 def _build_teams_payload(display_name: str, emails: list[dict], events: list[dict]) -> dict:
     today = datetime.now(timezone.utc).strftime("%d/%m/%Y")
 
@@ -192,16 +159,15 @@ async def send_teams(webhook_url: str, display_name: str, emails: list[dict], ev
         resp.raise_for_status()
 
 
-async def send_whatsapp(phone: str, display_name: str, emails: list[dict], events: list[dict]) -> None:
+async def send_whatsapp(phone: str, display_name: str, events: list[dict]) -> None:
     s = get_settings()
     if not s.whatsapp_api_url or not s.whatsapp_instance:
         raise ValueError("WhatsApp API não configurada no servidor.")
 
-    text = _build_text(display_name, emails, events)
+    text = _build_calendar_text(display_name, events)
     number = phone.strip().replace("+", "").replace(" ", "").replace("-", "")
 
     url = f"{s.whatsapp_api_url.rstrip('/')}/message/sendText/{s.whatsapp_instance}"
-    # Use connect timeout curto + read timeout longo (OCI free tier pode ser lento)
     timeout = httpx.Timeout(connect=10.0, read=90.0, write=10.0, pool=5.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(
@@ -255,20 +221,7 @@ async def run_daily_summaries() -> None:
             continue
 
         try:
-            token_expiry = datetime.fromisoformat(account["token_expiry"].replace("Z", "+00:00"))
-            if datetime.now(timezone.utc) >= token_expiry:
-                refreshed = refresh_access_token(account["refresh_token"])
-                new_expiry = datetime.now(timezone.utc) + timedelta(seconds=int(refreshed.get("expires_in", 3600)))
-                db.table("connected_accounts").update({
-                    "access_token": refreshed["access_token"],
-                    "refresh_token": refreshed.get("refresh_token") or account["refresh_token"],
-                    "token_expiry": new_expiry.isoformat(),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", account["id"]).execute()
-                access_token = refreshed["access_token"]
-            else:
-                access_token = account["access_token"]
-
+            access_token = await get_valid_access_token(account, db)
             graph = GraphClient(access_token)
             channels: dict = pref.get("channels_config") or {}
             enabled = {k: v for k, v in channels.items() if v.get("enabled")}
@@ -286,16 +239,16 @@ async def run_daily_summaries() -> None:
                 needs_events = "calendar" in content
 
                 if needs_emails and emails_data is None:
-                    emails_data = graph.get_unread_emails_yesterday()
+                    emails_data = await graph.get_unread_emails_yesterday()
                 if needs_events and events_data is None:
-                    events_data = graph.get_today_events()
+                    events_data = await graph.get_today_events()
 
                 emails_out = emails_data if needs_emails else []
                 events_out = events_data if needs_events else []
 
                 if ch_name == "email":
                     html = _build_html(profile["display_name"], emails_out, events_out)
-                    graph.send_mail(
+                    await graph.send_mail(
                         to_address=account["email"],
                         subject=f"☀️ Resumo do dia — {datetime.now(timezone.utc).strftime('%d/%m/%Y')}",
                         html_body=html,
@@ -313,7 +266,7 @@ async def run_daily_summaries() -> None:
                     if not phone:
                         logger.warning("Telefone WhatsApp não configurado para user %s", user_id)
                         continue
-                    await send_whatsapp(phone, profile["display_name"], emails_out, events_out)
+                    await send_whatsapp(phone, profile["display_name"], events_out)
 
             logger.info("Summary sent via %s for user %s", list(enabled.keys()), user_id)
 

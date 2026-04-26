@@ -214,9 +214,6 @@ services:
       JWT_EXPIRE_MINUTES: 480
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       FRONTEND_URL: ${FRONTEND_URL}
-      LDAP_SERVER: ${LDAP_SERVER:-}
-      LDAP_DOMAIN: ${LDAP_DOMAIN:-}
-      LDAP_BASE_DN: ${LDAP_BASE_DN:-}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
@@ -231,8 +228,6 @@ services:
     build:
       context: ./frontend
       args:
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
         VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
     ports:

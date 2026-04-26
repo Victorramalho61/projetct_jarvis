@@ -2,11 +2,12 @@ import logging
 from typing import Annotated
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from auth import create_access_token, get_current_user
 from db import get_supabase
+from limiter import limiter
 
 router = APIRouter(prefix="/auth")
 logger = logging.getLogger(__name__)
@@ -56,7 +57,8 @@ def _lookup_profile(identifier: str) -> dict | None:
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest) -> LoginResponse:
+@limiter.limit("10/minute")
+async def login(request: Request, body: LoginRequest) -> LoginResponse:
     identifier = body.username.strip().lower()
     profile = _lookup_profile(identifier)
 
