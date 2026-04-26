@@ -1,10 +1,10 @@
 import type { SystemStatus } from "../../types/monitoring";
 
 export const STATUS_STYLES: Record<SystemStatus, string> = {
-  up:       "bg-green-100 text-green-700 border-green-200",
-  down:     "bg-red-100 text-red-700 border-red-200",
-  degraded: "bg-amber-100 text-amber-700 border-amber-200",
-  unknown:  "bg-gray-100 text-gray-500 border-gray-200",
+  up:       "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800",
+  down:     "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800",
+  degraded: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
+  unknown:  "bg-gray-100 text-gray-500 border-gray-200 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600",
 };
 
 export const STATUS_DOT: Record<SystemStatus, string> = {

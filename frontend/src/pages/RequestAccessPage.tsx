@@ -2,6 +2,8 @@ import { FormEvent, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiFetch, ApiError } from "../lib/api";
 
+const FIELD_CLASS = "mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500";
+
 export default function RequestAccessPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -26,15 +28,15 @@ export default function RequestAccessPage() {
 
   if (success) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-gray-50">
-        <div className="w-full max-w-sm rounded-xl border bg-white p-8 shadow-md text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-voetur-100">
-            <svg className="h-6 w-6 text-voetur-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <main className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
+        <div className="w-full max-w-sm rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 shadow-md text-center">
+          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-voetur-100 dark:bg-voetur-900/30">
+            <svg className="h-6 w-6 text-voetur-600 dark:text-voetur-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h1 className="text-lg font-bold text-gray-900">Solicitação enviada!</h1>
-          <p className="mt-2 text-sm text-gray-500">
+          <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">Solicitação enviada!</h1>
+          <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">
             Seu acesso está sendo analisado pelo administrador. Você será notificado quando aprovado.
           </p>
           <Link to="/login" className="mt-6 inline-block text-sm font-medium text-voetur-600 hover:text-voetur-700 hover:underline">
@@ -46,8 +48,8 @@ export default function RequestAccessPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50">
-      <div className="w-full max-w-sm rounded-xl border bg-white p-8 shadow-md">
+    <main className="flex min-h-screen items-center justify-center bg-gray-50 dark:bg-gray-950">
+      <div className="w-full max-w-sm rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-8 shadow-md">
         <div className="mb-4 flex items-center gap-2">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-voetur-800">
             <svg className="h-4 w-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -56,25 +58,25 @@ export default function RequestAccessPage() {
               <path d="M2 12l10 5 10-5" />
             </svg>
           </div>
-          <span className="text-sm font-black text-voetur-900 tracking-wide">JARVIS</span>
+          <span className="text-sm font-black text-voetur-900 dark:text-voetur-100 tracking-wide">JARVIS</span>
         </div>
 
-        <h1 className="text-xl font-bold text-gray-900">Solicitar Acesso</h1>
-        <p className="mt-1 text-sm text-gray-500">
+        <h1 className="text-xl font-bold text-gray-900 dark:text-gray-100">Solicitar Acesso</h1>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
           Use suas credenciais corporativas Microsoft
         </p>
-        <p className="mt-1 text-xs text-gray-400">
+        <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
           Domínios aceitos: @voetur.com.br · @vtclog.com.br
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">E-mail corporativo</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">E-mail corporativo</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+              className={FIELD_CLASS}
               placeholder="nome@voetur.com.br"
               required
               autoFocus
@@ -83,12 +85,12 @@ export default function RequestAccessPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Senha</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Senha</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+              className={FIELD_CLASS}
               placeholder="••••••••"
               required
               autoComplete="current-password"
@@ -96,18 +98,18 @@ export default function RequestAccessPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">WhatsApp</label>
-            <p className="mt-0.5 text-xs text-gray-400">Com DDD e código do país, sem espaços (ex: 5561999999999)</p>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">WhatsApp</label>
+            <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">Com DDD e código do país, sem espaços (ex: 5561999999999)</p>
             <input
               type="tel"
               value={whatsappPhone}
               onChange={(e) => setWhatsappPhone(e.target.value.replace(/\D/g, ""))}
-              className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+              className={FIELD_CLASS}
               placeholder="5561999999999"
             />
           </div>
 
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {error && <p className="text-sm text-red-500 dark:text-red-400">{error}</p>}
 
           <button
             type="submit"
@@ -118,7 +120,7 @@ export default function RequestAccessPage() {
           </button>
         </form>
 
-        <p className="mt-4 text-center text-sm text-gray-500">
+        <p className="mt-4 text-center text-sm text-gray-500 dark:text-gray-400">
           Já tem acesso?{" "}
           <Link to="/login" className="font-medium text-voetur-600 hover:text-voetur-700 hover:underline">
             Fazer login

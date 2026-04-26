@@ -78,18 +78,18 @@ export default function ProfilePage() {
         </div>
       )}
 
-      <h2 className="text-xl font-bold text-gray-900">Perfil</h2>
-      <p className="mt-1 text-sm text-gray-500">
+      <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Perfil</h2>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
         {isAdmin ? "Visualize e edite o perfil de qualquer usuário." : "Atualize suas informações pessoais."}
       </p>
 
       {isAdmin && users.length > 0 && (
         <div className="mt-4">
-          <label className="block text-sm font-medium text-gray-700">Usuário</label>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Usuário</label>
           <select
             value={selectedUsername}
             onChange={(e) => setSelectedUsername(e.target.value)}
-            className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+            className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
           >
             {users.map((u) => (
               <option key={u.id} value={u.username}>
@@ -101,39 +101,39 @@ export default function ProfilePage() {
       )}
 
       {loading ? (
-        <div className="mt-8 text-center text-sm text-gray-400">Carregando...</div>
+        <div className="mt-8 text-center text-sm text-gray-400 dark:text-gray-500">Carregando...</div>
       ) : (
         <form onSubmit={handleSubmit} className="mt-4 space-y-5">
-          <section className="rounded-xl border bg-white p-6 shadow-sm space-y-4">
+          <section className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700">E-mail</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">E-mail</label>
               <input
                 type="text"
                 value={profile.email}
                 disabled
-                className="mt-1 block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500"
+                className="mt-1 block w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-500 dark:text-gray-400"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">Nome de exibição</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Nome de exibição</label>
               <input
                 type="text"
                 value={profile.display_name}
                 onChange={(e) => setProfile((p) => ({ ...p, display_name: e.target.value }))}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+                className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
                 placeholder="Nome completo"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700">WhatsApp</label>
-              <p className="mt-0.5 text-xs text-gray-400">Com DDD e código do país, sem espaços (ex: 5561999999999)</p>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">WhatsApp</label>
+              <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">Com DDD e código do país, sem espaços (ex: 5561999999999)</p>
               <input
                 type="tel"
                 value={profile.whatsapp_phone}
                 onChange={(e) => setProfile((p) => ({ ...p, whatsapp_phone: e.target.value.replace(/\D/g, "") }))}
-                className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+                className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
                 placeholder="5561999999999"
               />
             </div>

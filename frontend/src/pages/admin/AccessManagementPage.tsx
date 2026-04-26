@@ -53,42 +53,42 @@ function UserProfileForm({
     }
   }
 
-  if (loading) return <div className="mt-4 text-sm text-gray-400">Carregando perfil...</div>;
+  if (loading) return <div className="mt-4 text-sm text-gray-400 dark:text-gray-500">Carregando perfil...</div>;
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 space-y-4 rounded-xl border bg-white p-6 shadow-sm">
+    <form onSubmit={handleSubmit} className="mt-4 space-y-4 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
       {toast && (
         <div className="fixed top-4 right-4 z-50 rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg">
           {toast}
         </div>
       )}
       <div>
-        <label className="block text-sm font-medium text-gray-700">E-mail</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">E-mail</label>
         <input
           type="text"
           value={profile.email}
           disabled
-          className="mt-1 block w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500"
+          className="mt-1 block w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 px-3 py-2 text-sm text-gray-500 dark:text-gray-400"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700">Nome de exibição</label>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Nome de exibição</label>
         <input
           type="text"
           value={profile.display_name}
           onChange={(e) => setProfile((p) => ({ ...p, display_name: e.target.value }))}
-          className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+          className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
           placeholder="Nome completo"
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700">WhatsApp</label>
-        <p className="mt-0.5 text-xs text-gray-400">Com DDD e código do país, sem espaços (ex: 5561999999999)</p>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">WhatsApp</label>
+        <p className="mt-0.5 text-xs text-gray-400 dark:text-gray-500">Com DDD e código do país, sem espaços (ex: 5561999999999)</p>
         <input
           type="tel"
           value={profile.whatsapp_phone}
           onChange={(e) => setProfile((p) => ({ ...p, whatsapp_phone: e.target.value.replace(/\D/g, "") }))}
-          className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+          className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
           placeholder="5561999999999"
         />
       </div>
@@ -180,8 +180,8 @@ export default function AccessManagementPage() {
   if (!isAdmin) {
     return (
       <div className="p-8 max-w-lg">
-        <h2 className="text-xl font-bold text-gray-900">Meu Perfil</h2>
-        <p className="mt-1 text-sm text-gray-500">Atualize suas informações pessoais.</p>
+        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Meu Perfil</h2>
+        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Atualize suas informações pessoais.</p>
         <UserProfileForm token={token} username={currentUser?.username ?? ""} isSelf={true} />
       </div>
     );
@@ -192,24 +192,24 @@ export default function AccessManagementPage() {
 
   return (
     <div className="p-8">
-      <h2 className="text-xl font-bold text-gray-900">Gestão de Acesso</h2>
-      <p className="mt-1 text-sm text-gray-500">Gerencie usuários e perfis de acesso</p>
+      <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Gestão de Acesso</h2>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Gerencie usuários e perfis de acesso</p>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="mt-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div>
       )}
 
       {pending.length > 0 && (
-        <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-800">
+        <div className="mt-6 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
             {pending.length} solicitação{pending.length > 1 ? "ões" : ""} pendente{pending.length > 1 ? "s" : ""}
           </p>
           <div className="mt-3 space-y-2">
             {pending.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-lg bg-white px-4 py-3 shadow-sm">
+              <div key={p.id} className="flex items-center justify-between rounded-lg bg-white dark:bg-gray-800 px-4 py-3 shadow-sm">
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{p.display_name}</p>
-                  <p className="text-xs text-gray-500">{p.email}</p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{p.display_name}</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">{p.email}</p>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -222,7 +222,7 @@ export default function AccessManagementPage() {
                   <button
                     disabled={busy === p.username}
                     onClick={() => handleDeleteUser(p.username)}
-                    className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-50 transition-colors"
+                    className="rounded-lg border border-red-200 dark:border-red-700 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 transition-colors"
                   >
                     Recusar
                   </button>
@@ -233,19 +233,19 @@ export default function AccessManagementPage() {
         </div>
       )}
 
-      <div className="mt-4 overflow-hidden rounded-xl border bg-white shadow-sm">
+      <div className="mt-4 overflow-hidden rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
         {loading ? (
-          <div className="p-10 text-center text-sm text-gray-400">Carregando...</div>
+          <div className="p-10 text-center text-sm text-gray-400 dark:text-gray-500">Carregando...</div>
         ) : (
-          <table className="min-w-full divide-y divide-gray-100">
-            <thead className="bg-gray-50">
+          <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+            <thead className="bg-gray-50 dark:bg-gray-800/50">
               <tr>
                 {["Usuário", "Email", "Perfil", "Status", "Desde"].map((h) => (
-                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">{h}</th>
+                  <th key={h} className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">{h}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50 bg-white">
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800 bg-white dark:bg-gray-900">
               {profiles.map((p) => {
                 const isSelf = p.username === currentUser?.username;
                 const isDisabled = busy === p.username;
@@ -254,20 +254,20 @@ export default function AccessManagementPage() {
                   <tr
                     key={p.id}
                     onClick={() => setSelectedUsername(p.username)}
-                    className={`cursor-pointer transition-colors ${isSelected ? "bg-voetur-50" : "hover:bg-gray-50"} ${isDisabled ? "opacity-50" : ""} ${!p.active ? "bg-amber-50/40" : ""}`}
+                    className={`cursor-pointer transition-colors ${isSelected ? "bg-voetur-50 dark:bg-voetur-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"} ${isDisabled ? "opacity-50" : ""} ${!p.active ? "bg-amber-50/40 dark:bg-amber-900/10" : ""}`}
                   >
                     <td className="px-6 py-4">
-                      <p className="font-medium text-gray-900">{p.display_name}</p>
-                      <p className="text-xs text-gray-400">@{p.username}</p>
+                      <p className="font-medium text-gray-900 dark:text-gray-100">{p.display_name}</p>
+                      <p className="text-xs text-gray-400 dark:text-gray-500">@{p.username}</p>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{p.email}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400">{p.email}</td>
                     <td className="px-6 py-4">
                       <select
                         value={p.role}
                         disabled={isSelf || isDisabled || !p.active}
                         onClick={(e) => e.stopPropagation()}
                         onChange={(e) => handleRoleChange(p.username, e.target.value)}
-                        className="rounded-lg border border-gray-300 px-2 py-1 text-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-sm text-gray-900 dark:text-gray-100 focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <option value="user">Usuário</option>
                         <option value="admin">Admin</option>
@@ -277,12 +277,12 @@ export default function AccessManagementPage() {
                       <button
                         disabled={isSelf || isDisabled}
                         onClick={(e) => { e.stopPropagation(); handleToggleActive(p.username, !p.active); }}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${p.active ? "bg-green-100 text-green-700 hover:bg-green-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${p.active ? "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400"}`}
                       >
                         {p.active ? "Ativo" : "Pendente"}
                       </button>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-400">
+                    <td className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">
                       {new Date(p.created_at).toLocaleDateString("pt-BR")}
                     </td>
                   </tr>
@@ -295,7 +295,7 @@ export default function AccessManagementPage() {
 
       {selectedProfile && (
         <div className="mt-6">
-          <h3 className="text-base font-semibold text-gray-900">
+          <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
             Editar perfil — {selectedProfile.display_name}
           </h3>
           <UserProfileForm

@@ -27,7 +27,7 @@ export default function SummaryBar({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <span className="text-sm font-medium text-gray-600">{total} sistema{total !== 1 ? "s" : ""}</span>
+        <span className="text-sm font-medium text-gray-600 dark:text-gray-400">{total} sistema{total !== 1 ? "s" : ""}</span>
 
         {PILL_ORDER.filter((s) => summary[s] > 0).map((s) => (
           <span
@@ -40,7 +40,7 @@ export default function SummaryBar({
         ))}
 
         {lastRefresh && (
-          <span className="text-xs text-gray-400">{lastRefresh.toLocaleTimeString("pt-BR")}</span>
+          <span className="text-xs text-gray-400 dark:text-gray-500">{lastRefresh.toLocaleTimeString("pt-BR")}</span>
         )}
       </div>
 
@@ -48,7 +48,7 @@ export default function SummaryBar({
         <button
           onClick={onToggleAutoRefresh}
           className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-            autoRefresh ? "border-blue-500 bg-blue-50 text-blue-700" : "border-gray-300 text-gray-600 hover:bg-gray-50"
+            autoRefresh ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300" : "border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
           }`}
         >
           {autoRefresh ? "⏳ Auto-refresh" : "Auto-refresh"}
@@ -56,7 +56,7 @@ export default function SummaryBar({
         <button
           onClick={onRefresh}
           disabled={loading}
-          className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          className="rounded-lg border border-gray-300 dark:border-gray-700 px-3 py-1.5 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
         >
           {loading ? "..." : "Atualizar"}
         </button>

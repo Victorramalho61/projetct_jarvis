@@ -113,7 +113,7 @@ export default function LoginPage() {
       </aside>
 
       {/* Painel direito — formulário */}
-      <div className="flex flex-1 flex-col items-center justify-center bg-gray-50 px-6 py-12">
+      <div className="flex flex-1 flex-col items-center justify-center bg-gray-50 dark:bg-gray-950 px-6 py-12">
         {/* Logo mobile */}
         <div className="md:hidden mb-8 flex items-center gap-3">
           <img src="/grupo-voetur-escuro.svg" alt="Grupo Voetur" className="block select-none" style={{ height: 22, width: "auto" }} />
@@ -127,16 +127,16 @@ export default function LoginPage() {
         </div>
 
         <div className="w-full max-w-[420px]">
-          <div className="rounded-2xl border border-gray-100 bg-white p-7 sm:p-9 shadow-card">
+          <div className="rounded-2xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-7 sm:p-9 shadow-card">
             <header className="mb-6">
-              <h2 className="text-[26px] font-bold tracking-tight text-brand-ink">Bem-vindo</h2>
-              <p className="mt-1.5 text-sm text-gray-500">Entre com sua conta corporativa Voetur.</p>
+              <h2 className="text-[26px] font-bold tracking-tight text-brand-ink dark:text-gray-100">Bem-vindo</h2>
+              <p className="mt-1.5 text-sm text-gray-500 dark:text-gray-400">Entre com sua conta corporativa Voetur.</p>
             </header>
 
             <form onSubmit={handleSubmit} className="space-y-4" noValidate>
               {/* E-mail */}
               <div className="space-y-1.5">
-                <label htmlFor="email" className="block text-[13px] font-medium text-brand-ink">
+                <label htmlFor="email" className="block text-[13px] font-medium text-brand-ink dark:text-gray-300">
                   E-mail corporativo
                 </label>
                 <div className="relative">
@@ -152,14 +152,14 @@ export default function LoginPage() {
                     placeholder="seu.nome@voetur.com.br"
                     required
                     autoFocus
-                    className="w-full h-11 rounded-lg border border-gray-200 bg-white pl-9 pr-3.5 text-[14px] text-brand-ink placeholder:text-gray-400 focus:outline-none focus:border-brand-mid focus:ring-2 focus:ring-brand-mid/30 transition-shadow"
+                    className="w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 pl-9 pr-3.5 text-[14px] text-brand-ink dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-brand-mid focus:ring-2 focus:ring-brand-mid/30 transition-shadow"
                   />
                 </div>
               </div>
 
               {/* Senha */}
               <div className="space-y-1.5">
-                <label htmlFor="pw" className="block text-[13px] font-medium text-brand-ink">
+                <label htmlFor="pw" className="block text-[13px] font-medium text-brand-ink dark:text-gray-300">
                   Senha
                 </label>
                 <div className="relative">
@@ -174,7 +174,7 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     placeholder="••••••••"
                     required
-                    className="w-full h-11 rounded-lg border border-gray-200 bg-white pl-9 pr-10 text-[14px] text-brand-ink placeholder:text-gray-400 focus:outline-none focus:border-brand-mid focus:ring-2 focus:ring-brand-mid/30 transition-shadow"
+                    className="w-full h-11 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 pl-9 pr-10 text-[14px] text-brand-ink dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-brand-mid focus:ring-2 focus:ring-brand-mid/30 transition-shadow"
                   />
                   <button
                     type="button"
@@ -189,7 +189,7 @@ export default function LoginPage() {
 
               {/* Manter conectado + Esqueci */}
               <div className="flex items-center justify-between text-[13px]">
-                <label className="inline-flex items-center gap-2 text-gray-600 cursor-pointer select-none">
+                <label className="inline-flex items-center gap-2 text-gray-600 dark:text-gray-400 cursor-pointer select-none">
                   <input
                     type="checkbox"
                     checked={rememberMe}
@@ -217,15 +217,15 @@ export default function LoginPage() {
               </button>
             </form>
 
-            <div className="mt-6 pt-6 border-t border-gray-100 text-center text-sm">
-              <span className="text-gray-500">Primeiro acesso? </span>
+            <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-800 text-center text-sm">
+              <span className="text-gray-500 dark:text-gray-400">Primeiro acesso? </span>
               <Link to="/solicitar-acesso" className="text-brand-deep font-semibold hover:underline">
                 Solicitar Acesso
               </Link>
             </div>
           </div>
 
-          <p className="mt-6 text-center font-mono text-[11px] text-gray-400 flex items-center justify-center gap-2">
+          <p className="mt-6 text-center font-mono text-[11px] text-gray-400 dark:text-gray-500 flex items-center justify-center gap-2">
             <img src="/grupo-voetur-escuro.svg" alt="" className="select-none opacity-40" style={{ height: 14, width: "auto" }} />
             © Grupo Voetur 2026 · Conexão segura TLS 1.3
           </p>

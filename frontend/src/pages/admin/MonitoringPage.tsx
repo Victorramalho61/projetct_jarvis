@@ -60,8 +60,8 @@ export default function MonitoringPage() {
     <div className="p-4 sm:p-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Monitoramento</h2>
-          <p className="mt-0.5 text-sm text-gray-500">Status dos sistemas em tempo real</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Monitoramento</h2>
+          <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Status dos sistemas em tempo real</p>
         </div>
         <button
           onClick={openCreate}
@@ -81,17 +81,17 @@ export default function MonitoringPage() {
       />
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="mt-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {error}
         </div>
       )}
 
       {loading && !data && (
-        <div className="mt-10 text-center text-sm text-gray-400">Carregando...</div>
+        <div className="mt-10 text-center text-sm text-gray-400 dark:text-gray-500">Carregando...</div>
       )}
 
       {data && data.systems.length === 0 && (
-        <div className="mt-10 text-center text-sm text-gray-400">
+        <div className="mt-10 text-center text-sm text-gray-400 dark:text-gray-500">
           Nenhum sistema cadastrado.{" "}
           <button onClick={openCreate} className="text-voetur-600 hover:underline">
             Adicionar o primeiro
@@ -109,7 +109,7 @@ export default function MonitoringPage() {
               />
               <button
                 onClick={(e) => { e.stopPropagation(); openEdit(system); }}
-                className="absolute right-3 top-3 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                className="absolute right-3 top-3 rounded p-1 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300"
                 title="Editar"
               >
                 ✎

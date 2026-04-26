@@ -162,7 +162,7 @@ export default function MoneypennyPage() {
   if (loading) {
     return (
       <div className="flex min-h-full items-center justify-center p-8">
-        <p className="text-sm text-gray-400">Carregando...</p>
+        <p className="text-sm text-gray-400 dark:text-gray-500">Carregando...</p>
       </div>
     );
   }
@@ -175,33 +175,33 @@ export default function MoneypennyPage() {
         </div>
       )}
 
-      <h2 className="text-xl font-bold text-gray-900">Moneypenny</h2>
-      <p className="mt-1 text-sm text-gray-500">
+      <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Moneypenny</h2>
+      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
         Receba um resumo diário dos seus e-mails e agenda do Microsoft 365.
       </p>
 
       {/* Conta Microsoft */}
-      <section className="mt-6 rounded-xl border bg-white p-6 shadow-sm">
-        <h3 className="font-semibold text-gray-900">Conta Microsoft 365</h3>
+      <section className="mt-6 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Conta Microsoft 365</h3>
         {account?.connected ? (
           <div className="mt-4 flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-900">{account.email}</p>
-              <p className="text-xs text-gray-400">
+              <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{account.email}</p>
+              <p className="text-xs text-gray-400 dark:text-gray-500">
                 Conectado em{" "}
                 {account.updated_at ? new Date(account.updated_at).toLocaleDateString("pt-BR") : "—"}
               </p>
             </div>
             <button
               onClick={handleDisconnect}
-              className="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 transition-colors"
+              className="rounded-lg border border-red-200 dark:border-red-700 px-3 py-1.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
             >
               Desconectar
             </button>
           </div>
         ) : (
           <div className="mt-4">
-            <p className="text-sm text-gray-500 mb-3">Conecte sua conta para buscar e-mails e agenda.</p>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">Conecte sua conta para buscar e-mails e agenda.</p>
             <button
               onClick={handleConnect}
               className="inline-flex items-center gap-2 rounded-lg bg-voetur-600 px-4 py-2 text-sm font-medium text-white hover:bg-voetur-700 transition-colors"
@@ -217,11 +217,10 @@ export default function MoneypennyPage() {
 
       {/* Canais de entrega */}
       <section className="mt-4">
-        <h3 className="font-semibold text-gray-900">Canais de entrega</h3>
-        <p className="mt-0.5 text-xs text-gray-500">Ative um ou mais canais para receber o resumo</p>
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">Canais de entrega</h3>
+        <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">Ative um ou mais canais para receber o resumo</p>
 
         <div className="mt-3 space-y-3">
-          {/* E-mail */}
           <ChannelCard
             id="email"
             meta={CHANNEL_META.email}
@@ -230,7 +229,6 @@ export default function MoneypennyPage() {
             onToggle={() => toggleChannel("email")}
           />
 
-          {/* Teams */}
           <ChannelCard
             id="teams"
             meta={CHANNEL_META.teams}
@@ -239,20 +237,19 @@ export default function MoneypennyPage() {
             onToggle={() => toggleChannel("teams")}
           >
             {prefs.channels.teams?.enabled && (
-              <div className="mt-3 pt-3 border-t border-gray-100">
-                <label className="block text-xs font-medium text-gray-600">URL do Webhook</label>
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">URL do Webhook</label>
                 <input
                   type="url"
                   value={prefs.teams_webhook_url}
                   onChange={(e) => setPrefs((p) => ({ ...p, teams_webhook_url: e.target.value }))}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+                  className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
                   placeholder="https://..."
                 />
               </div>
             )}
           </ChannelCard>
 
-          {/* WhatsApp */}
           <ChannelCard
             id="whatsapp"
             meta={CHANNEL_META.whatsapp}
@@ -261,14 +258,14 @@ export default function MoneypennyPage() {
             onToggle={() => toggleChannel("whatsapp")}
           >
             {prefs.channels.whatsapp?.enabled && (
-              <div className="mt-3 pt-3 border-t border-gray-100">
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
                 {prefs.whatsapp_phone ? (
-                  <p className="text-xs text-gray-600">
+                  <p className="text-xs text-gray-600 dark:text-gray-400">
                     Envio para{" "}
-                    <span className="font-medium text-gray-900">+{prefs.whatsapp_phone}</span>
+                    <span className="font-medium text-gray-900 dark:text-gray-100">+{prefs.whatsapp_phone}</span>
                   </p>
                 ) : (
-                  <p className="text-xs text-red-500">
+                  <p className="text-xs text-red-500 dark:text-red-400">
                     Nenhum número cadastrado.{" "}
                     <a href="/admin/acesso" className="underline">Atualize seu perfil</a>.
                   </p>
@@ -280,11 +277,11 @@ export default function MoneypennyPage() {
       </section>
 
       {/* Agendamento */}
-      <section className="mt-4 rounded-xl border bg-white p-6 shadow-sm">
+      <section className="mt-4 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-gray-900">Resumo diário</h3>
-            <p className="mt-0.5 text-xs text-gray-500">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">Resumo diário</h3>
+            <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
               {prefs.active
                 ? `Agendado para ${((prefs.send_hour_utc - 3 + 24) % 24).toString().padStart(2, "0")}:00 (BRT) todos os dias`
                 : "Agendamento desativado"}
@@ -294,7 +291,7 @@ export default function MoneypennyPage() {
             onClick={handleToggleActive}
             disabled={toggling}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
-              prefs.active ? "bg-voetur-600" : "bg-gray-300"
+              prefs.active ? "bg-voetur-600" : "bg-gray-300 dark:bg-gray-600"
             }`}
           >
             <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
@@ -304,13 +301,13 @@ export default function MoneypennyPage() {
         </div>
 
         {prefs.active && (
-          <div className="mt-5 border-t pt-5">
-            <label className="text-sm font-medium text-gray-700">Horário de envio (BRT)</label>
+          <div className="mt-5 border-t border-gray-100 dark:border-gray-800 pt-5">
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Horário de envio (BRT)</label>
             <div className="mt-2">
               <select
                 value={prefs.send_hour_utc}
                 onChange={(e) => setPrefs((p) => ({ ...p, send_hour_utc: Number(e.target.value) }))}
-                className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+                className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
               >
                 {Array.from({ length: 24 }, (_, i) => i).map((utcH) => {
                   const brt = ((utcH - 3 + 24) % 24).toString().padStart(2, "0");
@@ -335,14 +332,14 @@ export default function MoneypennyPage() {
           <button
             onClick={handleTest}
             disabled={testing}
-            className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            className="rounded-lg border border-gray-300 dark:border-gray-700 px-5 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors"
           >
             {testing ? "Enviando..." : "Enviar agora"}
           </button>
         )}
       </div>
 
-      <p className="mt-4 text-xs text-gray-400">
+      <p className="mt-4 text-xs text-gray-400 dark:text-gray-500">
         A conta Microsoft é necessária para buscar e-mails e agenda, independente do canal escolhido.
       </p>
     </div>
@@ -366,20 +363,20 @@ function ChannelCard({
 }) {
   return (
     <div
-      className={`rounded-xl border-2 bg-white p-4 transition-colors ${
-        enabled ? "border-voetur-500" : "border-gray-200"
+      className={`rounded-xl border-2 bg-white dark:bg-gray-900 p-4 transition-colors ${
+        enabled ? "border-voetur-500" : "border-gray-200 dark:border-gray-700"
       }`}
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <span className="text-2xl">{meta.icon}</span>
           <div>
-            <p className="text-sm font-semibold text-gray-900">{meta.label}</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{meta.label}</p>
             <div className="mt-1 flex flex-wrap gap-1.5">
               {content.map((c) => (
                 <span
                   key={c}
-                  className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600"
+                  className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-300"
                 >
                   {CONTENT_LABELS[c]?.icon} {CONTENT_LABELS[c]?.label ?? c}
                 </span>
@@ -390,7 +387,7 @@ function ChannelCard({
         <button
           onClick={onToggle}
           className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none ${
-            enabled ? "bg-voetur-600" : "bg-gray-300"
+            enabled ? "bg-voetur-600" : "bg-gray-300 dark:bg-gray-600"
           }`}
         >
           <span
