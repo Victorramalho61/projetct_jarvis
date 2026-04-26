@@ -71,7 +71,12 @@ Resumo diário via Microsoft Graph API. Busca e-mails não lidos e agenda do dia
 
 ### Monitoramento
 Health checks agendados via APScheduler (a cada 5 min por padrão).
-- Tipos: `http` (status code), `evolution` (connectionState), `metrics` (monitor-agent), `custom`
+- Tipos:
+  - `http` — verifica status code HTTP (segue redirects 301/302 automaticamente)
+  - `tcp` — abre conexão TCP na porta e fecha imediatamente (bancos de dados, serviços sem HTTP). URL no formato `host:porta`
+  - `evolution` — verifica `connectionState` da Evolution API
+  - `metrics` — CPU/RAM/disco via monitor-agent
+  - `custom` — endpoint HTTP configurável com headers/body
 - Alertas WhatsApp para admins com **cooldown de 30 min** (deduplicação)
 - Alerta de recuperação quando sistema volta de DOWN → UP
 - Dashboard em tempo real com auto-refresh a cada 30s
@@ -148,7 +153,7 @@ docker exec -i jarvis-db-1 bash -c \
 | `connected_accounts` | OAuth Microsoft 365 — access/refresh token, renovação automática |
 | `notification_prefs` | Preferências Moneypenny — channels_config JSONB, horário UTC |
 | `app_logs` | Audit trail do sistema — login, erros, alertas (paginado 100/req) |
-| `monitored_systems` | Sistemas monitorados — tipo, URL, config, last_alerted_at |
+| `monitored_systems` | Sistemas monitorados — tipo (http/tcp/evolution/metrics/custom), URL/host:porta, config, last_alerted_at |
 | `system_checks` | Histórico de checks — status, latência, métricas, deduplicado |
 
 ## CI/CD
@@ -158,7 +163,15 @@ docker exec -i jarvis-db-1 bash -c \
 1. **security-scan** — Gitleaks (detecção de secrets no código)
 2. **test-backend** — pytest + pip-audit
 3. **test-frontend** — typecheck + npm audit
-4. **deploy** — SSH → `bash ~/app/backend/deploy.sh`
+4. **deploy** — roda no **self-hosted runner** do próprio servidor (sem SSH externo)
+
+### Self-Hosted Runner
+
+Runner instalado em `C:\actions-runner` no servidor Windows.
+- Registrado como `jarvis-server` no repositório
+- Faz conexão de saída para o GitHub (não abre portas)
+- Iniciar manualmente após reboot: `Start-Process C:\actions-runner\run.cmd -WindowStyle Hidden`
+- Para instalar como serviço permanente (requer admin): `cd C:\actions-runner && .\config.cmd --runasservice`
 
 ### Secrets do GitHub
 
