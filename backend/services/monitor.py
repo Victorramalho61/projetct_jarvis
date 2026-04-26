@@ -35,7 +35,7 @@ async def check_http(system: dict) -> CheckResult:
 
     t0 = time.monotonic()
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
             resp = await getattr(client, method.lower())(url)
         latency_ms = int((time.monotonic() - t0) * 1000)
         if resp.status_code == expected:
