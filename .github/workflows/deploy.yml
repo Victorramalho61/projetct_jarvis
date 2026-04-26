@@ -73,7 +73,7 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: 22
+          port: ${{ secrets.SSH_PORT || 22 }}
           timeout: 30s
           command_timeout: 10m
-          script: bash ~/app/backend/deploy.sh
+          script: bash "E:/claudecode/claudecode/backend/deploy.sh"

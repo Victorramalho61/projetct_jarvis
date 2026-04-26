@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="${HOME}/app"
+# Caminho absoluto do projeto no servidor
+APP_DIR="E:/claudecode/claudecode"
+
 cd "$APP_DIR"
 
 [ -f .env ] || { echo "Erro: .env nao encontrado em $APP_DIR"; exit 1; }
