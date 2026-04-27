@@ -16,6 +16,7 @@ MAX_RETRIES = 3
 _BRT = timezone(timedelta(hours=-3))
 _RATING_MAP = {"Happy": 3, "Neutral": 2, "Unhappy": 1}
 _PHASE_ORDER = ["resolved", "closed", "csat", "metadata"]
+_PHASE_STATUS = {"resolved": 4, "closed": 5}
 
 # {key: (data, monotonic_expires)}
 _live_cache: dict[str, tuple[dict, float]] = {}
@@ -49,16 +50,23 @@ class FreshserviceClient:
                 raise
         return {}
 
-    def list_tickets(
-        self,
-        filter: str,
-        page: int = 1,
-        updated_since: str | None = None,
-    ) -> list[dict]:
-        params: dict = {"filter": filter, "page": page, "per_page": PAGE_SIZE}
-        if updated_since:
-            params["updated_since"] = updated_since
-        return self._get("/tickets", params).get("tickets", [])
+    def list_tickets_by_status(self, status: int, page: int = 1) -> list[dict]:
+        """Backfill: fetch tickets by exact status via /tickets/filter."""
+        return self._get("/tickets/filter", {
+            "query": f'"status:{status}"',
+            "page": page,
+            "per_page": PAGE_SIZE,
+            "include": "stats",
+        }).get("tickets", [])
+
+    def list_updated_tickets(self, updated_since: str, page: int = 1) -> list[dict]:
+        """Daily sync: all tickets updated since a given timestamp."""
+        return self._get("/tickets", {
+            "updated_since": updated_since,
+            "include": "stats",
+            "page": page,
+            "per_page": PAGE_SIZE,
+        }).get("tickets", [])
 
     def list_satisfaction_ratings(
         self,
@@ -80,12 +88,14 @@ class FreshserviceClient:
         return self._get("/companies", {"page": page, "per_page": PAGE_SIZE}).get("companies", [])
 
     def get_open_tickets(self, page: int = 1) -> list[dict]:
-        return self._get("/tickets", {
-            "filter": "open",
+        # status:2 = Open; sorted oldest-first via /tickets/filter
+        return self._get("/tickets/filter", {
+            "query": '"status:2"',
             "order_by": "created_at",
             "order_type": "asc",
             "page": page,
             "per_page": 10,
+            "include": "stats",
         }).get("tickets", [])
 
     def get_waiting_vendor_tickets(self, page: int = 1) -> list[dict]:
@@ -237,7 +247,7 @@ def _run_backfill_sync() -> None:
 
             if phase in ("resolved", "closed"):
                 while True:
-                    tickets = client.list_tickets(filter=phase, page=page)
+                    tickets = client.list_tickets_by_status(status=_PHASE_STATUS[phase], page=page)
                     if not tickets:
                         break
                     rows = [_extract_ticket_row(t) for t in tickets]
@@ -309,18 +319,18 @@ def _run_daily_sync_sync() -> None:
     total_upserted = 0
 
     try:
-        for filter_name in ("resolved", "closed"):
-            page = 1
-            while True:
-                tickets = client.list_tickets(filter=filter_name, page=page, updated_since=updated_since)
-                if not tickets:
-                    break
-                rows = [_extract_ticket_row(t) for t in tickets]
+        page = 1
+        while True:
+            tickets = client.list_updated_tickets(updated_since=updated_since, page=page)
+            if not tickets:
+                break
+            rows = [_extract_ticket_row(t) for t in tickets if t.get("status") in (4, 5)]
+            if rows:
                 _upsert_tickets(db, rows)
                 total_upserted += len(rows)
-                if len(tickets) < PAGE_SIZE:
-                    break
-                page += 1
+            if len(tickets) < PAGE_SIZE:
+                break
+            page += 1
 
         page = 1
         while True:
