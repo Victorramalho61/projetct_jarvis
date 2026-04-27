@@ -226,7 +226,6 @@ services:
       MONITOR_AGENT_URL: http://monitor-agent:9100
       MONITOR_AGENT_TOKENS: ${MONITOR_AGENT_TOKENS:-}
       FRESHSERVICE_API_KEY: ${FRESHSERVICE_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     networks:
       - app_net
 

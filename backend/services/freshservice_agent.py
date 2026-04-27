@@ -1,64 +1,44 @@
-import json
 import logging
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import anthropic as _anthropic_type
 
 logger = logging.getLogger(__name__)
 
-_client: "_anthropic_type.Anthropic | None" = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        import anthropic
-        _client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
-    return _client
-
-_SYSTEM_PROMPT = (
-    "Você é um analista de suporte técnico da Voetur/VTCLog. "
-    "Analise os dados de chamados do Freshservice e produza um relatório em JSON com exatamente 3 campos:\n"
-    '1. "summary": resumo conciso em português (máx 280 caracteres) para exibir no dashboard interno\n'
-    '2. "anomaly": true se SLA breach estiver acima de 25% ou volume de chamados fechados for zero, false caso contrário\n'
-    '3. "anomaly_detail": string descrevendo a anomalia (string vazia se anomaly=false)\n\n'
-    "Responda SOMENTE com JSON válido, sem texto adicional, sem markdown."
-)
-
 
 def generate_daily_summary_sync(stats: dict) -> dict:
-    try:
-        response = _get_client().messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=512,
-            system=[{
-                "type": "text",
-                "text": _SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }],
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Dados do dia {stats.get('date', '')}:\n"
-                    + json.dumps(stats, ensure_ascii=False, indent=2)
-                ),
-            }],
-        )
-        text = response.content[0].text.strip()
-        # Strip markdown code fences if model adds them
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-        return json.loads(text)
-    except Exception:
-        logger.exception("Claude API error generating freshservice summary")
-        return {
-            "summary": f"Sync concluído: {stats.get('total_closed', 0)} chamados fechados em {stats.get('date', '')}.",
-            "anomaly": False,
-            "anomaly_detail": "",
-        }
+    date = stats.get("date", "")
+    total = stats.get("total_closed", 0)
+    csat = stats.get("csat_avg")
+    sla_pct = stats.get("sla_breach_pct") or 0.0
+    avg_res = stats.get("avg_resolution_min")
+
+    parts = [f"{total} chamados fechados em {date}."]
+
+    if avg_res is not None:
+        h = int(avg_res) // 60
+        m = int(avg_res) % 60
+        tempo = f"{h}h {m}m" if h else f"{m}m"
+        parts.append(f"Tempo médio de resolução: {tempo}.")
+
+    if sla_pct > 0:
+        parts.append(f"SLA breach: {sla_pct:.1f}%.")
+
+    if csat is not None:
+        parts.append(f"CSAT médio: {csat:.1f}/3.")
+
+    summary = " ".join(parts)
+    if len(summary) > 280:
+        summary = summary[:277] + "..."
+
+    anomaly = False
+    anomaly_detail = ""
+
+    if total == 0:
+        anomaly = True
+        anomaly_detail = f"Nenhum chamado fechado em {date}."
+    elif sla_pct > 25:
+        anomaly = True
+        anomaly_detail = f"SLA breach acima do limite: {sla_pct:.1f}% (limite 25%)."
+
+    return {"summary": summary, "anomaly": anomaly, "anomaly_detail": anomaly_detail}
 
 
 async def generate_daily_summary(stats: dict) -> dict:
