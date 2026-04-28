@@ -136,11 +136,62 @@ services:
             - admin
             - anon
 
-  # ── Backend application (rotas /api/*) ──────────────────────────────
-  - name: backend-monolith
-    url: http://backend:8000
+  # ── Microsserviços da aplicação ──────────────────────────────────────
+  # Rotas específicas têm prioridade sobre a genérica (core)
+
+  - name: monitoring-svc
+    url: http://monitoring-service:8002
     routes:
-      - name: backend-all
+      - name: monitoring-route
+        paths:
+          - /api/monitoring
+        strip_path: false
+        preserve_host: true
+        plugins:
+          - name: cors
+            enabled: false
+
+  - name: freshservice-svc
+    url: http://freshservice-service:8003
+    routes:
+      - name: freshservice-route
+        paths:
+          - /api/freshservice
+        strip_path: false
+        preserve_host: true
+        plugins:
+          - name: cors
+            enabled: false
+
+  - name: moneypenny-svc
+    url: http://moneypenny-service:8004
+    routes:
+      - name: moneypenny-route
+        paths:
+          - /api/moneypenny
+        strip_path: false
+        preserve_host: true
+        plugins:
+          - name: cors
+            enabled: false
+
+  - name: agents-svc
+    url: http://agents-service:8005
+    routes:
+      - name: agents-route
+        paths:
+          - /api/agents
+        strip_path: false
+        preserve_host: true
+        plugins:
+          - name: cors
+            enabled: false
+
+  # Core captura /api/auth, /api/users, /api/admin, /api/health, /api/ready
+  - name: core-svc
+    url: http://core-service:8001
+    routes:
+      - name: core-route
         paths:
           - /api/
         strip_path: false

@@ -198,37 +198,6 @@ services:
   # APLICAÇÃO
   # ────────────────────────────────────────────────────────────────────
 
-  backend:
-    build:
-      context: ./backend
-    restart: unless-stopped
-    ports:
-      - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      kong:
-        condition: service_started
-    environment:
-      SUPABASE_URL: http://kong:8000
-      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRE_MINUTES: 480
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
-      FRONTEND_URL: ${FRONTEND_URL}
-      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
-      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
-      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
-      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI}
-      WHATSAPP_API_URL: ${WHATSAPP_API_URL}
-      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
-      WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-}
-      MONITOR_AGENT_URL: http://monitor-agent:9100
-      MONITOR_AGENT_TOKENS: ${MONITOR_AGENT_TOKENS:-}
-      FRESHSERVICE_API_KEY: ${FRESHSERVICE_API_KEY:-}
-    networks:
-      - app_net
-
   frontend:
     build:
       context: ./frontend
@@ -242,6 +211,146 @@ services:
       - backend
     networks:
       - app_net
+
+  # ────────────────────────────────────────────────────────────────────
+  # MICROSSERVIÇOS
+  # ────────────────────────────────────────────────────────────────────
+
+  core-service:
+    build:
+      context: ./core-service
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRE_MINUTES: 480
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  monitoring-service:
+    build:
+      context: ./monitoring-service
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      MONITOR_AGENT_URL: http://monitor-agent:9100
+      MONITOR_AGENT_TOKENS: ${MONITOR_AGENT_TOKENS:-}
+      WHATSAPP_API_URL: ${WHATSAPP_API_URL:-}
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
+      WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  freshservice-service:
+    build:
+      context: ./freshservice-service
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      FRESHSERVICE_API_KEY: ${FRESHSERVICE_API_KEY:-}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  moneypenny-service:
+    build:
+      context: ./moneypenny-service
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
+      MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-}
+      MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
+      MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI}
+      WHATSAPP_API_URL: ${WHATSAPP_API_URL:-}
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
+      WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  agents-service:
+    build:
+      context: ./agents-service
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      FRESHSERVICE_SERVICE_URL: http://freshservice-service:8003
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8005/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
 
   monitor-agent:
     build:
