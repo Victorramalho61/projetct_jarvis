@@ -51,9 +51,14 @@ def _build_trigger(agent: dict):
 
 
 def reload_agents() -> None:
-    from db import get_supabase
-    db = get_supabase()
-    agents = db.table("agents").select("*").eq("enabled", True).execute().data
+    try:
+        from db import get_supabase
+        db = get_supabase()
+        agents = db.table("agents").select("*").eq("enabled", True).execute().data
+    except Exception as exc:
+        logger.warning("reload_agents: não foi possível carregar agentes do banco (%s). "
+                       "Verifique se a migração do schema foi aplicada.", exc)
+        return
 
     for job in _scheduler.get_jobs():
         if job.id.startswith("agent_"):

@@ -38,7 +38,14 @@ class ClaudeChatIn(BaseModel):
 @router.get("/agents")
 def list_agents(user=Depends(require_role("admin"))):
     db = get_supabase()
-    return db.table("agents").select("*").order("created_at").execute().data
+    try:
+        return db.table("agents").select("*").order("created_at").execute().data
+    except Exception as exc:
+        logger.error("list_agents: erro ao consultar tabela agents — %s", exc)
+        raise HTTPException(
+            503,
+            "Tabela 'agents' não encontrada. Aplique a migração do schema.sql no banco de dados.",
+        )
 
 
 @router.post("/agents", status_code=201)
