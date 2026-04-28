@@ -38,6 +38,8 @@ services:
       app_net:
         aliases:
           - postgres
+    mem_limit: 1500m
+    cpus: "2"
 
   auth:
     image: supabase/gotrue:v2.143.0
@@ -66,6 +68,8 @@ services:
       GOTRUE_LOG_LEVEL: ERROR
     networks:
       - app_net
+    mem_limit: 256m
+    cpus: "0.5"
 
   rest:
     image: postgrest/postgrest:v12.0.1
@@ -87,6 +91,8 @@ services:
     command: postgrest
     networks:
       - app_net
+    mem_limit: 256m
+    cpus: "0.5"
 
   realtime:
     image: supabase/realtime:v2.27.5
@@ -121,6 +127,8 @@ services:
       DNS_NODES: "''"
     networks:
       - app_net
+    mem_limit: 512m
+    cpus: "1"
 
   storage:
     image: supabase/storage-api:v0.46.4
@@ -151,6 +159,8 @@ services:
       - storage_data:/var/lib/storage
     networks:
       - app_net
+    mem_limit: 256m
+    cpus: "0.5"
 
   imgproxy:
     image: darthsim/imgproxy:v3.8.0
@@ -167,6 +177,8 @@ services:
       - storage_data:/var/lib/storage:ro
     networks:
       - app_net
+    mem_limit: 256m
+    cpus: "0.5"
 
   meta:
     image: supabase/postgres-meta:v0.80.0
@@ -192,6 +204,8 @@ services:
       PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
     networks:
       - app_net
+    mem_limit: 256m
+    cpus: "0.5"
 
   kong:
     image: kong:2.8.1
@@ -219,6 +233,8 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
     networks:
       - app_net
+    mem_limit: 1000m
+    cpus: "2"
 
   studio:
     image: supabase/studio:latest
@@ -251,6 +267,8 @@ services:
       HOSTNAME: "0.0.0.0"
     networks:
       - app_net
+    mem_limit: 512m
+    cpus: "1"
 
   # ────────────────────────────────────────────────────────────────────
   # APLICAÇÃO
@@ -456,6 +474,8 @@ services:
       QRCODE_COLOR: "#000000"
     networks:
       - app_net
+    mem_limit: 512m
+    cpus: "1"
 
 volumes:
   db_data:
