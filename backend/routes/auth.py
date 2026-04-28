@@ -143,35 +143,6 @@ async def request_access(request: Request, body: AccessRequest) -> dict:
     return {"message": "Solicitação enviada. Aguardando aprovação do administrador."}
 
 
-@router.post("/initialize")
-async def initialize_password(body: LoginRequest) -> dict:
-    """Define senha para contas sem senha. Só funciona enquanto nenhuma senha estiver configurada."""
-    db = get_supabase()
-
-    existing = db.table("profiles").select("id").not_.is_("password_hash", "null").execute()
-    if existing.data:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Inicialização já concluída.")
-
-    identifier = body.username.strip().lower()
-    profile = _lookup_profile(identifier)
-
-    if not profile:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado.")
-
-    if not profile["active"]:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Conta inativa.")
-
-    if not body.password or len(body.password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Senha deve ter no mínimo 8 caracteres.",
-        )
-
-    db.table("profiles").update({"password_hash": _hash_password(body.password)}).eq("id", profile["id"]).execute()
-    logger.info("Senha inicializada para: %s", profile["username"])
-    return {"message": "Senha definida com sucesso. Faça login normalmente."}
-
-
 @router.get("/me", response_model=UserInfo)
 async def me(current_user: Annotated[dict, Depends(get_current_user)]) -> UserInfo:
     return UserInfo(**current_user)
