@@ -1,5 +1,11 @@
 name: jarvis
 
+x-logging: &logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
 
   # ────────────────────────────────────────────────────────────────────
@@ -9,6 +15,7 @@ services:
   db:
     image: supabase/postgres:15.1.1.78
     restart: unless-stopped
+    logging: *logging
     healthcheck:
       test: pg_isready -U postgres -h localhost
       interval: 5s
@@ -33,6 +40,7 @@ services:
   auth:
     image: supabase/gotrue:v2.143.0
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -58,9 +66,16 @@ services:
   rest:
     image: postgrest/postgrest:v12.0.1
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/ > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:5432/postgres
       PGRST_DB_SCHEMAS: public,storage,graphql_public
@@ -76,9 +91,16 @@ services:
   realtime:
     image: supabase/realtime:v2.27.5
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4000/ > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     environment:
       PORT: 4000
       DB_HOST: db
@@ -101,6 +123,7 @@ services:
   storage:
     image: supabase/storage-api:v0.46.4
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -128,6 +151,7 @@ services:
   imgproxy:
     image: darthsim/imgproxy:v3.8.0
     restart: unless-stopped
+    logging: *logging
     environment:
       IMGPROXY_BIND: 0.0.0.0:5001
       IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
@@ -141,9 +165,16 @@ services:
   meta:
     image: supabase/postgres-meta:v0.80.0
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/ > /dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     environment:
       PG_META_PORT: 8080
       PG_META_DB_HOST: db
@@ -157,6 +188,13 @@ services:
   kong:
     image: kong:2.8.1
     restart: unless-stopped
+    logging: *logging
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     ports:
       - "127.0.0.1:54321:8000/tcp"
       - "127.0.0.1:54322:8443/tcp"
@@ -175,11 +213,18 @@ services:
   studio:
     image: supabase/studio:latest
     restart: unless-stopped
+    logging: *logging
     ports:
       - "127.0.0.1:54323:3000"
     depends_on:
       - kong
       - meta
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/ 2>/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     environment:
       STUDIO_PG_META_URL: http://meta:8080
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -205,6 +250,7 @@ services:
       args:
         VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
+    logging: *logging
     ports:
       - "443:443"
       - "80:80"
@@ -221,6 +267,7 @@ services:
     build:
       context: ./core-service
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -247,6 +294,7 @@ services:
     build:
       context: ./monitoring-service
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -276,6 +324,7 @@ services:
     build:
       context: ./freshservice-service
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -301,6 +350,7 @@ services:
     build:
       context: ./moneypenny-service
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -332,6 +382,7 @@ services:
     build:
       context: ./agents-service
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
@@ -358,6 +409,7 @@ services:
     build:
       context: ./monitor-agent
     restart: unless-stopped
+    logging: *logging
     ports:
       - "127.0.0.1:9100:9100"
     networks:
@@ -366,6 +418,7 @@ services:
   evolution-api:
     image: atendai/evolution-api:latest
     restart: unless-stopped
+    logging: *logging
     depends_on:
       db:
         condition: service_healthy
