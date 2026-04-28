@@ -4,7 +4,7 @@ import { apiFetch, ApiError } from "../lib/api";
 import { useToast } from "../hooks/useToast";
 
 type UserSummary = { id: string; username: string; display_name: string; email: string };
-type ProfileData = { display_name: string; email: string; whatsapp_phone: string };
+type ProfileData = { display_name: string; email: string; whatsapp_phone: string; anthropic_api_key: string };
 
 export default function ProfilePage() {
   const { token, user } = useAuth();
@@ -13,7 +13,7 @@ export default function ProfilePage() {
   const { toast, showToast } = useToast();
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [selectedUsername, setSelectedUsername] = useState<string>("");
-  const [profile, setProfile] = useState<ProfileData>({ display_name: "", email: "", whatsapp_phone: "" });
+  const [profile, setProfile] = useState<ProfileData>({ display_name: "", email: "", whatsapp_phone: "", anthropic_api_key: "" });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -66,7 +66,11 @@ export default function ProfilePage() {
         await apiFetch("/api/auth/profile", {
           method: "PUT",
           token,
-          json: { display_name: profile.display_name, whatsapp_phone: profile.whatsapp_phone },
+          json: {
+            display_name: profile.display_name,
+            whatsapp_phone: profile.whatsapp_phone,
+            anthropic_api_key: profile.anthropic_api_key,
+          },
         });
       }
       showToast("Perfil atualizado com sucesso.");
@@ -156,6 +160,20 @@ export default function ProfilePage() {
               {phoneError && (
                 <p className="mt-1 text-xs text-red-500 dark:text-red-400">{phoneError}</p>
               )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Chave Anthropic</label>
+              <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                Necessária para usar o módulo de Agentes com IA. Obtenha em console.anthropic.com.
+              </p>
+              <input
+                type="password"
+                value={profile.anthropic_api_key}
+                onChange={(e) => setProfile((p) => ({ ...p, anthropic_api_key: e.target.value }))}
+                className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+                placeholder="sk-ant-..."
+              />
             </div>
           </section>
 

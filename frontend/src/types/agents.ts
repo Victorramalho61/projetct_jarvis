@@ -1,4 +1,5 @@
 export type AgentType = "freshservice_sync" | "script";
+export type ScheduleType = "manual" | "interval" | "daily" | "weekly" | "monthly";
 export type AgentRunStatus = "running" | "success" | "error";
 
 export interface Agent {
@@ -7,7 +8,8 @@ export interface Agent {
   description: string;
   agent_type: AgentType;
   config: Record<string, unknown>;
-  interval_minutes: number;
+  schedule_type: ScheduleType;
+  schedule_config: Record<string, unknown>;
   enabled: boolean;
   created_at: string;
 }

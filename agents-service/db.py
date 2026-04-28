@@ -7,20 +7,11 @@ from supabase import Client, create_client
 class Settings(BaseSettings):
     supabase_url: str
     supabase_key: str
+    supabase_anon_key: str = ""
     allowed_origins: str = "http://localhost:5173"
     jwt_secret: str
     jwt_expire_minutes: int = 480
-    microsoft_client_id: str = ""
-    microsoft_tenant_id: str = ""
-    microsoft_client_secret: str = ""
-    microsoft_redirect_uri: str = "http://localhost:8000/api/moneypenny/auth/microsoft/callback"
-    frontend_url: str = "http://localhost:5173"
-    whatsapp_api_url: str = ""
-    whatsapp_api_key: str = ""
-    whatsapp_instance: str = ""
-    monitor_agent_url: str = "http://monitor-agent:9100"
-    monitor_agent_tokens: str = ""
-    freshservice_api_key: str = ""
+    freshservice_service_url: str = "http://freshservice-service:8003"
 
     model_config = {"env_file": ".env"}
 

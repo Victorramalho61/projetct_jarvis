@@ -13,6 +13,10 @@ from services.app_logger import log_event
 
 logger = logging.getLogger(__name__)
 
+# Apenas estas vars de ambiente chegam ao subprocess — SERVICE_ROLE_KEY e
+# ANTHROPIC_API_KEY são explicitamente excluídos para evitar acesso indevido.
+_SAFE_ENV_KEYS = {"PATH", "HOME", "LANG", "TZ", "PYTHONPATH"}
+
 
 def _get_service_token() -> str:
     s = get_settings()
@@ -76,12 +80,19 @@ def _run_script_sync(agent: dict) -> str:
     code = (agent.get("config") or {}).get("code", "")
     if not code.strip():
         raise ValueError("Nenhum código definido no agente")
+
+    safe_env = {k: v for k, v in os.environ.items() if k in _SAFE_ENV_KEYS}
+    safe_env["SUPABASE_URL"] = os.environ.get("SUPABASE_URL", "")
+    safe_env["SUPABASE_ANON_KEY"] = os.environ.get("SUPABASE_ANON_KEY", "")
+
     with tempfile.NamedTemporaryFile(suffix=".py", mode="w", delete=False) as f:
         f.write(code)
         tmppath = f.name
     try:
         result = subprocess.run(
-            ["python3", tmppath], capture_output=True, text=True, timeout=300
+            ["python3", tmppath],
+            capture_output=True, text=True, timeout=300,
+            env=safe_env,
         )
         output = (result.stdout or "")[-10_000:]
         if result.returncode != 0:

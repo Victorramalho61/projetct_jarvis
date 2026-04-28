@@ -339,6 +339,7 @@ services:
     environment:
       SUPABASE_URL: http://kong:8000
       SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       FRONTEND_URL: ${FRONTEND_URL}

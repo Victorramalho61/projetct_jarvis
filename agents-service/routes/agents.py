@@ -1,7 +1,7 @@
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from auth import require_role
@@ -16,7 +16,8 @@ class AgentIn(BaseModel):
     description: str = ""
     agent_type: Literal["freshservice_sync", "script"]
     config: dict = {}
-    interval_minutes: int = 0
+    schedule_type: Literal["manual", "interval", "daily", "weekly", "monthly"] = "manual"
+    schedule_config: dict = {}
     enabled: bool = True
 
 
@@ -24,8 +25,14 @@ class AgentPatch(BaseModel):
     name: str | None = None
     description: str | None = None
     config: dict | None = None
-    interval_minutes: int | None = None
+    schedule_type: str | None = None
+    schedule_config: dict | None = None
     enabled: bool | None = None
+
+
+class ClaudeChatIn(BaseModel):
+    message: str
+    history: list[dict] = []
 
 
 @router.get("/agents")
@@ -64,22 +71,24 @@ def delete_agent(agent_id: str, user=Depends(require_role("admin"))):
 
 
 @router.post("/agents/{agent_id}/run")
-async def run_agent_endpoint(agent_id: str, background_tasks: BackgroundTasks, user=Depends(require_role("admin"))):
+async def run_agent_endpoint(
+    agent_id: str, background_tasks: BackgroundTasks, user=Depends(require_role("admin"))
+):
     db = get_supabase()
     rows = db.table("agents").select("*").eq("id", agent_id).execute().data
     if not rows:
-        from fastapi import HTTPException
         raise HTTPException(404, "Agente não encontrado")
-    agent = rows[0]
     from services.agent_runner import run_agent
-    background_tasks.add_task(run_agent, agent)
+    background_tasks.add_task(run_agent, rows[0])
     return {"ok": True, "agent_id": agent_id}
 
 
 @router.get("/agents/{agent_id}/runs")
-def get_agent_runs(agent_id: str, limit: int = 20, offset: int = 0, user=Depends(require_role("admin"))):
+def get_agent_runs(
+    agent_id: str, limit: int = 20, offset: int = 0, user=Depends(require_role("admin"))
+):
     db = get_supabase()
-    data = (
+    return (
         db.table("agent_runs")
         .select("*")
         .eq("agent_id", agent_id)
@@ -89,4 +98,17 @@ def get_agent_runs(agent_id: str, limit: int = 20, offset: int = 0, user=Depends
         .execute()
         .data
     )
-    return data
+
+
+@router.post("/agents/claude/chat")
+async def claude_chat(body: ClaudeChatIn, user=Depends(require_role("admin"))):
+    db = get_supabase()
+    profile = db.table("profiles").select("anthropic_api_key").eq("id", user["id"]).execute().data
+    api_key = (profile[0].get("anthropic_api_key") or "").strip() if profile else ""
+    if not api_key:
+        raise HTTPException(
+            400,
+            "Configure sua chave Anthropic em Perfil antes de usar este recurso.",
+        )
+    from services.claude_agent_builder import chat
+    return await chat(body.message, body.history, user, api_key)

@@ -151,12 +151,15 @@ async def me(current_user: Annotated[dict, Depends(get_current_user)]) -> UserIn
 class ProfileUpdate(BaseModel):
     display_name: str = ""
     whatsapp_phone: str = ""
+    anthropic_api_key: str | None = None
 
 
 @router.get("/profile")
 async def get_profile(current_user: Annotated[dict, Depends(get_current_user)]) -> dict:
     db = get_supabase()
-    result = db.table("profiles").select("display_name,email,whatsapp_phone").eq("id", current_user["id"]).execute()
+    result = db.table("profiles").select(
+        "display_name,email,whatsapp_phone,anthropic_api_key"
+    ).eq("id", current_user["id"]).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Perfil não encontrado.")
     return result.data[0]
@@ -170,6 +173,8 @@ async def update_profile(body: ProfileUpdate, current_user: Annotated[dict, Depe
         updates["display_name"] = body.display_name.strip()
     if body.whatsapp_phone.strip():
         updates["whatsapp_phone"] = body.whatsapp_phone.strip()
+    if body.anthropic_api_key is not None:
+        updates["anthropic_api_key"] = body.anthropic_api_key.strip()
     if updates:
         db.table("profiles").update(updates).eq("id", current_user["id"]).execute()
     return {"ok": True}

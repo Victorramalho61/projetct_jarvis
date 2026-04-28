@@ -87,6 +87,45 @@ CREATE TABLE IF NOT EXISTS public.system_checks (
 CREATE INDEX IF NOT EXISTS idx_system_checks_system_id_checked_at
     ON public.system_checks (system_id, checked_at DESC);
 
+-- agents
+CREATE TABLE IF NOT EXISTS public.agents (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    name            text NOT NULL,
+    description     text DEFAULT '',
+    agent_type      text NOT NULL DEFAULT 'script'
+                    CHECK (agent_type IN ('freshservice_sync', 'script')),
+    config          jsonb NOT NULL DEFAULT '{}',
+    schedule_type   text NOT NULL DEFAULT 'manual'
+                    CHECK (schedule_type IN ('manual','interval','daily','weekly','monthly')),
+    schedule_config jsonb NOT NULL DEFAULT '{}',
+    enabled         boolean NOT NULL DEFAULT true,
+    created_by      uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+    created_at      timestamptz NOT NULL DEFAULT now(),
+    updated_at      timestamptz NOT NULL DEFAULT now()
+);
+
+-- agent_runs
+CREATE TABLE IF NOT EXISTS public.agent_runs (
+    id          bigserial PRIMARY KEY,
+    agent_id    uuid NOT NULL REFERENCES public.agents(id) ON DELETE CASCADE,
+    status      text NOT NULL DEFAULT 'running'
+                CHECK (status IN ('running','success','error')),
+    started_at  timestamptz NOT NULL DEFAULT now(),
+    finished_at timestamptz,
+    output      text,
+    error       text
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_runs_agent_id ON public.agent_runs (agent_id, started_at DESC);
+
+-- Migração: adicionar colunas novas a tabelas existentes
+ALTER TABLE public.agents
+    ADD COLUMN IF NOT EXISTS schedule_type   text NOT NULL DEFAULT 'manual',
+    ADD COLUMN IF NOT EXISTS schedule_config jsonb NOT NULL DEFAULT '{}';
+
+ALTER TABLE public.profiles
+    ADD COLUMN IF NOT EXISTS anthropic_api_key text DEFAULT '';
+
 -- Permissões para PostgREST
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
 GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role;
@@ -99,3 +138,5 @@ ALTER TABLE public.notification_prefs DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.app_logs           DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.monitored_systems  DISABLE ROW LEVEL SECURITY;
 ALTER TABLE public.system_checks      DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agents             DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.agent_runs         DISABLE ROW LEVEL SECURITY;
