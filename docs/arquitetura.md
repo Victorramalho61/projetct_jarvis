@@ -10,7 +10,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e cinco módulos:
 | Monitoramento | monitoring-service | Health checks agendados, dashboard em tempo real |
 | Freshservice | freshservice-service | Dashboard e sync de tickets do helpdesk |
 | Moneypenny | moneypenny-service | Resumo diário de e-mails e agenda via Microsoft 365 |
-| Agentes | agents-service | Jobs agendados configuráveis |
+| Agentes | agents-service | Jobs agendados + criação de agentes via Claude AI |
 
 ---
 
@@ -99,7 +99,40 @@ Cada serviço tem a mesma estrutura:
 | monitoring-service | run_all_checks | a cada 5 min |
 | freshservice-service | run_daily_sync | diariamente às 9h UTC |
 | moneypenny-service | run_daily_summaries | a cada hora (minuto 0) |
-| agents-service | jobs dinâmicos por agente | configurável via CRUD |
+| agents-service | jobs dinâmicos por agente | configurável via CRUD (manual/interval/daily/weekly/monthly) |
+
+---
+
+## Módulo de Agentes (agents-service)
+
+### Tipos de agente
+
+| `agent_type` | Descrição |
+|---|---|
+| `freshservice_sync` | Dispara sync do Freshservice via HTTP interno. Config: `{"mode": "daily"}` ou ``{"mode": "backfill"}` |
+| `script` | Executa código Python em subprocess isolado |
+
+### Tipos de agendamento
+
+| `schedule_type` | `schedule_config` |
+|---|---|
+| `manual` | `{}` |
+| `interval` | `{"minutes": 30}` |
+| `daily` | `{"hour": 9, "minute": 0}` |
+| `weekly` | `{"day_of_week": "mon", "hour": 9, "minute": 0}` |
+| `monthly` | `{"day": 1, "hour": 9, "minute": 0}` |
+
+Horários em **BRT (America/Sao_Paulo)**.
+
+### Criação de agentes via Claude AI
+
+Cada usuário pode criar agentes via chat com Claude usando sua própria chave Anthropic (cadastrada em Perfil → Chave Anthropic). O Claude tem acesso à ferramenta `create_agent` que faz INSERT na tabela `agents` — sem acesso a DDL ou a outras operações.
+
+### Segurança do subprocess
+
+Scripts Python executados por agentes do tipo `script` rodam em subprocess com ambiente filtrado:
+- ✅ Disponível: `SUPABASE_URL`, `SUPABASE_ANON_KEY` (read-only + RLS)
+- ❌ Bloqueado: `SERVICE_ROLE_KEY`, `ANTHROPIC_API_KEY`, `JWT_SECRET`
 
 ---
 
@@ -148,19 +181,19 @@ docker exec -i jarvis-db-1 bash -c "PGPASSWORD='...' psql -U postgres -d postgre
 
 | Tabela | Serviço | Descrição |
 |---|---|---|
-| `profiles` | core | Usuários — bcrypt, role admin/user |
+| `profiles` | core | Usuários — bcrypt, role admin/user, `anthropic_api_key` |
 | `connected_accounts` | moneypenny | OAuth Microsoft 365 — access/refresh token |
 | `notification_prefs` | moneypenny | Preferências — channels_config JSONB, horário UTC |
 | `app_logs` | todos | Audit trail — login, erros, alertas |
 | `monitored_systems` | monitoring | Sistemas — tipo, URL, consecutive_down_count |
 | `system_checks` | monitoring | Histórico de checks — status, latência, métricas |
-| `scheduled_agents` | agents | Jobs agendados — cron, action |
-| `agent_runs` | agents | Histórico de execuções |
+| `agents` | agents | Jobs agendados — schedule_type/config JSONB, agent_type |
+| `agent_runs` | agents | Histórico de execuções — status, output, error |
 | `freshservice_tickets` | freshservice | Tickets sincronizados |
 | `freshservice_agents` | freshservice | Agentes do helpdesk |
 | `freshservice_groups` | freshservice | Grupos do helpdesk |
 | `freshservice_companies` | freshservice | Empresas do helpdesk |
-| `freshservice_sync_log` | freshservice | Log de sincronizações |
+| `freshservice_sync_log` | freshservice | Log de sincronizações + checkpoint para backfill |
 
 ---
 
@@ -187,6 +220,76 @@ secret = "SEU_SUPABASE_JWT_SECRET"
 jwt.encode({"iss":"supabase-local","role":"anon","exp":2051222400}, secret, algorithm="HS256")
 jwt.encode({"iss":"supabase-local","role":"service_role","exp":2051222400}, secret, algorithm="HS256")
 ```
+
+---
+
+## Observabilidade
+
+### Logging
+
+Todos os containers usam `json-file` com rotação automática (configurado em `docker-compose.yml`):
+
+```yaml
+logging:
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+```
+
+Consultar logs:
+```bash
+docker compose logs -f agents-service --tail=100
+docker compose logs --since=1h freshservice-service
+```
+
+### Healthchecks
+
+| Serviço | Comando | Intervalo |
+|---|---|---|
+| db | `pg_isready` | 5s |
+| rest | — (imagem distroless sem shell) | — |
+| realtime | `curl -s localhost:4000` | 30s |
+| meta | `node -e "require('http').get(...)"` | 30s |
+| kong | `kong health` | 30s |
+| studio | `wget --spider localhost:3000` | 30s |
+| core/monitoring/freshservice/moneypenny/agents | `urllib.request.urlopen(/health)` | 30s |
+
+```bash
+# Ver status dos healthchecks
+docker compose ps
+```
+
+### Resource Limits (serviços Supabase + Evolution)
+
+| Serviço | mem_limit | cpus |
+|---|---|---|
+| db | 1500m | 2 |
+| auth | 256m | 0.5 |
+| rest | 256m | 0.5 |
+| realtime | 512m | 1 |
+| storage | 256m | 0.5 |
+| imgproxy | 256m | 0.5 |
+| meta | 256m | 0.5 |
+| kong | 1000m | 2 |
+| studio | 512m | 1 |
+| evolution-api | 512m | 1 |
+
+---
+
+## Backup
+
+Ver `docs/BACKUP.md` para instruções completas.
+
+```bash
+# Executar backup manual
+bash scripts/backup.sh
+
+# Agendar backup diário às 3h
+echo "0 3 * * * cd /opt/jarvis && bash scripts/backup.sh >> /var/log/jarvis-backup.log 2>&1" | crontab -
+```
+
+O script salva em `BACKUP_DIR` (padrão `/opt/jarvis/backups`) com rotação automática por `RETENTION_DAYS` dias.
 
 ---
 
@@ -236,26 +339,45 @@ https://jarvis.voetur.com.br/api/moneypenny/auth/microsoft/callback
 
 ---
 
+## nginx Standalone (nginx/ — preparado, não ativo)
+
+O diretório `nginx/` contém config de proxy reverso alternativa (upstream `frontend:80` + `kong:8000`). Não está ativo no `docker-compose.yml` — o frontend já embute nginx. Use se quiser separar as responsabilidades futuramente.
+
+---
+
 ## Comandos Úteis
 
 ```bash
-# Status de todos os containers
+# Status de todos os containers + healthchecks
 docker compose ps
 
-# Logs de um serviço
-docker compose logs -f core-service
+# Logs de um serviço (últimas 100 linhas)
+docker compose logs -f core-service --tail=100
 docker compose logs -f freshservice-service
 
 # Rebuild de serviço específico
-docker compose up -d --build freshservice-service
+docker compose up -d --build agents-service
+docker compose up -d --build agents-service frontend
+
+# Restart sem rebuild (ex: após mudança no docker-compose.yml)
+docker compose up -d kong studio
 
 # Acessar banco
 docker exec -it jarvis-db-1 bash -c "PGPASSWORD='...' psql -U postgres -d postgres"
 
+# Aplicar migração SQL
+docker exec -i jarvis-db-1 bash -c "PGPASSWORD='...' psql -U postgres -d postgres" < schema.sql
+
 # Métricas do servidor
 curl http://localhost:9100/metrics
 
-# Healthcheck
+# Healthcheck da aplicação
 curl https://jarvis.voetur.com.br/api/health
 curl https://jarvis.voetur.com.br/api/ready
+
+# Backup manual
+bash scripts/backup.sh
+
+# Ver uso de disco dos volumes Docker
+docker system df -v | grep jarvis
 ```

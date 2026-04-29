@@ -16,6 +16,8 @@ services:
     image: supabase/postgres:15.1.1.78
     restart: unless-stopped
     logging: *logging
+    mem_limit: 1500m
+    cpus: "2"
     healthcheck:
       test: pg_isready -U postgres -h localhost
       interval: 5s
@@ -41,6 +43,8 @@ services:
     image: supabase/gotrue:v2.143.0
     restart: unless-stopped
     logging: *logging
+    mem_limit: 256m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -67,6 +71,8 @@ services:
     image: postgrest/postgrest:v12.0.1
     restart: unless-stopped
     logging: *logging
+    mem_limit: 256m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -86,6 +92,8 @@ services:
     image: supabase/realtime:v2.27.5
     restart: unless-stopped
     logging: *logging
+    mem_limit: 512m
+    cpus: "1"
     depends_on:
       db:
         condition: service_healthy
@@ -118,6 +126,8 @@ services:
     image: supabase/storage-api:v0.46.4
     restart: unless-stopped
     logging: *logging
+    mem_limit: 256m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -146,6 +156,8 @@ services:
     image: darthsim/imgproxy:v3.8.0
     restart: unless-stopped
     logging: *logging
+    mem_limit: 256m
+    cpus: "0.5"
     environment:
       IMGPROXY_BIND: 0.0.0.0:5001
       IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
@@ -160,6 +172,8 @@ services:
     image: supabase/postgres-meta:v0.80.0
     restart: unless-stopped
     logging: *logging
+    mem_limit: 256m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -183,6 +197,8 @@ services:
     image: kong:2.8.1
     restart: unless-stopped
     logging: *logging
+    mem_limit: 1000m
+    cpus: "2"
     healthcheck:
       test: ["CMD", "kong", "health"]
       interval: 30s
@@ -208,6 +224,8 @@ services:
     image: supabase/studio:latest
     restart: unless-stopped
     logging: *logging
+    mem_limit: 512m
+    cpus: "1"
     ports:
       - "127.0.0.1:54323:3000"
     depends_on:
@@ -413,6 +431,8 @@ services:
     image: atendai/evolution-api:latest
     restart: unless-stopped
     logging: *logging
+    mem_limit: 512m
+    cpus: "1"
     depends_on:
       db:
         condition: service_healthy
