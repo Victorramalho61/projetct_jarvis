@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from app_logger import log_event
 from db import get_settings, get_supabase
 
 logger = logging.getLogger(__name__)
@@ -207,7 +208,7 @@ def _save_checkpoint(db, log_id: int, phase: str, page: int, upserted: int) -> N
     }).eq("id", log_id).execute()
 
 
-def _run_backfill_sync() -> None:
+def _run_backfill_sync() -> int:
     db = get_supabase()
     s = get_settings()
     client = FreshserviceClient(s.freshservice_api_key)
@@ -259,6 +260,8 @@ def _run_backfill_sync() -> None:
                     _upsert_tickets(db, rows)
                     total_upserted += len(rows)
                     logger.info("Backfill %s p%d: %d tickets (total %d)", phase, page, len(rows), total_upserted)
+                    if page % 10 == 0:
+                        log_event("info", "freshservice", f"Backfill {phase} p{page}: {len(rows)} tickets (total {total_upserted})")
                     _save_checkpoint(db, log_id, phase, page + 1, total_upserted)
                     if len(tickets) < PAGE_SIZE:
                         break
@@ -290,9 +293,12 @@ def _run_backfill_sync() -> None:
             "tickets_upserted": total_upserted,
         }).eq("id", log_id).execute()
         logger.info("Freshservice backfill completed: %d tickets", total_upserted)
+        log_event("info", "freshservice", f"Backfill concluído: {total_upserted} tickets")
+        return total_upserted
 
     except Exception as e:
         logger.exception("Freshservice backfill failed")
+        log_event("error", "freshservice", f"Backfill falhou: {e}")
         db.table("freshservice_sync_log").update({
             "status":           "failed",
             "error":            str(e),
@@ -302,7 +308,7 @@ def _run_backfill_sync() -> None:
         raise
 
 
-def _run_daily_sync_sync() -> None:
+def _run_daily_sync_sync() -> int:
     from services.freshservice_agent import generate_daily_summary_sync  # noqa: PLC0415
 
     db = get_supabase()
@@ -368,6 +374,7 @@ def _run_daily_sync_sync() -> None:
             "summary_json":     summary_json,
         }).eq("id", log_id).execute()
         logger.info("Freshservice daily sync completed: %d tickets", total_upserted)
+        return total_upserted
 
     except Exception as e:
         logger.exception("Freshservice daily sync failed")
@@ -419,12 +426,12 @@ def _get_live_metrics_sync() -> dict:
     }
 
 
-async def run_backfill() -> None:
-    await asyncio.to_thread(_run_backfill_sync)
+async def run_backfill() -> int:
+    return await asyncio.to_thread(_run_backfill_sync)
 
 
-async def run_daily_sync() -> None:
-    await asyncio.to_thread(_run_daily_sync_sync)
+async def run_daily_sync() -> int:
+    return await asyncio.to_thread(_run_daily_sync_sync)
 
 
 async def get_live_metrics() -> dict:

@@ -65,18 +65,23 @@ async def run_agent(agent: dict) -> dict:
 
 
 async def _run_freshservice_sync(agent: dict) -> str:
+    import time
     mode = (agent.get("config") or {}).get("mode", "daily")
     if mode not in ("daily", "backfill"):
         mode = "daily"
     freshservice_url = os.getenv("FRESHSERVICE_SERVICE_URL", "http://freshservice-service:8003")
     token = _get_service_token()
-    async with httpx.AsyncClient(timeout=600.0) as client:
+    t0 = time.monotonic()
+    async with httpx.AsyncClient(timeout=3600.0) as client:
         r = await client.post(
             f"{freshservice_url}/api/freshservice/sync/{mode}",
             headers={"Authorization": f"Bearer {token}"},
         )
         r.raise_for_status()
-    return f"Sync Freshservice ({mode}) disparado via HTTP"
+    elapsed = round(time.monotonic() - t0)
+    data = r.json()
+    count = data.get("tickets_upserted", "?")
+    return f"Sync Freshservice ({mode}) concluído: {count} tickets em {elapsed}s"
 
 
 def _run_script_sync(agent: dict) -> str:

@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from auth import get_current_user, require_role
 from db import get_supabase
@@ -222,18 +222,18 @@ async def agent_daily_summary(_: dict = Depends(require_role("admin"))):
 
 
 @router.post("/sync/backfill")
-async def trigger_backfill(
-    background_tasks: BackgroundTasks,
-    _: dict = Depends(require_role("admin")),
-):
-    background_tasks.add_task(run_backfill)
-    return {"status": "started", "message": "Backfill iniciado em background"}
+async def trigger_backfill(_: dict = Depends(require_role("admin"))):
+    import time
+    t0 = time.monotonic()
+    count = await run_backfill()
+    duration = round(time.monotonic() - t0)
+    return {"status": "completed", "tickets_upserted": count, "duration_seconds": duration}
 
 
 @router.post("/sync/daily")
-async def trigger_daily_sync(
-    background_tasks: BackgroundTasks,
-    _: dict = Depends(require_role("admin")),
-):
-    background_tasks.add_task(run_daily_sync)
-    return {"status": "started", "message": "Sync diário iniciado em background"}
+async def trigger_daily_sync(_: dict = Depends(require_role("admin"))):
+    import time
+    t0 = time.monotonic()
+    count = await run_daily_sync()
+    duration = round(time.monotonic() - t0)
+    return {"status": "completed", "tickets_upserted": count, "duration_seconds": duration}
