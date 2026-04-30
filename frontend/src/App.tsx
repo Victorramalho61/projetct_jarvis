@@ -15,6 +15,9 @@ import AgentsPage from "./pages/admin/AgentsPage";
 import MoneypennyPage from "./pages/MoneypennyPage";
 import ProfilePage from "./pages/ProfilePage";
 import InitializePasswordPage from "./pages/InitializePasswordPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import ExpensesPage from "./pages/admin/ExpensesPage";
 
 export default function App() {
   return (
@@ -25,6 +28,8 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/solicitar-acesso" element={<RequestAccessPage />} />
           <Route path="/definir-senha" element={<InitializePasswordPage />} />
+          <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
+          <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
 
           <Route
             element={
@@ -42,6 +47,7 @@ export default function App() {
             <Route path="/admin/monitoramento/:id" element={<SystemDetailPage />} />
             <Route path="/freshservice" element={<FreshservicePage />} />
             <Route path="/admin/agentes" element={<AgentsPage />} />
+            <Route path="/admin/gastos" element={<ExpensesPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

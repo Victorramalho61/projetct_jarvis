@@ -187,6 +187,18 @@ services:
           - name: cors
             enabled: false
 
+  - name: expenses-svc
+    url: http://expenses-service:8006
+    routes:
+      - name: expenses-route
+        paths:
+          - /api/expenses
+        strip_path: false
+        preserve_host: true
+        plugins:
+          - name: cors
+            enabled: false
+
   # Core captura /api/auth, /api/users, /api/admin, /api/health, /api/ready
   - name: core-svc
     url: http://core-service:8001

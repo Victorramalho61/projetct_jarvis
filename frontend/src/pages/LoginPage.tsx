@@ -198,7 +198,7 @@ export default function LoginPage() {
                   />
                   Manter conectado
                 </label>
-                <span className="text-brand-deep font-medium cursor-default opacity-50 text-xs">Esqueci a senha</span>
+                <Link to="/esqueci-senha" className="text-voetur-600 font-medium hover:underline text-xs">Esqueci a senha</Link>
               </div>
 
               {error && <p className="text-sm text-rose-600">{error}</p>}

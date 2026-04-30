@@ -58,6 +58,8 @@ export default function Icon({ name, size = 18, strokeWidth = 1.75, className = 
       return <svg {...common}><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>;
     case "cpu":
       return <svg {...common}><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M9 2v2"/><path d="M9 20v2"/><path d="M2 15h2"/><path d="M20 15h2"/><path d="M2 9h2"/><path d="M20 9h2"/></svg>;
+    case "wallet":
+      return <svg {...common}><path d="M20 12V8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M2 10h18"/><circle cx="17" cy="15" r="2"/></svg>;
     default:
       return <svg {...common}><circle cx="12" cy="12" r="9"/></svg>;
   }

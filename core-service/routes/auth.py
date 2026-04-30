@@ -1,12 +1,19 @@
+import asyncio
 import logging
+import secrets
+import smtplib
+from datetime import datetime, timedelta, timezone
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 from typing import Annotated
 
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from auth import create_access_token, get_current_user
-from db import get_supabase
+from db import get_settings, get_supabase
 from limiter import limiter
 from services.app_logger import log_event
 
@@ -177,4 +184,106 @@ async def update_profile(body: ProfileUpdate, current_user: Annotated[dict, Depe
         updates["anthropic_api_key"] = body.anthropic_api_key.strip()
     if updates:
         db.table("profiles").update(updates).eq("id", current_user["id"]).execute()
+    return {"ok": True}
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+    channel: str = "both"
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+def _send_reset_email(to_email: str, display_name: str, reset_url: str) -> None:
+    s = get_settings()
+    if not s.smtp_user:
+        return
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = "Redefinição de senha — JARVIS"
+    msg["From"] = s.smtp_from or s.smtp_user
+    msg["To"] = to_email
+    html = (
+        f"<p>Olá, {display_name}!</p>"
+        f"<p>Clique no link para redefinir sua senha. Válido por <strong>10 minutos</strong>.</p>"
+        f'<p><a href="{reset_url}">{reset_url}</a></p>'
+        f"<p>Se você não solicitou, ignore este e-mail.</p>"
+    )
+    msg.attach(MIMEText(html, "html"))
+    try:
+        with smtplib.SMTP(s.smtp_host, s.smtp_port) as smtp:
+            smtp.starttls()
+            smtp.login(s.smtp_user, s.smtp_password)
+            smtp.sendmail(s.smtp_from or s.smtp_user, to_email, msg.as_string())
+    except Exception:
+        logger.exception("Erro ao enviar e-mail de reset para %s", to_email)
+
+
+async def _send_reset_whatsapp(phone: str, display_name: str, reset_url: str) -> None:
+    s = get_settings()
+    if not s.whatsapp_api_url:
+        return
+    text = f"Olá, {display_name}! Acesse o link para redefinir sua senha JARVIS (válido por 10 min): {reset_url}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{s.whatsapp_api_url}/message/sendText/{s.whatsapp_instance}",
+                headers={"apikey": s.whatsapp_api_key},
+                json={"number": phone, "text": text},
+            )
+    except Exception:
+        logger.exception("Erro ao enviar WhatsApp de reset para %s", phone)
+
+
+def _send_reset_whatsapp_bg(phone: str, display_name: str, reset_url: str) -> None:
+    asyncio.run(_send_reset_whatsapp(phone, display_name, reset_url))
+
+
+@router.post("/auth/forgot-password")
+@limiter.limit("3/15minutes")
+async def forgot_password(request: Request, body: ForgotPasswordRequest, bg: BackgroundTasks) -> dict:
+    email = body.email.strip().lower()
+    profile = _lookup_profile(email)
+    if not profile or not profile.get("active"):
+        return {"ok": True}
+    db = get_supabase()
+    db.table("password_reset_tokens").delete().eq("user_id", profile["id"]).is_("used_at", "null").execute()
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
+    db.table("password_reset_tokens").insert({
+        "user_id": profile["id"],
+        "token": token,
+        "expires_at": expires_at,
+    }).execute()
+    reset_url = f"{get_settings().frontend_url}/redefinir-senha?token={token}"
+    display_name = profile.get("display_name", "")
+    phone = profile.get("whatsapp_phone", "")
+    if body.channel in ("email", "both"):
+        bg.add_task(_send_reset_email, email, display_name, reset_url)
+    if body.channel in ("whatsapp", "both") and phone:
+        bg.add_task(_send_reset_whatsapp_bg, phone, display_name, reset_url)
+    return {"ok": True}
+
+
+@router.post("/auth/reset-password")
+@limiter.limit("5/minute")
+async def reset_password(request: Request, body: ResetPasswordRequest) -> dict:
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Senha deve ter no mínimo 8 caracteres.")
+    db = get_supabase()
+    result = db.table("password_reset_tokens").select("*").eq("token", body.token).execute()
+    if not result.data:
+        raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
+    token_row = result.data[0]
+    if token_row.get("used_at"):
+        raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
+    expires_at = datetime.fromisoformat(token_row["expires_at"].replace("Z", "+00:00"))
+    if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
+    new_hash = _hash_password(body.new_password)
+    db.table("profiles").update({"password_hash": new_hash}).eq("id", token_row["user_id"]).execute()
+    db.table("password_reset_tokens").update({"used_at": datetime.now(timezone.utc).isoformat()}).eq("id", token_row["id"]).execute()
+    log_event("info", "auth", "Senha redefinida", user_id=token_row["user_id"])
     return {"ok": True}

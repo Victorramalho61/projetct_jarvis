@@ -21,6 +21,11 @@ class Settings(BaseSettings):
     monitor_agent_url: str = "http://monitor-agent:9100"
     monitor_agent_tokens: str = ""
     freshservice_api_key: str = ""
+    smtp_host: str = "smtp.office365.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
 
     model_config = {"env_file": ".env"}
 
