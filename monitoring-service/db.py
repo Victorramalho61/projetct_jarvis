@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     monitor_agent_url: str = "http://monitor-agent:9100"
     monitor_agent_tokens: str = ""
     freshservice_api_key: str = ""
+    github_token: str = ""
 
     model_config = {"env_file": ".env"}
 

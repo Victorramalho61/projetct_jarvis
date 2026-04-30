@@ -323,6 +323,7 @@ services:
       WHATSAPP_API_URL: ${WHATSAPP_API_URL:-}
       WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
       WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
     networks:
       - app_net
     healthcheck:
