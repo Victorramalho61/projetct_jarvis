@@ -10,8 +10,16 @@ const ThemeContext = createContext<{ theme: Theme; toggleTheme: () => void }>({
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = localStorage.getItem("jarvis-theme") as Theme | null;
-    if (saved) return saved;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    const initial: Theme = (saved === "dark" || saved === "light")
+      ? saved
+      : window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    // Apply class synchronously to prevent flash of wrong theme
+    if (initial === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    return initial;
   });
 
   useEffect(() => {

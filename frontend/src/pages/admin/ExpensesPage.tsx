@@ -19,6 +19,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useAuth } from '../../context/AuthContext'
+import { useTheme } from '../../context/ThemeContext'
 import { ApiError, apiFetch } from '../../lib/api'
 import type {
   ExpenseDashboard,
@@ -113,8 +114,8 @@ function TendenciaBadge({ t }: { t: ForecastFornecedor['tendencia'] }) {
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-      <h2 className="text-sm font-semibold text-gray-300 mb-4">{title}</h2>
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+      <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">{title}</h2>
       {children}
     </div>
   )
@@ -124,7 +125,7 @@ function SkeletonGrid() {
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="h-28 rounded-xl bg-gray-800 animate-pulse" />
+        <div key={i} className="h-28 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
       ))}
     </div>
   )
@@ -138,12 +139,12 @@ function MonthlyTooltip({ active, payload, label }: {
 }) {
   if (!active || !payload || payload.length === 0) return null
   return (
-    <div className="rounded-lg border border-gray-700 bg-gray-900 p-3 text-xs shadow-xl">
-      <p className="font-semibold text-gray-200 mb-2">{label}</p>
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 text-xs shadow-xl">
+      <p className="font-semibold text-gray-800 dark:text-gray-200 mb-2">{label}</p>
       {payload.map((p) => (
         <div key={p.name} className="flex items-center justify-between gap-4">
           <span style={{ color: p.color }}>{p.name}</span>
-          <span className="text-gray-200 font-medium">{FMT_BRL(p.value ?? 0)}</span>
+          <span className="text-gray-800 dark:text-gray-200 font-medium">{FMT_BRL(p.value ?? 0)}</span>
         </div>
       ))}
     </div>
@@ -167,6 +168,16 @@ type ActiveTab = 'gastos' | 'previsao'
 
 export default function ExpensesPage() {
   const { token } = useAuth()
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+
+  // Theme-aware chart colors
+  const chartGrid   = isDark ? '#374151' : '#e5e7eb'
+  const chartTick   = isDark ? '#9ca3af' : '#6b7280'
+  const tooltipBg   = isDark ? '#111827' : '#ffffff'
+  const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
+  const tooltipText = isDark ? '#e5e7eb' : '#1f2937'
+  const bandFill    = isDark ? '#111827' : '#f9fafb'
 
   // Dashboard state
   const [data, setData]       = useState<ExpenseDashboard | null>(null)
@@ -261,10 +272,10 @@ export default function ExpensesPage() {
   // Top 15 fornecedores
   const topFornecedores = [...(data?.by_fornecedor ?? [])]
     .sort((a, b) => b.valor - a.valor)
-    .slice(0, 15)
+    .slice(0, 5)
 
   // Filiais sorted desc
-  const filiaisData = [...(data?.by_filial ?? [])].sort((a, b) => b.valor - a.valor)
+  const filiaisData = [...(data?.by_filial ?? [])].sort((a, b) => b.valor - a.valor).slice(0, 5)
 
   // Forecast chart: combine 2025 + 2026 meses
   const forecastChartData = (forecast?.meses ?? []).map((m) => ({
@@ -289,12 +300,12 @@ export default function ExpensesPage() {
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-gray-950 text-gray-100 p-6 space-y-6 max-w-[1440px] mx-auto">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 p-6 space-y-6 max-w-[1440px] mx-auto">
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Dashboard Financeiro — TI</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard Financeiro — TI</h1>
           <p className="text-sm text-gray-500 mt-1">
             VTC Operadora Logística · Despesas do departamento de TI (K_GESTOR 23)
           </p>
@@ -358,7 +369,7 @@ export default function ExpensesPage() {
       ) : null}
 
       {/* ── Sub-tabs ───────────────────────────────────────────────────────── */}
-      <div className="flex gap-1 border-b border-gray-800 pb-0">
+      <div className="flex gap-1 border-b border-gray-200 dark:border-gray-800 pb-0">
         {(['gastos', 'previsao'] as ActiveTab[]).map((tab) => (
           <button
             key={tab}
@@ -366,8 +377,8 @@ export default function ExpensesPage() {
             onClick={() => setActiveTab(tab)}
             className={`px-5 py-2.5 text-sm font-semibold rounded-t-lg transition-colors -mb-px border-b-2 ${
               activeTab === tab
-                ? 'border-blue-500 text-blue-400 bg-gray-900'
-                : 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-gray-900/50'
+                ? 'border-blue-500 text-blue-400 bg-white dark:bg-gray-900'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900/50'
             }`}
           >
             {tab === 'gastos' ? 'Gastos' : 'Previsão'}
@@ -387,7 +398,7 @@ export default function ExpensesPage() {
             <select
               value={filial}
               onChange={(e) => setFilial(e.target.value)}
-              className="h-9 rounded-lg border border-gray-700 bg-gray-800 px-3 text-sm text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
+              className="h-9 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 text-sm text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500/50"
             >
               <option value="">Filial: Todas</option>
               {(data.filiais ?? []).map((f) => (
@@ -395,7 +406,7 @@ export default function ExpensesPage() {
               ))}
             </select>
 
-            <div className="flex rounded-lg border border-gray-700 overflow-hidden">
+            <div className="flex rounded-lg border border-gray-300 dark:border-gray-700 overflow-hidden">
               {[
                 { value: '',          label: 'Todos' },
                 { value: 'contrato',  label: 'Contrato' },
@@ -408,7 +419,7 @@ export default function ExpensesPage() {
                   className={`px-3 py-1.5 text-sm font-medium transition-colors ${
                     tipo === opt.value
                       ? 'bg-blue-600 text-white'
-                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
                   }`}
                 >
                   {opt.label}
@@ -434,7 +445,7 @@ export default function ExpensesPage() {
               ) : (
                 <ResponsiveContainer width="100%" height={240}>
                   <ComposedChart data={monthlyChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
                     <XAxis
                       dataKey="mes"
                       tick={{ fontSize: 11, fill: '#9ca3af' }}
@@ -453,7 +464,7 @@ export default function ExpensesPage() {
                       cursor={{ fill: '#1f2937' }}
                     />
                     <Legend
-                      wrapperStyle={{ fontSize: 11, color: '#9ca3af', paddingTop: 8 }}
+                      wrapperStyle={{ fontSize: 11, color: chartTick, paddingTop: 8 }}
                     />
                     <Bar dataKey="Contrato" stackId="a" fill={COLOR_CONTRATO} radius={[0, 0, 0, 0]} maxBarSize={40} />
                     <Bar dataKey="Eventual" stackId="a" fill={COLOR_EVENTUAL} radius={[3, 3, 0, 0]} maxBarSize={40} />
@@ -574,7 +585,7 @@ export default function ExpensesPage() {
                     data={filiaisData}
                     margin={{ top: 5, right: 10, left: 10, bottom: 40 }}
                   >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
                     <XAxis
                       dataKey="filial"
                       tick={{ fontSize: 10, fill: '#9ca3af' }}
@@ -607,17 +618,17 @@ export default function ExpensesPage() {
           {/* Row 3: Tabela de lançamentos */}
           <div className="rounded-xl border border-gray-800 bg-gray-900 p-5">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
-              <h2 className="text-sm font-semibold text-gray-300">
+              <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                 Lançamentos
                 <span className="ml-2 text-xs font-normal text-gray-500">({totalRows} registros)</span>
               </h2>
               {/* Pagination controls */}
               {totalPages > 1 && (
-                <div className="flex items-center gap-2 text-xs text-gray-400">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <button
                     onClick={() => setPage((p) => Math.max(0, p - 1))}
                     disabled={page === 0}
-                    className="px-3 py-1 rounded border border-gray-700 hover:border-gray-500 disabled:opacity-40 transition-colors"
+                    className="px-3 py-1 rounded border border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 disabled:opacity-40 transition-colors"
                   >
                     ← Ant.
                   </button>
@@ -627,7 +638,7 @@ export default function ExpensesPage() {
                   <button
                     onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                     disabled={page >= totalPages - 1}
-                    className="px-3 py-1 rounded border border-gray-700 hover:border-gray-500 disabled:opacity-40 transition-colors"
+                    className="px-3 py-1 rounded border border-gray-300 dark:border-gray-700 hover:border-gray-400 dark:hover:border-gray-500 disabled:opacity-40 transition-colors"
                   >
                     Próx. →
                   </button>
@@ -638,7 +649,7 @@ export default function ExpensesPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-gray-800 text-left">
+                  <tr className="border-b border-gray-200 dark:border-gray-800 text-left">
                     {['Pessoa / Fornecedor', 'Conta', 'Valor', 'Vencimento', 'Liquidação', 'Filial', 'Origem', 'Tipo'].map((h) => (
                       <th key={h} className={`pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-gray-500 ${h === 'Valor' ? 'text-right' : ''}`}>
                         {h}
@@ -646,25 +657,25 @@ export default function ExpensesPage() {
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-800/60">
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60">
                   {pageRows.map((row, i) => (
-                    <tr key={i} className="hover:bg-gray-800/40 transition-colors">
-                      <td className="py-2 pr-4 max-w-[180px] truncate text-gray-100 font-medium text-xs" title={row.PESSOA}>
+                    <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                      <td className="py-2 pr-4 max-w-[180px] truncate text-gray-800 dark:text-gray-100 font-medium text-xs" title={row.PESSOA}>
                         {row.PESSOA}
                       </td>
-                      <td className="py-2 pr-4 max-w-[160px] truncate text-gray-400 text-xs" title={row.CONTA ?? ''}>
+                      <td className="py-2 pr-4 max-w-[160px] truncate text-gray-500 dark:text-gray-400 text-xs" title={row.CONTA ?? ''}>
                         {row.CONTA || '—'}
                       </td>
-                      <td className="py-2 pr-4 text-right font-semibold text-gray-100 text-xs whitespace-nowrap">
+                      <td className="py-2 pr-4 text-right font-semibold text-gray-800 dark:text-gray-100 text-xs whitespace-nowrap">
                         {FMT_BRL(row.VALOR ?? 0)}
                       </td>
-                      <td className="py-2 pr-4 text-xs text-gray-400 whitespace-nowrap">
+                      <td className="py-2 pr-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                         {row.DATAVENCIMENTO ? row.DATAVENCIMENTO.slice(0, 10) : '—'}
                       </td>
-                      <td className="py-2 pr-4 text-xs text-gray-400 whitespace-nowrap">
+                      <td className="py-2 pr-4 text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">
                         {row.DATALIQUIDACAO ? row.DATALIQUIDACAO.slice(0, 10) : '—'}
                       </td>
-                      <td className="py-2 pr-4 text-xs text-gray-400">
+                      <td className="py-2 pr-4 text-xs text-gray-500 dark:text-gray-400">
                         {row.FILIAL}
                       </td>
                       <td className="py-2 pr-4">
@@ -773,16 +784,16 @@ export default function ExpensesPage() {
                           <stop offset="95%" stopColor={COLOR_PROJ} stopOpacity={0.02} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#4b5563' }} tickLine={false} />
-                      <YAxis tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={65} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: chartTick }} axisLine={{ stroke: chartGrid }} tickLine={false} />
+                      <YAxis tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: chartTick }} axisLine={false} tickLine={false} width={65} />
                       <Tooltip
                         formatter={(v: number, name: string) => [FMT_BRL(v), name === 'real' ? 'Realizado' : 'Projetado']}
-                        contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                        itemStyle={{ color: '#e5e7eb' }}
+                        contentStyle={{ backgroundColor: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8, fontSize: 12, color: tooltipText }}
+                        itemStyle={{ color: tooltipText }}
                         cursor={{ stroke: '#4b5563' }}
                       />
-                      <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af', paddingTop: 8 }} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: chartTick, paddingTop: 8 }} />
                       {/* Confidence band */}
                       <Area
                         type="monotone"
@@ -797,7 +808,7 @@ export default function ExpensesPage() {
                         type="monotone"
                         dataKey="valor_min"
                         stroke="none"
-                        fill="#111827"
+                        fill={bandFill}
                         fillOpacity={1}
                         name="Intervalo Min"
                         legendType="none"
@@ -839,16 +850,16 @@ export default function ExpensesPage() {
                 <ChartCard title="Comparativo 2025 vs 2026 por Mês">
                   <ResponsiveContainer width="100%" height={240}>
                     <BarChart data={yoyChartData} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: '#9ca3af' }} axisLine={{ stroke: '#4b5563' }} tickLine={false} />
-                      <YAxis tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: '#9ca3af' }} axisLine={false} tickLine={false} width={65} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: chartTick }} axisLine={{ stroke: chartGrid }} tickLine={false} />
+                      <YAxis tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: chartTick }} axisLine={false} tickLine={false} width={65} />
                       <Tooltip
                         formatter={(v: number) => [FMT_BRL(v)]}
-                        contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                        itemStyle={{ color: '#e5e7eb' }}
+                        contentStyle={{ backgroundColor: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8, fontSize: 12, color: tooltipText }}
+                        itemStyle={{ color: tooltipText }}
                         cursor={{ fill: '#1f2937' }}
                       />
-                      <Legend wrapperStyle={{ fontSize: 11, color: '#9ca3af', paddingTop: 8 }} />
+                      <Legend wrapperStyle={{ fontSize: 11, color: chartTick, paddingTop: 8 }} />
                       <Bar dataKey="2025" fill={COLOR_2025} radius={[3, 3, 0, 0]} maxBarSize={28} />
                       <Bar dataKey="2026" fill={COLOR_2026} radius={[3, 3, 0, 0]} maxBarSize={28} />
                     </BarChart>
@@ -886,27 +897,27 @@ export default function ExpensesPage() {
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-800/60">
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60">
                         {[...forecast.by_fornecedor]
                           .sort((a, b) => b.total_estimado_ano - a.total_estimado_ano)
                           .map((f, i) => (
-                            <tr key={i} className="hover:bg-gray-800/40 transition-colors">
-                              <td className="py-2 pr-4 max-w-[200px] truncate text-gray-100 font-medium" title={f.pessoa}>
+                            <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                              <td className="py-2 pr-4 max-w-[200px] truncate text-gray-800 dark:text-gray-100 font-medium" title={f.pessoa}>
                                 {f.pessoa}
                               </td>
-                              <td className="py-2 pr-4 text-right text-gray-300 whitespace-nowrap">
+                              <td className="py-2 pr-4 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
                                 {FMT_BRL(f.valor_executado)}
                               </td>
-                              <td className="py-2 pr-4 text-right text-gray-400 whitespace-nowrap">
+                              <td className="py-2 pr-4 text-right text-gray-500 dark:text-gray-400 whitespace-nowrap">
                                 {FMT_BRL(f.media_mensal)}
                               </td>
-                              <td className="py-2 pr-4 text-center text-gray-400">
+                              <td className="py-2 pr-4 text-center text-gray-500 dark:text-gray-400">
                                 {f.meses_restantes}
                               </td>
-                              <td className="py-2 pr-4 text-right text-gray-300 whitespace-nowrap">
+                              <td className="py-2 pr-4 text-right text-gray-700 dark:text-gray-300 whitespace-nowrap">
                                 {FMT_BRL(f.valor_projetado_restante)}
                               </td>
-                              <td className="py-2 pr-4 text-right font-semibold text-white whitespace-nowrap">
+                              <td className="py-2 pr-4 text-right font-semibold text-gray-900 dark:text-white whitespace-nowrap">
                                 {FMT_BRL(f.total_estimado_ano)}
                               </td>
                               <td className="py-2">
@@ -921,10 +932,10 @@ export default function ExpensesPage() {
               )}
 
               {/* Methodology note */}
-              <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-4 flex items-start gap-3">
-                <span className="text-gray-500 text-lg mt-0.5">ℹ</span>
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 p-4 flex items-start gap-3">
+                <span className="text-gray-400 text-lg mt-0.5">ℹ</span>
                 <div>
-                  <p className="text-xs font-semibold text-gray-400">Metodologia de Projeção</p>
+                  <p className="text-xs font-semibold text-gray-600 dark:text-gray-400">Metodologia de Projeção</p>
                   <p className="text-xs text-gray-500 mt-1">
                     Modelo: {forecast.modelo || 'Regressão Linear + Média Móvel 3m'} &nbsp;·&nbsp;
                     Dados de referência: Jul/2025 – hoje &nbsp;·&nbsp;
