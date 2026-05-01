@@ -97,6 +97,51 @@ def _aggregate(rows: list[dict], key_fn, val_key: str) -> list[dict]:
     )
 
 
+_RECURRENCE_QUERY = """
+SELECT
+    PES.HANDLE,
+    COUNT(DISTINCT LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7)) AS MESES
+FROM FN_PARCELAS PAR WITH (NOLOCK)
+    LEFT JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+    LEFT JOIN GN_PESSOAS PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+WHERE PAR.EMPRESA = 1
+    AND DOC.GRUPOASSINATURAS IN (SELECT HANDLE FROM CP_GRUPOALCADAS WITH (NOLOCK) WHERE K_GESTOR = 23)
+    AND DOC.ENTRADASAIDA IN ('I','E')
+    AND DOC.ABRANGENCIA <> 'R'
+    AND PAR.DATAVENCIMENTO >= DATEADD(MONTH, -16, GETDATE())
+    AND PES.HANDLE IN ({placeholders})
+GROUP BY PES.HANDLE
+"""
+
+
+def _fetch_recurrence(handles: list) -> dict[str, str]:
+    """Returns {pessoa_nome: categoria} for a list of PESSOA handles."""
+    if not handles:
+        return {}
+    # handles are mixed (int/None), keep unique non-null
+    unique = list({h for h in handles if h is not None})
+    if not unique:
+        return {}
+    placeholders = ",".join("?" * len(unique))
+    query = _RECURRENCE_QUERY.format(placeholders=placeholders)
+    conn = get_sql_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(query, unique)
+        result = {str(row[0]): row[1] for row in cursor.fetchall()}
+    finally:
+        conn.close()
+    return result
+
+
+def _categoria(meses: int) -> str:
+    if meses >= 3:
+        return "Recorrente"
+    if meses == 2:
+        return "Ocasional"
+    return "Pontual"
+
+
 def fetch_dashboard(date_from: str, date_to: str) -> dict:
     conn = get_sql_connection()
     try:
@@ -109,6 +154,14 @@ def fetch_dashboard(date_from: str, date_to: str) -> dict:
         ]
     finally:
         conn.close()
+
+    # Compute recurrence per supplier using 16-month history
+    pessoa_handles = [r.get("COD_PESSOA") for r in rows]
+    recurrence_map = _fetch_recurrence(pessoa_handles)
+    for row in rows:
+        handle = str(row.get("COD_PESSOA")) if row.get("COD_PESSOA") is not None else None
+        meses = recurrence_map.get(handle, 1) if handle else 1
+        row["CATEGORIA"] = _categoria(meses)
 
     total_valor = sum(float(r.get("VALOR") or 0) for r in rows)
     efetivo_rows = [r for r in rows if r.get("TIPO_DOC") == "Efetivo"]
@@ -134,6 +187,12 @@ def fetch_dashboard(date_from: str, date_to: str) -> dict:
     by_origem_raw = _aggregate(rows, lambda r: r.get("ORIGEM") or "Outros", "VALOR")
     by_origem = [{"origem": e["key"], "valor": e["valor"]} for e in by_origem_raw]
 
+    by_categoria_raw = _aggregate(rows, lambda r: r.get("CATEGORIA", "Pontual"), "VALOR")
+    by_categoria = [{"categoria": e["key"], "valor": e["valor"]} for e in by_categoria_raw]
+
+    recorrente_rows = [r for r in rows if r.get("CATEGORIA") == "Recorrente"]
+    pontual_rows = [r for r in rows if r.get("CATEGORIA") == "Pontual"]
+
     return {
         "kpis": {
             "total_valor": round(total_valor, 2),
@@ -143,9 +202,12 @@ def fetch_dashboard(date_from: str, date_to: str) -> dict:
             "count_efetivo": len(efetivo_rows),
             "count_previsao": len(previsao_rows),
             "media_mensal": round(total_valor / months_in_period, 2),
+            "total_recorrente": round(sum(float(r.get("VALOR") or 0) for r in recorrente_rows), 2),
+            "total_pontual": round(sum(float(r.get("VALOR") or 0) for r in pontual_rows), 2),
         },
         "by_month": by_month,
         "by_conta": by_conta,
         "by_origem": by_origem,
+        "by_categoria": by_categoria,
         "rows": rows,
     }

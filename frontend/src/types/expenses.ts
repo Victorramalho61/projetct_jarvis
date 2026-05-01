@@ -2,6 +2,8 @@ export interface ExpenseKPIs {
   total_valor: number;
   total_efetivo: number;
   total_previsao: number;
+  total_recorrente: number;
+  total_pontual: number;
   count_parcelas: number;
   count_efetivo: number;
   count_previsao: number;
@@ -23,9 +25,15 @@ export interface ExpenseByOrigem {
   valor: number;
 }
 
+export interface ExpenseByCategoria {
+  categoria: string;
+  valor: number;
+}
+
 export interface ExpenseRow {
   FILIAL: string;
   COD_PESSOA: string | null;
+  CATEGORIA: string;
   PESSOA: string;
   DATA_EMISSAO: string | null;
   DATAVENCIMENTO: string | null;
@@ -48,5 +56,6 @@ export interface ExpenseDashboard {
   by_month: ExpenseByMonth[];
   by_conta: ExpenseByConta[];
   by_origem: ExpenseByOrigem[];
+  by_categoria: ExpenseByCategoria[];
   rows: ExpenseRow[];
 }

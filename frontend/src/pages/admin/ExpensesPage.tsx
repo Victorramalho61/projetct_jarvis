@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import { useAuth } from "../../context/AuthContext";
 import { ApiError, apiFetch } from "../../lib/api";
-import type { ExpenseDashboard, ExpenseRow } from "../../types/expenses";
+import type { ExpenseDashboard, ExpenseByCategoria, ExpenseRow } from "../../types/expenses";
 
 const FMT_BRL = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 });
@@ -56,6 +56,19 @@ function OrigemBadge({ origem }: { origem: string }) {
   );
 }
 
+function CategoriaBadge({ categoria }: { categoria: string }) {
+  const styles: Record<string, string> = {
+    "Recorrente": "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+    "Ocasional":  "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+    "Pontual":    "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400",
+  };
+  return (
+    <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${styles[categoria] ?? "bg-gray-100 text-gray-600"}`}>
+      {categoria}
+    </span>
+  );
+}
+
 function TipoBadge({ tipo }: { tipo: string }) {
   return (
     <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${
@@ -82,6 +95,7 @@ export default function ExpensesPage() {
   const [filterTipo, setFilterTipo] = useState("");
   const [filterOrigem, setFilterOrigem] = useState("");
   const [filterFilial, setFilterFilial] = useState("");
+  const [filterCategoria, setFilterCategoria] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -108,6 +122,7 @@ export default function ExpensesPage() {
     if (filterTipo && r.TIPO_DOC !== filterTipo) return false;
     if (filterOrigem && r.ORIGEM !== filterOrigem) return false;
     if (filterFilial && r.FILIAL !== filterFilial) return false;
+    if (filterCategoria && r.CATEGORIA !== filterCategoria) return false;
     return true;
   });
 
@@ -156,32 +171,47 @@ export default function ExpensesPage() {
 
       {data && (
         <>
-          {/* KPI cards */}
+          {/* KPI cards — linha 1: totais */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <KPICard
-              label="Total Gasto"
-              value={FMT_BRL(data.kpis.total_valor)}
-              sub={`${data.kpis.count_parcelas} parcelas`}
-              accent="text-emerald-600 dark:text-emerald-400"
-            />
-            <KPICard
-              label="Efetivo"
-              value={FMT_BRL(data.kpis.total_efetivo)}
-              sub={`${data.kpis.count_efetivo} parcelas`}
-              accent="text-blue-600 dark:text-blue-400"
-            />
-            <KPICard
-              label="Previsão"
-              value={FMT_BRL(data.kpis.total_previsao)}
-              sub={`${data.kpis.count_previsao} parcelas`}
-              accent="text-amber-600 dark:text-amber-400"
-            />
-            <KPICard
-              label="Média Mensal"
-              value={FMT_BRL(data.kpis.media_mensal)}
-              sub="no período selecionado"
-              accent="text-purple-600 dark:text-purple-400"
-            />
+            <KPICard label="Total Gasto" value={FMT_BRL(data.kpis.total_valor)} sub={`${data.kpis.count_parcelas} parcelas`} accent="text-emerald-600 dark:text-emerald-400" />
+            <KPICard label="Recorrente / Contratual" value={FMT_BRL(data.kpis.total_recorrente)} sub="fornecedores ≥ 3 meses" accent="text-blue-600 dark:text-blue-400" />
+            <KPICard label="Pagamento Pontual" value={FMT_BRL(data.kpis.total_pontual)} sub="fornecedor 1 único mês" accent="text-orange-600 dark:text-orange-400" />
+            <KPICard label="Média Mensal" value={FMT_BRL(data.kpis.media_mensal)} sub="no período selecionado" accent="text-purple-600 dark:text-purple-400" />
+          </div>
+          {/* KPI cards — linha 2: efetivo vs previsão */}
+          <div className="grid grid-cols-2 gap-4">
+            <KPICard label="Efetivo" value={FMT_BRL(data.kpis.total_efetivo)} sub={`${data.kpis.count_efetivo} parcelas confirmadas`} accent="text-emerald-600 dark:text-emerald-400" />
+            <KPICard label="Previsão" value={FMT_BRL(data.kpis.total_previsao)} sub={`${data.kpis.count_previsao} parcelas previstas`} accent="text-amber-600 dark:text-amber-400" />
+          </div>
+
+          {/* Categoria breakdown */}
+          <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+            <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Recorrente vs Pontual</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {data.by_categoria.map((c: ExpenseByCategoria) => {
+                const pct = data.kpis.total_valor > 0 ? (c.valor / data.kpis.total_valor) * 100 : 0;
+                const color = c.categoria === "Recorrente" ? "bg-emerald-500" : c.categoria === "Ocasional" ? "bg-blue-500" : "bg-orange-400";
+                return (
+                  <button key={c.categoria} onClick={() => setFilterCategoria(filterCategoria === c.categoria ? "" : c.categoria)}
+                    className={`text-left p-4 rounded-lg border-2 transition-colors ${filterCategoria === c.categoria ? "border-brand-green bg-brand-soft dark:bg-brand-green/10" : "border-gray-100 dark:border-gray-800 hover:border-gray-200 dark:hover:border-gray-700"}`}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`w-3 h-3 rounded-full ${color}`} />
+                      <span className="text-sm font-medium text-gray-700 dark:text-gray-300">{c.categoria}</span>
+                    </div>
+                    <p className="text-xl font-bold text-gray-900 dark:text-gray-100">{FMT_BRL(c.valor)}</p>
+                    <div className="mt-2 h-1.5 rounded-full bg-gray-100 dark:bg-gray-800">
+                      <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <p className="mt-1 text-xs text-gray-400">{pct.toFixed(1)}% do total</p>
+                  </button>
+                );
+              })}
+            </div>
+            {filterCategoria && (
+              <button onClick={() => setFilterCategoria("")} className="mt-3 text-xs text-brand-green hover:underline">
+                Limpar filtro de categoria
+              </button>
+            )}
           </div>
 
           {/* Charts */}
@@ -239,12 +269,13 @@ export default function ExpensesPage() {
                 <span className="ml-2 text-xs font-normal text-gray-400">({filteredRows.length} registros)</span>
               </h2>
               <div className="flex gap-2 flex-wrap">
+                <FilterSelect value={filterCategoria} onChange={setFilterCategoria} placeholder="Categoria" options={["Recorrente", "Ocasional", "Pontual"]} />
                 <FilterSelect value={filterTipo} onChange={setFilterTipo} placeholder="Tipo" options={["Efetivo", "Previsao"]} />
                 <FilterSelect value={filterOrigem} onChange={setFilterOrigem} placeholder="Origem" options={uniqueOrigem} />
                 <FilterSelect value={filterFilial} onChange={setFilterFilial} placeholder="Filial" options={uniqueFilial} />
-                {(filterTipo || filterOrigem || filterFilial) && (
+                {(filterTipo || filterOrigem || filterFilial || filterCategoria) && (
                   <button
-                    onClick={() => { setFilterTipo(""); setFilterOrigem(""); setFilterFilial(""); }}
+                    onClick={() => { setFilterTipo(""); setFilterOrigem(""); setFilterFilial(""); setFilterCategoria(""); }}
                     className="h-8 px-3 rounded-md text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border border-gray-200 dark:border-gray-700 transition-colors"
                   >
                     Limpar
@@ -263,6 +294,7 @@ export default function ExpensesPage() {
                     <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Vencimento</th>
                     <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Liquidação</th>
                     <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Origem</th>
+                    <th className="pb-2 pr-4 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Categoria</th>
                     <th className="pb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Tipo</th>
                   </tr>
                 </thead>
@@ -286,6 +318,9 @@ export default function ExpensesPage() {
                       </td>
                       <td className="py-2 pr-4">
                         <OrigemBadge origem={row.ORIGEM} />
+                      </td>
+                      <td className="py-2 pr-4">
+                        <CategoriaBadge categoria={row.CATEGORIA} />
                       </td>
                       <td className="py-2">
                         <TipoBadge tipo={row.TIPO_DOC} />
