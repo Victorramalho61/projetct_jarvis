@@ -55,3 +55,86 @@
 @keyframes spin-slow {
   to { transform: rotate(360deg); }
 }
+
+/* ── Theme CSS variables ───────────────────────────────────────────────────── */
+:root {
+  --bg-base: #f9fafb;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
+}
+html.dark {
+  --bg-base: #111827;
+}
+
+/* ── KPICard skeleton shimmer ─────────────────────────────────────────────── */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.shimmer {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(0,0,0,0.04) 25%,
+    rgba(0,0,0,0.10) 50%,
+    rgba(0,0,0,0.04) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s infinite;
+}
+html.dark .shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.04) 25%,
+    rgba(255,255,255,0.09) 50%,
+    rgba(255,255,255,0.04) 75%
+  );
+  background-size: 200% 100%;
+}
+.kpi-na-badge {
+  font-size: 9px;
+  background: rgba(0,0,0,0.05);
+  border: 1px solid rgba(0,0,0,0.08);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: #94a3b8;
+  font-family: var(--font-body);
+}
+html.dark .kpi-na-badge {
+  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.07);
+}
+
+/* ── Executive chart tooltip ──────────────────────────────────────────────── */
+.chart-tooltip {
+  background: #1a2332;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 11px 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  backdrop-filter: blur(16px); min-width: 155px;
+}
+.chart-tooltip__label { font-size: 10.5px; color: #475569; margin-bottom: 7px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+.chart-tooltip__row   { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+.chart-tooltip__dot   { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.chart-tooltip__name  { font-size: 12px; color: #94a3b8; flex: 1; }
+.chart-tooltip__value { font-size: 14px; font-weight: 600; color: #f1f5f9; font-family: var(--font-mono); }
+.chart-tooltip__sub   { font-size: 11px; color: #64748b; margin-top: 4px; }
+
+/* ── Donut legenda lateral ────────────────────────────────────────────────── */
+.donut-wrapper { display: flex; align-items: center; gap: 18px; }
+.donut-legend  { display: flex; flex-direction: column; gap: 7px; flex: 1; }
+.donut-legend__item { display: flex; align-items: center; gap: 8px; cursor: pointer; transition: opacity 0.2s; }
+.donut-legend__swatch { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.donut-legend__name   { font-size: 11.5px; color: #6b7280; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.dark .donut-legend__name { color: #94a3b8; }
+.donut-legend__pct    { font-size: 11.5px; font-family: var(--font-mono); color: #111827; }
+html.dark .donut-legend__pct { color: #f1f5f9; }
+
+/* ── Radial legend ────────────────────────────────────────────────────────── */
+.radial-legend       { display: flex; flex-direction: column; gap: 9px; margin-top: 6px; }
+.radial-legend__item { display: flex; align-items: center; gap: 8px; }
+.radial-legend__bar  { width: 28px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+.radial-legend__name { font-size: 11.5px; color: #6b7280; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.dark .radial-legend__name { color: #94a3b8; }
+.radial-legend__value{ font-size: 11.5px; font-family: var(--font-mono); color: #111827; }
+html.dark .radial-legend__value { color: #f1f5f9; }

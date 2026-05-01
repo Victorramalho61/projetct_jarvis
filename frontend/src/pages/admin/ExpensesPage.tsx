@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
   ComposedChart,
-  Label,
   Legend,
   Line,
-  Pie,
-  PieChart,
-  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -29,6 +22,9 @@ import type {
 } from '../../types/expenses'
 import KPICard from '../../components/expenses/KPICard'
 import YearSelector from '../../components/expenses/YearSelector'
+import ForecastChart from '../../components/expenses/ForecastChart'
+import DonutOrigem from '../../components/expenses/DonutOrigem'
+import FornecedoresRadial from '../../components/expenses/FornecedoresRadial'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -57,19 +53,10 @@ function shortMonth(m: string) {
 
 const COLOR_CONTRATO = '#3b82f6'
 const COLOR_EVENTUAL = '#f97316'
-const COLOR_OC       = '#8b5cf6'
-const COLOR_FIN      = '#6b7280'
 const COLOR_LY       = '#9ca3af'
 const COLOR_2025     = '#6b7280'
 const COLOR_2026     = '#3b82f6'
-const COLOR_PROJ     = '#93c5fd'
 const COLOR_TEAL     = '#14b8a6'
-
-const ORIGEM_COLOR: Record<string, string> = {
-  'Contrato':        COLOR_CONTRATO,
-  'Ordem de Compra': COLOR_OC,
-  'Financeiro':      COLOR_FIN,
-}
 
 // ── Inline sub-components ──────────────────────────────────────────────────────
 
@@ -151,16 +138,6 @@ function MonthlyTooltip({ active, payload, label }: {
   )
 }
 
-// ── Donut center label ─────────────────────────────────────────────────────────
-
-function DonutCenter({ cx, cy, total }: { cx: number; cy: number; total: number }) {
-  return (
-    <text x={cx} y={cy} textAnchor="middle" dominantBaseline="middle" fill="#e5e7eb">
-      <tspan x={cx} dy="-0.4em" fontSize={11} fill="#9ca3af">Total</tspan>
-      <tspan x={cx} dy="1.4em" fontSize={13} fontWeight="bold">{FMT_COMPACT(total)}</tspan>
-    </text>
-  )
-}
 
 // ── Supplier accordion ────────────────────────────────────────────────────────
 
@@ -317,8 +294,6 @@ export default function ExpensesPage() {
   const tooltipBg   = isDark ? '#111827' : '#ffffff'
   const tooltipBorder = isDark ? '#374151' : '#e5e7eb'
   const tooltipText = isDark ? '#e5e7eb' : '#1f2937'
-  const bandFill    = isDark ? '#111827' : '#f9fafb'
-
   // Dashboard state
   const [data, setData]       = useState<ExpenseDashboard | null>(null)
   const [loading, setLoading] = useState(true)
@@ -411,7 +386,7 @@ export default function ExpensesPage() {
   // Donut total
   const origemTotal = (data?.by_origem ?? []).reduce((s, o) => s + o.valor, 0)
 
-  // Top 15 fornecedores
+  // Top 5 fornecedores
   const topFornecedores = [...(data?.by_fornecedor ?? [])]
     .sort((a, b) => b.valor - a.valor)
     .slice(0, 5)
@@ -419,14 +394,30 @@ export default function ExpensesPage() {
   // Filiais sorted desc
   const filiaisData = [...(data?.by_filial ?? [])].sort((a, b) => b.valor - a.valor).slice(0, 5)
 
-  // Forecast chart: combine 2025 + 2026 meses
-  const forecastChartData = (forecast?.meses ?? []).map((m) => ({
+  // DonutOrigem data (after origemTotal)
+  const ORIGEM_COLORS_LIST = ['#3b82f6', '#8b5cf6', '#6b7280', '#f97316']
+  const origemData = (data?.by_origem ?? []).map((o) => ({
+    name: o.origem,
+    value: o.valor,
+    pct: origemTotal > 0 ? Math.round((o.valor / origemTotal) * 100) : 0,
+  }))
+
+  // FornecedoresRadial data (after topFornecedores)
+  const RADIAL_COLORS = ['#3b82f6', '#8b5cf6', '#14b8a6', '#f97316', '#ef4444']
+  const maxForn = topFornecedores[0]?.valor ?? 1
+  const fornecedoresRadialData = topFornecedores.map((f) => ({
+    name: f.pessoa.length > 28 ? f.pessoa.slice(0, 26) + '…' : f.pessoa,
+    value: f.valor,
+    pct: Math.round((f.valor / maxForn) * 100),
+  }))
+
+  // ForecastChart data — rename projecao → proj
+  const forecastMapped = (forecast?.meses ?? []).map((m) => ({
     mes: shortMonth(m.mes),
-    mesKey: m.mes,
     real:    m.tipo === 'real'     ? m.valor : null,
-    projecao: m.tipo === 'projecao' ? m.valor : null,
-    valor_min: m.valor_min ?? null,
-    valor_max: m.valor_max ?? null,
+    proj:    m.tipo === 'projecao' ? m.valor : null,
+    min:     m.valor_min ?? null,
+    max:     m.valor_max ?? null,
   }))
 
   // YoY comparison chart (months that exist in both years)
@@ -469,43 +460,47 @@ export default function ExpensesPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard
             title="Total YTD"
-            value={data.kpis.total_ytd?.valor ?? data.kpis.total_valor}
-            sparkline={data.kpis.total_ytd?.sparkline}
-            vs_mes_anterior={data.kpis.total_ytd?.vs_mes_anterior}
-            vs_forecast={data.kpis.total_ytd?.vs_forecast}
-            vs_ly={data.kpis.total_ytd?.vs_ly}
-            color="#3b82f6"
+            value={FMT_BRL(data.kpis.total_ytd?.valor ?? data.kpis.total_valor)}
+            loading={loading}
+            accentColor="blue"
             subtitle={`${data.kpis.count_parcelas} parcelas`}
+            comparison={[
+              { label: 'vs. Mês Ant.', value: null },
+              { label: 'vs. Forecast', value: null },
+              ...(year === 2026 ? [{ label: 'vs. 2025', value: null }] : []),
+            ]}
           />
           <KPICard
             title="Contratos"
-            value={data.kpis.contratos?.valor ?? data.kpis.total_recorrente}
-            sparkline={data.kpis.contratos?.sparkline}
-            vs_mes_anterior={data.kpis.contratos?.vs_mes_anterior}
-            vs_forecast={data.kpis.contratos?.vs_forecast}
-            vs_ly={data.kpis.contratos?.vs_ly}
-            color="#8b5cf6"
+            value={FMT_BRL(data.kpis.contratos?.valor ?? data.kpis.total_recorrente)}
+            loading={loading}
+            accentColor="violet"
             subtitle="despesas recorrentes"
+            comparison={[
+              { label: 'vs. Mês Ant.', value: null },
+              { label: 'vs. Forecast', value: null },
+            ]}
           />
           <KPICard
             title="Eventual"
-            value={data.kpis.eventual?.valor ?? data.kpis.total_eventual}
-            sparkline={data.kpis.eventual?.sparkline}
-            vs_mes_anterior={data.kpis.eventual?.vs_mes_anterior}
-            vs_forecast={data.kpis.eventual?.vs_forecast}
-            vs_ly={data.kpis.eventual?.vs_ly}
-            color="#f97316"
+            value={FMT_BRL(data.kpis.eventual?.valor ?? data.kpis.total_eventual)}
+            loading={loading}
+            accentColor="amber"
             subtitle="compras e pontuais"
+            comparison={[
+              { label: 'vs. Mês Ant.', value: null },
+              { label: 'vs. Forecast', value: null },
+            ]}
           />
           <KPICard
             title="Média Mensal"
-            value={data.kpis.media_mensal?.valor ?? data.kpis.media_mensal_valor}
-            sparkline={data.kpis.media_mensal?.sparkline}
-            vs_mes_anterior={data.kpis.media_mensal?.vs_mes_anterior}
-            vs_forecast={data.kpis.media_mensal?.vs_forecast}
-            vs_ly={data.kpis.media_mensal?.vs_ly}
-            color="#14b8a6"
+            value={FMT_BRL(data.kpis.media_mensal?.valor ?? data.kpis.media_mensal_valor ?? data.kpis.media_mensal)}
+            loading={loading}
+            accentColor="teal"
             subtitle="no ano selecionado"
+            comparison={[
+              { label: 'vs. Mês Ant.', value: null },
+            ]}
           />
         </div>
       ) : null}
@@ -626,97 +621,19 @@ export default function ExpensesPage() {
               )}
             </ChartCard>
 
-            <ChartCard title="Distribuição por Origem">
-              {data.by_origem.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-12">Sem dados</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie
-                      data={data.by_origem}
-                      dataKey="valor"
-                      nameKey="origem"
-                      cx="50%"
-                      cy="48%"
-                      innerRadius={60}
-                      outerRadius={90}
-                      paddingAngle={2}
-                      label={({ name, percent }: { name: string; percent: number }) =>
-                        `${name} ${(percent * 100).toFixed(0)}%`
-                      }
-                      labelLine={{ stroke: '#4b5563' }}
-                    >
-                      {data.by_origem.map((entry) => (
-                        <Cell
-                          key={entry.origem}
-                          fill={ORIGEM_COLOR[entry.origem] ?? COLOR_FIN}
-                        />
-                      ))}
-                      <Label
-                        content={({ viewBox }) => {
-                          const vb = viewBox as { cx: number; cy: number }
-                          return <DonutCenter cx={vb.cx} cy={vb.cy} total={origemTotal} />
-                        }}
-                        position="center"
-                      />
-                    </Pie>
-                    <Tooltip
-                      formatter={(v: number) => [FMT_BRL(v), 'Total']}
-                      contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                      itemStyle={{ color: '#e5e7eb' }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
+            <DonutOrigem
+              data={origemData}
+              colors={ORIGEM_COLORS_LIST}
+            />
           </div>
 
           {/* Row 2: Top Fornecedores + Por Filial */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-            <ChartCard title="Top 15 Fornecedores">
-              {topFornecedores.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-12">Sem dados</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={380}>
-                  <BarChart
-                    data={topFornecedores}
-                    layout="vertical"
-                    margin={{ top: 0, right: 60, left: 0, bottom: 0 }}
-                  >
-                    <XAxis
-                      type="number"
-                      tickFormatter={FMT_COMPACT}
-                      tick={{ fontSize: 10, fill: '#9ca3af' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      type="category"
-                      dataKey="pessoa"
-                      width={150}
-                      tick={{ fontSize: 10, fill: '#d1d5db' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      formatter={(v: number) => [FMT_BRL(v), 'Total']}
-                      contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
-                      itemStyle={{ color: '#e5e7eb' }}
-                      cursor={{ fill: '#1f2937' }}
-                    />
-                    <Bar dataKey="valor" radius={[0, 3, 3, 0]} maxBarSize={18}>
-                      {topFornecedores.map((entry, i) => (
-                        <Cell
-                          key={i}
-                          fill={ORIGEM_COLOR[entry.origem] ?? COLOR_FIN}
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
+            <FornecedoresRadial
+              data={fornecedoresRadialData}
+              colors={RADIAL_COLORS}
+            />
 
             <ChartCard title="Por Filial">
               {filiaisData.length === 0 ? (
@@ -888,107 +805,56 @@ export default function ExpensesPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <KPICard
                   title="Total 2025 Real"
-                  value={forecast.total_2025}
-                  color="#6b7280"
+                  value={FMT_BRL(forecast.total_2025 ?? 0)}
+                  accentColor="green"
                   subtitle="ano encerrado"
+                  comparison={[]}
                 />
                 <KPICard
                   title="2026 Real (YTD)"
-                  value={forecast.total_2026_real}
-                  color="#3b82f6"
+                  value={FMT_BRL(forecast.total_2026_real ?? 0)}
+                  accentColor="blue"
                   subtitle="meses realizados"
+                  comparison={[
+                    {
+                      label: 'vs. 2025 mesmo período',
+                      value: forecast.total_2025
+                        ? `${(((forecast.total_2026_real ?? 0) / (forecast.total_2025 / 12 * ((new Date().getMonth()) || 1))) - 1 * 100).toFixed(1)}%`
+                        : null,
+                    },
+                  ]}
                 />
                 <KPICard
                   title="Projeção Dez/2026"
-                  value={forecast.total_2026_projecao}
-                  color="#93c5fd"
+                  value={FMT_BRL(forecast.total_2026_projecao ?? 0)}
+                  accentColor="violet"
                   subtitle="estimativa restante"
+                  comparison={[{ label: 'Modelo', value: forecast.modelo ?? null }]}
                 />
                 <KPICard
                   title="Estimado Ano 2026"
-                  value={forecast.total_2026_estimado}
-                  color="#14b8a6"
+                  value={FMT_BRL(forecast.total_2026_estimado ?? 0)}
+                  accentColor="teal"
                   subtitle="real + projeção"
+                  comparison={[
+                    {
+                      label: 'vs. 2025 total',
+                      value: forecast.total_2025
+                        ? `${(((forecast.total_2026_estimado ?? 0) / forecast.total_2025 - 1) * 100).toFixed(1)}%`
+                        : null,
+                      positive: forecast.total_2025
+                        ? (forecast.total_2026_estimado ?? 0) < forecast.total_2025
+                        : null,
+                    },
+                  ]}
                 />
               </div>
 
-              {/* Forecast AreaChart */}
-              <ChartCard title="Evolução Real vs Projetada — 2026">
-                {forecastChartData.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-12">Sem dados de previsão</p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={280}>
-                    <AreaChart data={forecastChartData} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
-                      <defs>
-                        <linearGradient id="gradReal" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={COLOR_2026} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={COLOR_2026} stopOpacity={0.02} />
-                        </linearGradient>
-                        <linearGradient id="gradProj" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%"  stopColor={COLOR_PROJ} stopOpacity={0.2} />
-                          <stop offset="95%" stopColor={COLOR_PROJ} stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} />
-                      <XAxis dataKey="mes" tick={{ fontSize: 11, fill: chartTick }} axisLine={{ stroke: chartGrid }} tickLine={false} />
-                      <YAxis tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: chartTick }} axisLine={false} tickLine={false} width={65} />
-                      <Tooltip
-                        formatter={(v: number, name: string) => [FMT_BRL(v), name === 'real' ? 'Realizado' : 'Projetado']}
-                        contentStyle={{ backgroundColor: tooltipBg, border: `1px solid ${tooltipBorder}`, borderRadius: 8, fontSize: 12, color: tooltipText }}
-                        itemStyle={{ color: tooltipText }}
-                        cursor={{ stroke: '#4b5563' }}
-                      />
-                      <Legend wrapperStyle={{ fontSize: 11, color: chartTick, paddingTop: 8 }} />
-                      {/* Confidence band */}
-                      <Area
-                        type="monotone"
-                        dataKey="valor_max"
-                        stroke="none"
-                        fill={COLOR_PROJ}
-                        fillOpacity={0.12}
-                        name="Intervalo"
-                        legendType="none"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="valor_min"
-                        stroke="none"
-                        fill={bandFill}
-                        fillOpacity={1}
-                        name="Intervalo Min"
-                        legendType="none"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="real"
-                        name="Realizado"
-                        stroke={COLOR_2026}
-                        strokeWidth={2}
-                        fill="url(#gradReal)"
-                        connectNulls={false}
-                        dot={false}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="projecao"
-                        name="Projetado"
-                        stroke={COLOR_PROJ}
-                        strokeWidth={2}
-                        strokeDasharray="5 3"
-                        fill="url(#gradProj)"
-                        connectNulls={false}
-                        dot={false}
-                      />
-                      <ReferenceLine
-                        x={shortMonth(currentMonth)}
-                        stroke="#f59e0b"
-                        strokeDasharray="3 3"
-                        label={{ value: 'Hoje', fill: '#f59e0b', fontSize: 10, position: 'top' }}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </ChartCard>
+              {/* Forecast Chart — novo componente com ComposedChart */}
+              <ForecastChart
+                data={forecastMapped}
+                todayLabel={shortMonth(currentMonth)}
+              />
 
               {/* 2025 vs 2026 grouped bar — only render if showLY has data */}
               {yoyChartData.length > 0 && (
