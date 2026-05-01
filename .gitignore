@@ -49,3 +49,6 @@ install-supabase.ps1
 import_data.sql
 cloud_dump.sql
 cloud_dump.dump
+
+# Scripts de análise local
+analyze_db.py

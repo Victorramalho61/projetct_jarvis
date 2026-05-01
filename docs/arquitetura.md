@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Sistema interno da Voetur/VTCLog com autenticação própria e cinco módulos:
+Sistema interno da Voetur/VTCLog com autenticação própria e seis módulos:
 
 | Módulo | Serviço | Descrição |
 |---|---|---|
@@ -11,6 +11,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e cinco módulos:
 | Freshservice | freshservice-service | Dashboard e sync de tickets do helpdesk |
 | Moneypenny | moneypenny-service | Resumo diário de e-mails e agenda via Microsoft 365 |
 | Agentes | agents-service | Jobs agendados + criação de agentes via Claude AI |
+| Gastos TI | expenses-service | Dashboard financeiro executivo — despesas de TI via ERP Benner |
 
 ---
 
@@ -28,12 +29,15 @@ Browser
         │                                     │     └─► freshservice-service:8003
         │                                     ├─ /api/moneypenny/*
         │                                     │     └─► moneypenny-service:8004
-        │                                     └─ /api/agents/*
-        │                                           └─► agents-service:8005
+        │                                     ├─ /api/agents/*
+        │                                     │     └─► agents-service:8005
+        │                                     └─ /api/expenses/*
+        │                                           └─► expenses-service:8006
         └─ / ──────────────────────────────► SPA React (nginx serve estático)
 
 Inter-serviço (Docker app_net):
   agents-service → freshservice-service:8003 (HTTP interno + JWT gerado em agent_runner.py)
+  expenses-service → SQL Server externo 10.141.0.111:1444 (BennerSistemaCorporativo — leitura)
 
 Supabase Self-Hosted (Docker app_net):
   Kong:8000 → postgrest, gotrue, realtime, storage
@@ -55,14 +59,14 @@ Supabase Self-Hosted (Docker app_net):
 | 54321 | Supabase Kong | 127.0.0.1 | bloqueado |
 | 54323 | Supabase Studio | 127.0.0.1 | bloqueado |
 
-Microsserviços (8001–8005): sem portas expostas ao host, apenas rede interna Docker.
+Microsserviços (8001–8006): sem portas expostas ao host, apenas rede interna Docker.
 
 ---
 
 ## Stack
 
-- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS → build com `nginx:alpine`
-- **Microsserviços**: FastAPI (Python 3.11) + Supabase SDK + APScheduler + httpx + slowapi
+- **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Recharts → build com `nginx:alpine`
+- **Microsserviços**: FastAPI (Python 3.11) + Supabase SDK + APScheduler + httpx + slowapi + pyodbc
 - **Gateway**: Kong 2.8.1 — config declarativa em `volumes/api/kong.yml`
 - **Banco**: Supabase self-hosted (PostgreSQL 15, GoTrue, PostgREST, Realtime, Storage)
 - **Monitor Agent**: Python 3.12 + psutil — expõe `/metrics` (CPU/RAM/disco)
@@ -158,6 +162,7 @@ Ordem de roteamento (específico antes do genérico):
 /api/freshservice → freshservice-service:8003
 /api/moneypenny   → moneypenny-service:8004
 /api/agents       → agents-service:8005
+/api/expenses     → expenses-service:8006
 /api/             → core-service:8001
 ```
 
@@ -212,6 +217,8 @@ Ver `.env.example` na raiz para a lista completa. Variáveis críticas:
 | `WHATSAPP_API_KEY` / `WHATSAPP_INSTANCE` | Evolution API |
 | `MONITOR_AGENT_TOKENS` | Token de autenticação do monitor-agent |
 | `VITE_API_URL` | URL da API para build do frontend |
+| `SQL_SERVER_HOST/PORT/DB` | ERP Benner — `10.141.0.111:1444 / BennerSistemaCorporativo` |
+| `SQL_SERVER_USER/PASSWORD` | Credenciais leitura ERP (`usr_jarvis_read`) |
 
 Geração dos JWTs do Supabase:
 ```python
@@ -220,6 +227,75 @@ secret = "SEU_SUPABASE_JWT_SECRET"
 jwt.encode({"iss":"supabase-local","role":"anon","exp":2051222400}, secret, algorithm="HS256")
 jwt.encode({"iss":"supabase-local","role":"service_role","exp":2051222400}, secret, algorithm="HS256")
 ```
+
+---
+
+## Módulo Gastos de TI (expenses-service)
+
+Dashboard financeiro executivo que lê dados do ERP Benner (SQL Server) via `pyodbc` e os expõe como API REST.
+
+### Fonte de Dados
+
+- **ERP**: Benner Sistema Corporativo — SQL Server em `10.141.0.111:1444`
+- **Banco**: `BennerSistemaCorporativo` — acesso leitura (`usr_jarvis_read`)
+- **Filtro base**: `PAR.EMPRESA = 1` + `DOC.GRUPOASSINATURAS` do gestor K_GESTOR=23 (TI)
+- **Tabelas principais**: `FN_PARCELAS`, `FN_DOCUMENTOS`, `FN_LANCAMENTOS`, `FN_CONTAS`, `GN_PESSOAS`, `FILIAIS`
+
+### Endpoints
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/api/expenses/dashboard` | KPIs + agregações por mês/origem/fornecedor/filial + sparkline + YoY |
+| GET | `/api/expenses/forecast` | Previsão estatística até dez/2026 + projeção por fornecedor |
+| GET | `/api/expenses/empresas` | Lista empresas disponíveis no ERP |
+| GET | `/api/expenses/health` | Liveness check |
+
+**Parâmetros do dashboard**: `year` (2025/2026), `filial` (filtro por filial), `tipo` (`todos`/`contrato`/`eventual`)
+
+### Arquivos Principais
+
+```
+expenses-service/
+├── services/
+│   ├── expenses.py   # Query principal + agregações (fetch_dashboard)
+│   └── forecast.py   # Regressão linear + média móvel 3m (fetch_forecast)
+└── routes/
+    └── expenses.py   # Endpoints FastAPI
+```
+
+### Frontend — Componentes
+
+```
+frontend/src/
+├── pages/admin/ExpensesPage.tsx           # Página principal (L0 + sub-abas Gastos/Previsão)
+├── types/expenses.ts                      # Interfaces TypeScript
+└── components/expenses/
+    ├── KPICard.tsx                        # Card executivo com skeleton shimmer
+    ├── ForecastChart.tsx                  # ComposedChart real+projetado com banda de confiança
+    ├── DonutOrigem.tsx                    # PieChart donut com legenda lateral
+    ├── FornecedoresRadial.tsx             # BarChart horizontal top 5 fornecedores
+    ├── YearSelector.tsx                   # Toggle de ano (2025/2026)
+    ├── Sparkline.tsx                      # Mini LineChart 12 meses nos KPIs
+    └── TrafficLight.tsx                   # Badge semáforo verde/amarelo/vermelho
+
+```
+
+### Metodologia de Forecast
+
+- **Janela de treino**: Jul/2025 em diante (dados consistentes pós-implementação)
+- **Modelo**: Regressão Linear (60%) + Média Móvel 3 meses (40%) — pure Python, sem dependências externas
+- **Intervalo de confiança**: ±15% do valor projetado
+- **Por fornecedor**: média mensal executada × meses restantes do ano + badge de tendência (▲→▼)
+
+### Categorias de Gasto
+
+| Campo ORIGEM | Categoria Frontend |
+|---|---|
+| `Contrato` | Contrato |
+| `Ordem de Compra` | Eventual |
+| `Financeiro` | Eventual |
+
+Recorrência (`Recorrente` = ≥3 meses histórico; `Eventual` = <3 meses) calculada via `_RECURRENCE_QUERY` nos últimos 16 meses.
 
 ---
 
