@@ -130,7 +130,7 @@ async def stream_agent_activity(request: Request, _user: dict = Depends(require_
             ).order("started_at", desc=True).limit(20).execute().data or []
 
             messages = db.table("agent_messages").select(
-                "id,from_agent,to_agent,content,status,created_at"
+                "id,from_agent,to_agent,message,status,created_at"
             ).order("created_at", desc=True).limit(20).execute().data or []
 
             payload = json.dumps({
@@ -175,7 +175,7 @@ async def stream_agent_activity(request: Request, _user: dict = Depends(require_
 
                 new_msgs = (
                     db.table("agent_messages")
-                    .select("id,from_agent,to_agent,content,status,created_at")
+                    .select("id,from_agent,to_agent,message,status,created_at")
                     .gt("created_at", last_msg_ts)
                     .order("created_at")
                     .execute().data or []
