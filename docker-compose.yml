@@ -439,8 +439,14 @@ services:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       GITHUB_REPO: ${GITHUB_REPO:-}
       OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:1b}
+      # LLMs gratuitos — cascata: Cerebras → Groq → Together → OpenRouter → Mistral → HF → Ollama
+      CEREBRAS_API_KEY: ${CEREBRAS_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
       # PostgreSQL direto para db_dba_agent
       POSTGRES_DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       # Pipelines LangGraph

@@ -24,20 +24,23 @@ logger = logging.getLogger(__name__)
 
 # Definição de todos os providers e modelos monitorados
 _PROVIDERS = [
-    {"provider": "groq",         "model": "llama-3.1-8b-instant",   "key_field": "groq_api_key"},
+    {"provider": "cerebras",     "model": "llama-3.3-70b",           "key_field": "cerebras_api_key"},
+    {"provider": "groq",         "model": "llama-3.1-8b-instant",    "key_field": "groq_api_key"},
     {"provider": "groq",         "model": "llama-3.3-70b-versatile", "key_field": "groq_api_key"},
     {"provider": "together",     "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "key_field": "together_api_key"},
+    {"provider": "openrouter",   "model": "meta-llama/llama-3.1-8b-instruct:free", "key_field": "openrouter_api_key"},
+    {"provider": "mistral",      "model": "mistral-small-latest",    "key_field": "mistral_api_key"},
     {"provider": "huggingface",  "model": "HuggingFaceH4/zephyr-7b-beta", "key_field": "huggingface_api_key"},
-    {"provider": "ollama",       "model": None,  "key_field": None},  # sempre disponível localmente
+    {"provider": "ollama",       "model": None, "key_field": None},  # sempre disponível localmente
 ]
 
 # Capacidade esperada por tipo de tarefa → provider preferido
 _TASK_ROUTING = {
-    "reasoning":    ["groq_70b", "groq_8b", "together", "ollama"],
-    "code":         ["groq_70b", "together_coder", "ollama_code", "ollama"],
-    "fast":         ["groq_8b", "together", "ollama"],
+    "reasoning":    ["cerebras", "groq_70b", "groq_8b", "together", "openrouter", "mistral", "ollama"],
+    "code":         ["cerebras", "groq_70b", "together_coder", "openrouter_qwen", "mistral_codestral", "ollama_code", "ollama"],
+    "fast":         ["cerebras", "groq_8b", "together", "openrouter", "mistral", "ollama"],
     "embedding":    ["huggingface", "ollama"],
-    "default":      ["groq_8b", "together", "huggingface", "ollama"],
+    "default":      ["cerebras", "groq_8b", "together", "openrouter", "mistral", "huggingface", "ollama"],
 }
 
 _TEST_PROMPT = "Responda em 5 palavras: qual é a capital do Brasil?"
@@ -55,12 +58,25 @@ def _check_provider(provider: str, model: str | None, key_field: str | None) -> 
     try:
         from langchain_core.messages import HumanMessage
 
-        if provider == "groq":
+        if provider == "cerebras":
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model=model, api_key=s.cerebras_api_key, base_url="https://api.cerebras.ai/v1", temperature=0, max_tokens=50)
+        elif provider == "groq":
             from langchain_groq import ChatGroq
             llm = ChatGroq(model=model, api_key=s.groq_api_key, temperature=0, max_tokens=50)
         elif provider == "together":
-            from langchain_together import ChatTogether
-            llm = ChatTogether(model=model, together_api_key=s.together_api_key, temperature=0, max_tokens=50)
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model=model, api_key=s.together_api_key, base_url="https://api.together.xyz/v1", temperature=0, max_tokens=50)
+        elif provider == "openrouter":
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(
+                model=model, api_key=s.openrouter_api_key, base_url="https://openrouter.ai/api/v1",
+                temperature=0, max_tokens=50,
+                default_headers={"HTTP-Referer": "https://jarvis.voetur.com.br", "X-Title": "Jarvis"},
+            )
+        elif provider == "mistral":
+            from langchain_mistralai import ChatMistralAI
+            llm = ChatMistralAI(model=model, api_key=s.mistral_api_key, temperature=0, max_tokens=50)
         elif provider == "huggingface":
             from langchain_huggingface import HuggingFaceEndpoint
             llm = HuggingFaceEndpoint(repo_id=model, huggingfacehub_api_token=s.huggingface_api_key, max_new_tokens=50)
@@ -95,33 +111,63 @@ def _save_health_metrics(db, results: list[dict]) -> None:
 
 
 def _get_agents_with_llm_failures(db) -> list[dict]:
-    """Busca agentes que tiveram erros de LLM nas últimas 6 horas."""
-    llm_error_keywords = ["LLM", "llm", "timeout", "Connection refused", "ConnectError", "invoke", "ChatGroq", "Ollama", "together"]
+    """Busca agentes com falhas de LLM nas últimas 6 horas — verifica agent_runs E app_logs."""
+    from datetime import timedelta
+    llm_error_keywords = [
+        "LLM", "llm", "timeout", "Connection refused", "ConnectError",
+        "ChatGroq", "Ollama", "ChatOpenAI", "Cerebras", "OpenRouter", "Mistral",
+        "não respondeu", "não disponível", "fallback",
+    ]
+    failing = []
+    seen: set[str] = set()
+    six_hours_ago = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+
+    # 1. Falhas em agent_runs (erros que abortaram o pipeline)
     try:
         runs = (
             db.table("agent_runs")
             .select("pipeline_name,error,started_at")
             .eq("status", "error")
             .not_.is_("error", "null")
-            .not_.is_("pipeline_name", "null")
+            .gte("started_at", six_hours_ago)
             .order("started_at", desc=True)
-            .limit(200)
+            .limit(300)
             .execute()
             .data or []
         )
-        failing = []
-        seen = set()
         for r in runs:
             err = r.get("error", "") or ""
             if any(k in err for k in llm_error_keywords):
-                agent = r.get("pipeline_name", "unknown")
+                agent = r.get("pipeline_name") or "pipeline_unknown"
                 if agent not in seen:
                     seen.add(agent)
-                    failing.append({"agent": agent, "error": err[:200], "last_seen": r.get("started_at", "")})
-        return failing
+                    failing.append({"agent": agent, "error": err[:200], "last_seen": r.get("started_at", ""), "source": "agent_runs"})
     except Exception as exc:
-        logger.warning("llm_manager: get_failing_agents: %s", exc)
-        return []
+        logger.warning("llm_manager: get_failing_agents (agent_runs): %s", exc)
+
+    # 2. Falhas em app_logs — captura timeouts do code_generator e erros internos de LLM
+    try:
+        logs = (
+            db.table("app_logs")
+            .select("module,message,created_at")
+            .eq("level", "error")
+            .gte("created_at", six_hours_ago)
+            .order("created_at", desc=True)
+            .limit(300)
+            .execute()
+            .data or []
+        )
+        for log_entry in logs:
+            msg = log_entry.get("message", "") or ""
+            if any(k in msg for k in llm_error_keywords):
+                agent = log_entry.get("module") or "unknown_module"
+                if agent not in seen:
+                    seen.add(agent)
+                    failing.append({"agent": agent, "error": msg[:200], "last_seen": log_entry.get("created_at", ""), "source": "app_logs"})
+    except Exception as exc:
+        logger.warning("llm_manager: get_failing_agents (app_logs): %s", exc)
+
+    return failing
 
 
 def _update_routing_preference(db, agent_name: str, provider: str, model: str, success: bool, latency_ms: int) -> None:

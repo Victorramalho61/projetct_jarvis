@@ -16,9 +16,12 @@ class Settings(BaseSettings):
     # LLM local (Ollama) — agentes de raciocínio
     ollama_base_url: str = "http://ollama:11434"
     ollama_model: str = "llama3.1:8b"
-    # LLMs open-source gratuitos — cascata: Groq → Together → HuggingFace → Ollama
+    # LLMs open-source gratuitos — cascata: Cerebras → Groq → Together → OpenRouter → Mistral → HF → Ollama
+    cerebras_api_key: str = ""         # cloud.cerebras.ai — free tier, CS-3 chip, ultrarrápido
     groq_api_key: str = ""             # groq.com — free tier, rápido (Llama, Mixtral)
-    together_api_key: str = ""         # together.ai — free tier open-source models
+    together_api_key: str = ""         # api.together.xyz — free tier open-source models
+    openrouter_api_key: str = ""       # openrouter.ai — free models aggregator
+    mistral_api_key: str = ""          # mistral.ai — free tier (mistral-small)
     huggingface_api_key: str = ""      # huggingface.co — free inference API
     # GitHub para agentes de docs/code
     github_token: str = ""
