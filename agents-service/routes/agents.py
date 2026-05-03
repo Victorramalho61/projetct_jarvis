@@ -81,7 +81,20 @@ def delete_agent(agent_id: str, user=Depends(require_role("admin"))):
 async def run_agent_endpoint(
     agent_id: str, background_tasks: BackgroundTasks, user=Depends(require_role("admin"))
 ):
+    # Se for "orchestrator", rodar pipeline especial
+    if agent_id == "orchestrator":
+        from services.agent_runner import run_langgraph_pipeline
+        background_tasks.add_task(run_langgraph_pipeline, "manual")
+        return {"ok": True, "agent_id": agent_id, "type": "pipeline"}
+    
+    # Caso contrário, validar que é UUID válido
     db = get_supabase()
+    try:
+        from uuid import UUID
+        UUID(agent_id)  # Validar formato UUID
+    except ValueError:
+        raise HTTPException(400, "agent_id deve ser um UUID válido ou 'orchestrator'")
+    
     rows = db.table("agents").select("*").eq("id", agent_id).execute().data
     if not rows:
         raise HTTPException(404, "Agente não encontrado")

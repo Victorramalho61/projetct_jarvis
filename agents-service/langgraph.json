@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "jarvis_orchestrator": "./graph_engine/graph.py:build_orchestrator_graph"
+  },
+  "env": "../.env"
+}

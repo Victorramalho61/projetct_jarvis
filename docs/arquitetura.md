@@ -113,10 +113,85 @@ Cada serviço tem a mesma estrutura:
 
 | `agent_type` | Descrição |
 |---|---|
-| `freshservice_sync` | Dispara sync do Freshservice via HTTP interno. Config: `{"mode": "daily"}` ou ``{"mode": "backfill"}` |
+| `freshservice_sync` | Dispara sync do Freshservice via HTTP interno. Config: `{"mode": "daily"}` ou `{"mode": "backfill"}` |
 | `script` | Executa código Python em subprocess isolado |
+| `langgraph` | Agente LangGraph com raciocínio LLM |
 
-### Tipos de agendamento
+### Pipelines LangGraph
+
+O sistema de agentes é orquestrado via LangGraph com 6 pipelines que rodam em scheduler:
+
+| Pipeline | Frequência | Agentes |
+|---|---|---|
+| `monitoring` | 15 min | uptime, quality, docker_intel, backend_agent, infrastructure, api_agent, log_scanner |
+| `security` | 30 min | security, code_security |
+| `cicd` | 5 min | cicd_monitor |
+| `dba` | 4 h | db_dba_agent |
+| `governance` | diário (6h) | opportunity_scout, log_strategic_advisor, change_mgmt, itil_version, quality_validator, docs, quality_code_backend, quality_code_frontend, integration_validator, change_validator, scheduling, automation, log_intelligence, log_improver, fix_validator, **proposal_supervisor**, **llm_manager_agent** |
+| `evolution` | diário (7h) | evolution_agent, frontend_agent |
+
+Além dos pipelines, o `agent_health_supervisor` roda a cada 15 min como job separado.
+
+### CTO Agent — Supervisor Central
+
+O **CTO Agent** é o supervisor infalível do sistema. Responsabilidades:
+- Recebe todos os reports de todos os agentes via mensagens e eventos
+- Avalia SLAs e aciona agentes para auto-resolução
+- Cobra agentes silenciosos e em falha (auto-recovery)
+- Aciona `evolution_agent` para toda falha, gap ou oportunidade
+- Propõe melhorias ao humano em formato organizado (🚨 Crítico / ⚠️ Alertas / 💡 Oportunidades)
+- Usa cascata multi-LLM para nunca falhar: Groq → Together → HF → Ollama
+
+### Agentes Especializados
+
+| Agente | Pipeline | Skill | SLA Principal |
+|---|---|---|---|
+| `cto` | manual | Supervisor central | 100% agentes com qualidade garantida |
+| `agent_health_supervisor` | health (15min) | Saúde de todos os agentes + auto-recovery | 100% agentes saudáveis |
+| `proposal_supervisor` | governance | Executa proposals aprovadas por humanos | 90% execution rate |
+| `llm_manager_agent` | governance | Saúde dos LLMs + routing adaptativo | 80% providers disponíveis |
+| `evolution_agent` | evolution | Inovação, novos agentes, SLAs automáticos | ≥2 proposals/ciclo |
+| `db_dba_agent` | dba | DBA PostgreSQL: índices, vacuum, backup, locks | 100% backup success |
+| `api_agent` | monitoring | Validação de endpoints e contratos de API | 95% endpoint availability |
+| `integration_validator` | governance | Validação de integrações externas | 100% integrations checked |
+| `opportunity_scout` | governance | Radar de oportunidades e melhorias | ≥3 oportunidades/ciclo |
+| `docker_intel` | monitoring | Inteligência de containers e recursos | 100% containers monitored |
+| `security` + `code_security` | security | Segurança e vulnerabilidades | 100% scan coverage |
+
+### Sistema de SLAs
+
+Cada agente possui exatamente 3+ SLAs de execução (não de health — esse é do `agent_health_supervisor`):
+- Armazenados na tabela `agent_slas` com histórico em `agent_sla_history`
+- Gerados automaticamente pelo `evolution_agent` para novos agentes
+- Pré-definidos para todos os agentes existentes
+- Reportados via `sla_tracker.report_sla()` ao final de cada run
+- Endpoint: `GET /api/agents/slas` — visão geral e por agente
+
+### LLMs Multi-Provider (gratuito/open-source)
+
+Cascata automática com fallback:
+1. **Groq** (groq.com — free tier, Llama 3.3 70B / 8B, ultrarrápido)
+2. **Together AI** (together.ai — free tier, Llama / Qwen)
+3. **HuggingFace** (huggingface.co — free inference API)
+4. **Ollama** (local — llama3.2:1b, sempre disponível)
+
+Funções: `get_reasoning_llm()`, `get_fast_llm()`, `get_code_llm()`, `invoke_with_fallback()`.
+
+### Todos os Agentes com Capacidade LLM
+
+O `llm_mixin.py` adiciona automaticamente análise LLM a todos os agentes determinísticos:
+- Analisa findings e gera proposals de melhoria via LLM
+- Reporta problemas e gaps ao CTO e ao `evolution_agent`
+- Usa `build_llm_enhanced_agent()` wrapper no `graph.py`
+
+### Code Generator
+
+O `code_generator.py` permite que qualquer agente gere planos de implementação com código real:
+- Python, SQL, Dockerfile, TypeScript, shell
+- Plano de rollback e verificação
+- Auto-execução segura de SQL (ANALYZE, CREATE INDEX CONCURRENTLY, VACUUM)
+
+### Tipos de agendamento (agents manuais)
 
 | `schedule_type` | `schedule_config` |
 |---|---|
@@ -194,6 +269,18 @@ docker exec -i jarvis-db-1 bash -c "PGPASSWORD='...' psql -U postgres -d postgre
 | `system_checks` | monitoring | Histórico de checks — status, latência, métricas |
 | `agents` | agents | Jobs agendados — schedule_type/config JSONB, agent_type |
 | `agent_runs` | agents | Histórico de execuções — status, output, error |
+| `agent_events` | agents | Bus de eventos entre agentes |
+| `agent_messages` | agents | Mensagens inter-agentes e para humano |
+| `improvement_proposals` | agents | Proposals de melhoria com tracking de implementação |
+| `change_requests` | agents | Change requests ITIL |
+| `deployment_windows` | agents | Janelas de deploy ativas |
+| `db_health_snapshots` | agents | Snapshots de saúde do banco (DBA agent) |
+| `agent_slas` | agents | SLAs de execução por agente (≥3 por agente) |
+| `agent_sla_history` | agents | Histórico de valores de SLAs |
+| `llm_health_metrics` | agents | Saúde e latência por LLM provider |
+| `llm_routing_preferences` | agents | Preferências aprendidas de routing LLM por agente |
+| `quality_metrics` | agents | Métricas de qualidade por serviço |
+| `governance_reports` | agents | Relatórios diários/semanais de governança |
 | `freshservice_tickets` | freshservice | Tickets sincronizados |
 | `freshservice_agents` | freshservice | Agentes do helpdesk |
 | `freshservice_groups` | freshservice | Grupos do helpdesk |
@@ -219,6 +306,11 @@ Ver `.env.example` na raiz para a lista completa. Variáveis críticas:
 | `VITE_API_URL` | URL da API para build do frontend |
 | `SQL_SERVER_HOST/PORT/DB` | ERP Benner — `10.141.0.111:1444 / BennerSistemaCorporativo` |
 | `SQL_SERVER_USER/PASSWORD` | Credenciais leitura ERP (`usr_jarvis_read`) |
+| `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | LLM local — `http://ollama:11434` / `llama3.2:1b` |
+| `GROQ_API_KEY` | Groq free tier — Llama 3.3 70B (opcional, recomendado) |
+| `TOGETHER_API_KEY` | Together AI free tier — fallback LLM (opcional) |
+| `HUGGINGFACE_API_KEY` | HuggingFace inference API — fallback LLM (opcional) |
+| `POSTGRES_DIRECT_URL` | PostgreSQL direto para DBA agent (pg_stat_*, psycopg2) |
 
 Geração dos JWTs do Supabase:
 ```python

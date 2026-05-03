@@ -7,6 +7,7 @@ import ClaudeChatModal from "../../components/agents/ClaudeChatModal";
 const AGENT_TYPE_LABEL: Record<AgentType, string> = {
   freshservice_sync: "Freshservice Sync",
   script: "Script Python",
+  langgraph: "LangGraph",
 };
 
 const RUN_STATUS_STYLE: Record<string, string> = {
@@ -128,6 +129,7 @@ function AgentForm({ initial, onClose, onSaved, token }: AgentFormProps) {
             >
               <option value="freshservice_sync">Freshservice Sync</option>
               <option value="script">Script Python</option>
+              <option value="langgraph">LangGraph</option>
             </select>
           </div>
           {agentType === "script" && (

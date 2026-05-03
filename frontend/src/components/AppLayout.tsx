@@ -20,8 +20,8 @@ const NAV_ITEMS: NavItem[] = [
   { id: "logs",       label: "Logs",             path: "/admin/logs",           icon: "file",     roles: ["admin"] },
   { id: "monitoring",    label: "Monitoramento",    path: "/admin/monitoramento",  icon: "chart",      roles: ["admin"] },
   { id: "freshservice",  label: "Freshservice",     path: "/freshservice",         icon: "briefcase",  roles: ["admin"] },
-  { id: "agents",        label: "Agentes",           path: "/admin/agentes",        icon: "cpu",        roles: ["admin"] },
-  { id: "expenses",      label: "Gastos TI",         path: "/admin/gastos",         icon: "wallet",     roles: ["admin"] },
+  { id: "agents",   label: "Agentes",   path: "/admin/agentes", icon: "cpu",    roles: ["admin"] },
+  { id: "expenses", label: "Gastos TI", path: "/admin/gastos",  icon: "wallet", roles: ["admin"] },
 ];
 
 export default function AppLayout() {
@@ -86,10 +86,15 @@ const filteredNav = visible.filter((i) =>
   }
 
   const notifTypeStyle: Record<string, string> = {
-    down:         "bg-red-500",
-    degraded:     "bg-amber-500",
-    pending_user: "bg-blue-500",
+    down:           "bg-red-500",
+    degraded:       "bg-amber-500",
+    pending_user:   "bg-blue-500",
+    agent_proposal: "bg-orange-500",
+    cto_message:    "bg-indigo-500",
+    critical_event: "bg-red-600",
   };
+
+  // Badges movidos para AgentsDashboard (tabs internas)
 
   const SidebarContent = () => (
     <>
@@ -118,7 +123,7 @@ const filteredNav = visible.filter((i) =>
                     <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
                   )}
                   <Icon name={item.icon} size={17} strokeWidth={isActive ? 2 : 1.75} />
-                  <span>{item.label}</span>
+                  <span className="flex-1">{item.label}</span>
                 </>
               )}
             </NavLink>

@@ -45,6 +45,10 @@ async def run_agent(agent: dict) -> dict:
             output = await asyncio.get_event_loop().run_in_executor(
                 None, _run_script_sync, agent
             )
+        elif agent["agent_type"] == "langgraph":
+            output = await asyncio.get_event_loop().run_in_executor(
+                None, _run_langgraph_sync, agent
+            )
         else:
             raise ValueError(f"Tipo desconhecido: {agent['agent_type']}")
 
@@ -102,6 +106,130 @@ async def _run_freshservice_sync(agent: dict) -> str:
     data = r.json()
     count = data.get("tickets_upserted", "?")
     return f"Sync Freshservice ({mode}) concluído: {count} tickets em {elapsed}s"
+
+
+def _run_langgraph_sync(agent: dict) -> str:
+    from graph_engine.graph import run_agent_by_name
+    agent_name = (agent.get("config") or {}).get("agent_name", agent.get("name", "cto"))
+    pipeline = (agent.get("config") or {}).get("pipeline", "manual")
+    result = run_agent_by_name(agent_name, extra_state={"current_pipeline": pipeline})
+    findings = result.get("findings", [])
+    decisions = result.get("decisions", [])
+    return f"findings={len(findings)} decisions={len(decisions)}"
+
+
+# Agentes que cada pipeline executa diretamente.
+# O CTO é reservado para o pipeline 'manual' (processa eventos gerados pelos outros).
+_PIPELINE_AGENTS: dict[str, list[str]] = {
+    "monitoring":  [
+        "uptime", "quality", "docker_intel", "backend_agent",
+        "infrastructure", "api_agent", "log_scanner",
+    ],
+    "security":    ["security", "code_security"],
+    "cicd":        ["cicd_monitor"],
+    "dba":         ["db_dba_agent"],
+    "governance":  [
+        "opportunity_scout", "log_strategic_advisor", "change_mgmt",
+        "itil_version", "quality_validator", "docs",
+        "quality_code_backend", "quality_code_frontend",
+        "integration_validator", "change_validator",
+        "scheduling", "automation",
+        "log_intelligence", "log_improver", "fix_validator",
+        "proposal_supervisor",
+        "llm_manager_agent",
+    ],
+    "evolution":   ["evolution_agent", "frontend_agent"],
+    "manual":      ["cto"],
+}
+
+
+async def run_langgraph_pipeline(pipeline: str) -> dict:
+    """Executa os agentes do pipeline com trace_id, retry e métricas Prometheus."""
+    import time
+    from graph_engine.observability import pipeline_span, record_agent_run
+    from graph_engine.graph import run_agent_by_name
+
+    db = get_supabase()
+    agents_to_run = _PIPELINE_AGENTS.get(pipeline, ["cto"])
+
+    with pipeline_span(pipeline) as span:
+        trace_id = span["trace_id"]
+
+        # Registro de nível pipeline
+        pipeline_rec = db.table("agent_runs").insert({
+            "agent_id": None,
+            "pipeline_name": pipeline,
+            "run_type": "pipeline",
+            "status": "running",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+        }).execute().data[0]
+        pipeline_run_id = pipeline_rec["id"]
+
+        total_findings = 0
+        total_decisions = 0
+        errors: list[str] = []
+
+        for agent_name in agents_to_run:
+            agent_rec = db.table("agent_runs").insert({
+                "agent_id": None,
+                "pipeline_name": agent_name,
+                "run_type": "pipeline",
+                "status": "running",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }).execute().data[0]
+            agent_run_id = agent_rec["id"]
+
+            t0 = time.monotonic()
+            try:
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda an=agent_name: run_agent_by_name(
+                        an, extra_state={"current_pipeline": pipeline, "trace_id": trace_id}
+                    ),
+                )
+                findings  = result.get("findings", [])
+                decisions = result.get("decisions", [])
+                total_findings  += len(findings)
+                total_decisions += len(decisions)
+                duration = time.monotonic() - t0
+                record_agent_run(agent_name, pipeline, duration, success=True, findings=len(findings))
+                db.table("agent_runs").update({
+                    "status": "success",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "output": f"findings={len(findings)} decisions={len(decisions)} trace={trace_id}",
+                }).eq("id", agent_run_id).execute()
+                log_event("info", "agents", f"[{trace_id}][{pipeline}] {agent_name}: {len(findings)} findings ({duration:.1f}s)")
+            except Exception as exc:
+                duration = time.monotonic() - t0
+                err_msg = str(exc)[:500]
+                errors.append(f"{agent_name}: {err_msg}")
+                record_agent_run(agent_name, pipeline, duration, success=False)
+                db.table("agent_runs").update({
+                    "status": "error",
+                    "finished_at": datetime.now(timezone.utc).isoformat(),
+                    "error": err_msg,
+                }).eq("id", agent_run_id).execute()
+                log_event("error", "agents", f"[{trace_id}][{pipeline}] {agent_name} falhou", detail=err_msg)
+
+        final_status = "error" if errors and total_findings == 0 else "success"
+        summary = f"agents={len(agents_to_run)} findings={total_findings} decisions={total_decisions} trace={trace_id}"
+        db.table("agent_runs").update({
+            "status": final_status,
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "output": summary,
+            "error": "; ".join(errors) if errors else None,
+        }).eq("id", pipeline_run_id).execute()
+
+        log_event("info", "agents", f"Pipeline '{pipeline}' concluído: {summary}")
+        return {
+            "status": final_status,
+            "run_id": pipeline_run_id,
+            "pipeline": pipeline,
+            "trace_id": trace_id,
+            "agents_run": len(agents_to_run),
+            "findings": total_findings,
+            "errors": errors,
+        }
 
 
 def _run_script_sync(agent: dict) -> str:

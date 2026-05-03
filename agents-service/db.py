@@ -12,6 +12,27 @@ class Settings(BaseSettings):
     jwt_secret: str
     jwt_expire_minutes: int = 480
     freshservice_service_url: str = "http://freshservice-service:8003"
+    expenses_service_url: str = "http://expenses-service:8006"
+    # LLM local (Ollama) — agentes de raciocínio
+    ollama_base_url: str = "http://ollama:11434"
+    ollama_model: str = "llama3.1:8b"
+    # LLMs open-source gratuitos — cascata: Groq → Together → HuggingFace → Ollama
+    groq_api_key: str = ""             # groq.com — free tier, rápido (Llama, Mixtral)
+    together_api_key: str = ""         # together.ai — free tier open-source models
+    huggingface_api_key: str = ""      # huggingface.co — free inference API
+    # GitHub para agentes de docs/code
+    github_token: str = ""
+    github_repo: str = ""
+    # PostgreSQL direto (db_dba_agent — acesso a pg_stat_*)
+    postgres_direct_url: str = ""
+    # Intervalos dos pipelines LangGraph (em minutos/horas)
+    monitoring_interval_minutes: int = 15
+    security_interval_minutes: int = 30
+    cicd_interval_minutes: int = 5
+    dba_interval_hours: int = 4
+    governance_cron_hour: int = 6
+    evolution_cron_hour: int = 7
+    event_consumer_poll_seconds: int = 60
 
     model_config = {"env_file": ".env"}
 

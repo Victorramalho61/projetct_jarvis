@@ -12,6 +12,7 @@ _TZ = "America/Sao_Paulo"
 def start_scheduler() -> None:
     _scheduler.start()
     reload_agents()
+    _register_langgraph_pipelines()
     logger.info("Agents scheduler started")
 
 
@@ -88,3 +89,65 @@ def _make_agent_job(agent: dict):
         from services.agent_runner import run_agent
         await run_agent(agent)
     return _job
+
+
+def _make_agent_health_job():
+    async def _job():
+        import asyncio
+        from services.agent_runner import run_langgraph_pipeline
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: __import__("importlib").import_module(
+                    "graph_engine.agents.agent_health_supervisor"
+                ).run({}),
+            )
+        except Exception as exc:
+            logger.error("agent_health_supervisor job error: %s", exc)
+    return _job
+
+
+def _make_pipeline_job(pipeline: str):
+    async def _job():
+        from services.agent_runner import run_langgraph_pipeline
+        await run_langgraph_pipeline(pipeline)
+    return _job
+
+
+def _register_langgraph_pipelines() -> None:
+    from db import get_settings
+    s = get_settings()
+
+    pipelines = [
+        ("monitoring", IntervalTrigger(minutes=s.monitoring_interval_minutes, timezone=_TZ)),
+        ("security",   IntervalTrigger(minutes=s.security_interval_minutes, timezone=_TZ)),
+        ("cicd",       IntervalTrigger(minutes=s.cicd_interval_minutes, timezone=_TZ)),
+        ("dba",        IntervalTrigger(hours=s.dba_interval_hours, timezone=_TZ)),
+        ("governance", CronTrigger(hour=s.governance_cron_hour, minute=0, timezone=_TZ)),
+        ("evolution",  CronTrigger(hour=s.evolution_cron_hour, minute=0, timezone=_TZ)),
+    ]
+
+    for name, trigger in pipelines:
+        _scheduler.add_job(
+            _make_pipeline_job(name),
+            trigger=trigger,
+            id=f"pipeline_{name}",
+            replace_existing=True,
+            max_instances=1,
+            misfire_grace_time=300,
+        )
+        logger.info("Pipeline '%s' registrado no scheduler", name)
+
+    logger.info("LangGraph pipelines registrados: %d", len(pipelines))
+
+    # Agent Health Supervisor — roda a cada 15min independente do CTO
+    _scheduler.add_job(
+        _make_agent_health_job(),
+        trigger=IntervalTrigger(minutes=s.monitoring_interval_minutes, timezone=_TZ),
+        id="agent_health_supervisor",
+        replace_existing=True,
+        max_instances=1,
+        misfire_grace_time=120,
+    )
+    logger.info("Agent Health Supervisor registrado no scheduler")
