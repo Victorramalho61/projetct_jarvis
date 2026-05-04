@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     nvidia_api_key: str = ""           # build.nvidia.com — NIM free tier (Llama, Mistral, etc.)
     deepinfra_api_key: str = ""        # deepinfra.com — requer saldo, OpenAI-compat
     fireworks_api_key: str = ""        # fireworks.ai — free tier com créditos, OpenAI-compat
+    google_api_key: str = ""           # aistudio.google.com — Gemini 2.0 Flash free tier
     # GitHub para agentes de docs/code
     github_token: str = ""
     github_repo: str = ""

@@ -140,7 +140,7 @@ def _make_deepinfra(model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct") -> Any
         return None
 
 
-def _make_fireworks(model: str = "accounts/fireworks/models/llama-v3p1-8b-instruct") -> Any | None:
+def _make_fireworks(model: str = "accounts/fireworks/models/llama-v3p3-70b-instruct") -> Any | None:
     s = get_settings()
     if not s.fireworks_api_key:
         return None
@@ -172,6 +172,23 @@ def _make_huggingface(model: str = "mistralai/Mistral-7B-Instruct-v0.3") -> Any 
         )
     except Exception as e:
         log.warning("HuggingFace indisponível: %s", e)
+        return None
+
+
+def _make_google(model: str = "gemini-2.0-flash") -> Any | None:
+    s = get_settings()
+    if not s.google_api_key:
+        return None
+    try:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(
+            model=model,
+            google_api_key=s.google_api_key,
+            temperature=0,
+            max_output_tokens=4096,
+        )
+    except Exception as e:
+        log.warning("Google Gemini indisponível: %s", e)
         return None
 
 
@@ -254,6 +271,8 @@ class LLMRouter:
         base = str(base)
         if "cerebras" in base:
             return "cerebras"
+        if "google" in cls.lower() or "genai" in cls.lower():
+            return "google"
         if "nvidia" in base:
             return "nvidia"
         if "together" in base:
@@ -344,34 +363,36 @@ _router = LLMRouter()
 # ── API pública ────────────────────────────────────────────────────────────────
 
 def get_reasoning_llm() -> Any:
-    """Melhor LLM disponível para raciocínio. Cascata: Cerebras → Groq 70B → Nvidia → Together → OpenRouter → Mistral → DeepInfra → HF → Ollama."""
+    """Cascata: Cerebras → Google → Groq 70B → Nvidia → Together → OpenRouter → Mistral → Fireworks → DeepInfra → HF → Ollama."""
     return (
         _make_cerebras("llama3.3-70b")
+        or _make_google("gemini-2.0-flash")
         or _make_groq("llama-3.3-70b-versatile")
         or _make_groq("llama-3.1-8b-instant")
         or _make_nvidia("meta/llama-3.1-70b-instruct")
         or _make_together("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo")
         or _make_openrouter("qwen/qwen-2.5-7b-instruct:free")
         or _make_mistral("mistral-small-latest")
+        or _make_fireworks("accounts/fireworks/models/llama-v3p3-70b-instruct")
         or _make_deepinfra("meta-llama/Meta-Llama-3.1-70B-Instruct")
-        or _make_fireworks("accounts/fireworks/models/llama-v3p1-70b-instruct")
         or _make_huggingface()
         or _make_ollama()
     )
 
 
 def get_fast_llm() -> Any:
-    """LLM mais rápido disponível. Prioriza modelos menores com menor latência."""
+    """LLM mais rápido disponível."""
     return (
         _make_cerebras("llama3.1-8b")
+        or _make_google("gemini-2.0-flash-lite")
         or _make_groq("llama-3.1-8b-instant")
         or _make_groq("gemma2-9b-it")
         or _make_nvidia("meta/llama-3.1-8b-instruct")
         or _make_together("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
         or _make_openrouter("google/gemma-2-9b-it:free")
         or _make_mistral("mistral-small-latest")
+        or _make_fireworks("accounts/fireworks/models/llama-v3p3-70b-instruct")
         or _make_deepinfra("meta-llama/Meta-Llama-3.1-8B-Instruct")
-        or _make_fireworks("accounts/fireworks/models/llama-v3p1-8b-instruct")
         or _make_ollama()
     )
 
@@ -380,13 +401,14 @@ def get_code_llm() -> Any:
     """Melhor LLM para geração de código."""
     return (
         _make_cerebras("llama3.3-70b")
+        or _make_google("gemini-2.0-flash")
         or _make_groq("llama-3.3-70b-versatile")
         or _make_nvidia("qwen/qwen2.5-coder-32b-instruct")
         or _make_together("Qwen/Qwen2.5-Coder-32B-Instruct")
         or _make_openrouter("qwen/qwen-2.5-coder-7b-instruct:free")
         or _make_mistral("codestral-latest")
+        or _make_fireworks("accounts/fireworks/models/qwen2p5-coder-32b-instruct-v0-2")
         or _make_deepinfra("Qwen/Qwen2.5-Coder-32B-Instruct")
-        or _make_fireworks("accounts/fireworks/models/qwen2p5-coder-32b-instruct")
         or _make_groq("llama3-70b-8192")
         or _make_ollama("codellama:latest")
         or _make_ollama()
@@ -397,13 +419,14 @@ def get_all_llms() -> list[Any]:
     """Todos os LLMs configurados e disponíveis, em ordem de prioridade base."""
     candidates = [
         _make_cerebras(),
+        _make_google(),
         _make_groq("llama-3.1-8b-instant"),
         _make_nvidia(),
         _make_together(),
         _make_openrouter(),
         _make_mistral(),
-        _make_deepinfra(),
         _make_fireworks(),
+        _make_deepinfra(),
         _make_huggingface(),
         _make_ollama(),
     ]
