@@ -447,6 +447,7 @@ services:
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       HUGGINGFACE_API_KEY: ${HUGGINGFACE_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
       # PostgreSQL direto para db_dba_agent
       POSTGRES_DIRECT_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/postgres
       # Pipelines LangGraph

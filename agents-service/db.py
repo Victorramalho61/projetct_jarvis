@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""       # openrouter.ai — free models aggregator
     mistral_api_key: str = ""          # mistral.ai — free tier (mistral-small)
     huggingface_api_key: str = ""      # huggingface.co — free inference API
+    nvidia_api_key: str = ""           # build.nvidia.com — NIM free tier (Llama, Mistral, etc.)
     # GitHub para agentes de docs/code
     github_token: str = ""
     github_repo: str = ""
