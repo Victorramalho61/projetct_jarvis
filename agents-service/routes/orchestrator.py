@@ -431,17 +431,19 @@ async def proposals_metrics(
         def _count(status: str) -> int:
             return db.table("improvement_proposals").select("id", count="exact").eq("validation_status", status).execute().count or 0
 
-        pending   = _count("pending")
-        approved  = _count("approved")
-        applied   = _count("applied")
-        rejected  = _count("rejected")
-        failed    = _count("implementation_failed")
-        total_decided = approved + applied + rejected + failed
-        execution_rate = round(100 * applied / max(approved + applied + failed, 1), 1)
-        failure_rate   = round(100 * failed  / max(approved + applied + failed, 1), 1)
+        pending       = _count("pending") + _count("pending_cto")
+        approved      = _count("approved")
+        in_progress   = _count("auto_implementing")
+        applied       = _count("applied")
+        rejected      = _count("rejected")
+        failed        = _count("implementation_failed")
+        total_decided = approved + in_progress + applied + rejected + failed
+        execution_rate = round(100 * applied / max(approved + in_progress + applied + failed, 1), 1)
+        failure_rate   = round(100 * failed  / max(approved + in_progress + applied + failed, 1), 1)
         return {
             "pending": pending,
             "approved_waiting": approved,
+            "in_progress": in_progress,
             "applied_success": applied,
             "rejected": rejected,
             "implementation_failed": failed,

@@ -145,6 +145,24 @@ def insert_improvement_proposal(
         payload["business_value"] = business_value
     if motivational_note:
         payload["motivational_note"] = motivational_note
+
+    # Deduplicação: evita inserir proposta com mesmo título em status não-terminal
+    _NON_TERMINAL = ["pending", "pending_cto", "approved", "auto_implementing"]
+    try:
+        existing = (
+            _db().table("improvement_proposals")
+            .select("id,validation_status")
+            .ilike("title", title)
+            .in_("validation_status", _NON_TERMINAL)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if existing:
+            return existing[0]
+    except Exception:
+        pass
+
     res = _db().table("improvement_proposals").insert(payload).execute()
     return res.data[0] if res.data else {}
 

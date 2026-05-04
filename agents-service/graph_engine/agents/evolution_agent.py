@@ -124,8 +124,10 @@ def _motivate_agents(state: dict) -> str:
     agent_success: dict = {}
     for run in runs:
         if run.get("status") == "success":
-            aid = str(run.get("agent_id", ""))[:20]
-            agent_success[aid] = agent_success.get(aid, 0) + 1
+            raw = run.get("agent_id") or run.get("pipeline_name") or ""
+            aid = str(raw).strip()[:20]
+            if aid and aid.lower() != "none":
+                agent_success[aid] = agent_success.get(aid, 0) + 1
 
     if not agent_success:
         return "Todos os agentes estão se preparando para entregar resultados excelentes!"

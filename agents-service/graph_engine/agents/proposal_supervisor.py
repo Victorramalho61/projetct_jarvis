@@ -40,17 +40,20 @@ def _get_metrics(db) -> dict:
     """Calcula métricas de execução de proposals."""
     total = db.table("improvement_proposals").select("id", count="exact").execute().count or 0
     approved = db.table("improvement_proposals").select("id", count="exact").eq("validation_status", "approved").execute().count or 0
+    in_progress = db.table("improvement_proposals").select("id", count="exact").eq("validation_status", "auto_implementing").execute().count or 0
     applied = db.table("improvement_proposals").select("id", count="exact").eq("validation_status", "applied").execute().count or 0
     failed = db.table("improvement_proposals").select("id", count="exact").eq("validation_status", "implementation_failed").execute().count or 0
     pending = db.table("improvement_proposals").select("id", count="exact").eq("validation_status", "pending").execute().count or 0
+    pending_cto = db.table("improvement_proposals").select("id", count="exact").eq("validation_status", "pending_cto").execute().count or 0
     return {
         "total": total,
-        "pending": pending,
+        "pending": pending + pending_cto,
         "approved_waiting": approved,
+        "in_progress": in_progress,
         "applied_success": applied,
         "implementation_failed": failed,
-        "execution_rate_pct": round(100 * applied / max(approved + applied + failed, 1), 1),
-        "failure_rate_pct": round(100 * failed / max(approved + applied + failed, 1), 1),
+        "execution_rate_pct": round(100 * applied / max(approved + in_progress + applied + failed, 1), 1),
+        "failure_rate_pct": round(100 * failed / max(approved + in_progress + applied + failed, 1), 1),
     }
 
 
@@ -151,8 +154,8 @@ def _execute_proposal_with_llm(proposal: dict, decisions: list, db) -> bool:
         return False
 
 
-def _route_to_agent(proposal: dict, decisions: list) -> None:
-    """Envia a proposal (com plano de implementação) para o agente responsável."""
+def _route_to_agent(proposal: dict, decisions: list, db=None) -> None:
+    """Envia a proposal (com plano de implementação) para o agente responsável e muda status."""
     from graph_engine.tools.supabase_tools import send_agent_message
     ptype = proposal.get("proposal_type", "code_fix")
     target = _TYPE_TO_AGENT.get(ptype, "fix_validator")
@@ -181,6 +184,16 @@ def _route_to_agent(proposal: dict, decisions: list) -> None:
         decisions.append(f"Proposal aprovada → {target}: {proposal.get('title','')[:50]}")
     except Exception as exc:
         logger.warning("proposal_supervisor: handoff %s → %s: %s", proposal["id"], target, exc)
+
+    # Muda status para auto_implementing para sair da fila de "aprovadas aguardando"
+    if db:
+        try:
+            db.table("improvement_proposals").update({
+                "validation_status": "auto_implementing",
+                "implementation_error": f"Roteada para agente '{target}' em {datetime.now(timezone.utc).isoformat()}",
+            }).eq("id", proposal["id"]).execute()
+        except Exception as exc:
+            logger.warning("proposal_supervisor: update status após routing %s: %s", proposal["id"], exc)
 
 
 def run(state: dict) -> dict:
@@ -223,7 +236,7 @@ def run(state: dict) -> dict:
                 continue  # aplicada com sucesso, não precisa de routing
 
         # Passo 3: Roteia para agente especializado (com o plano LLM já no proposed_fix)
-        _route_to_agent(proposal, decisions)
+        _route_to_agent(proposal, decisions, db_raw)
         processed += 1
 
     # Verifica falsos positivos: proposals "applied" mas sem resultado concreto recente

@@ -220,7 +220,7 @@ def approve_proposal(proposal_id: str, reasoning: str, auto_implement: bool = Fa
         auto_implement: Se True, marca para pipeline auto_fix executar.
     """
     new_status = "auto_implementing" if auto_implement else "approved"
-    result = update_improvement_proposal(proposal_id, new_status, cto_reasoning=reasoning)
+    result = update_improvement_proposal(proposal_id, new_status, reason=reasoning)
     insert_agent_event(
         "proposal_approved",
         "cto",
