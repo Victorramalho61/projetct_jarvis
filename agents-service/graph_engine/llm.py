@@ -122,6 +122,24 @@ def _make_mistral(model: str = "mistral-small-latest") -> Any | None:
         return None
 
 
+def _make_deepinfra(model: str = "meta-llama/Meta-Llama-3.1-8B-Instruct") -> Any | None:
+    s = get_settings()
+    if not s.deepinfra_api_key:
+        return None
+    try:
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model,
+            api_key=s.deepinfra_api_key,
+            base_url="https://api.deepinfra.com/v1/openai",
+            temperature=0,
+            max_tokens=4096,
+        )
+    except Exception as e:
+        log.warning("DeepInfra indisponível: %s", e)
+        return None
+
+
 def _make_huggingface(model: str = "mistralai/Mistral-7B-Instruct-v0.3") -> Any | None:
     s = get_settings()
     if not s.huggingface_api_key:
@@ -308,7 +326,7 @@ _router = LLMRouter()
 # ── API pública ────────────────────────────────────────────────────────────────
 
 def get_reasoning_llm() -> Any:
-    """Melhor LLM disponível para raciocínio. Cascata: Cerebras → Groq 70B → Nvidia → Together → OpenRouter → Mistral → HF → Ollama."""
+    """Melhor LLM disponível para raciocínio. Cascata: Cerebras → Groq 70B → Nvidia → Together → OpenRouter → Mistral → DeepInfra → HF → Ollama."""
     return (
         _make_cerebras("llama3.3-70b")
         or _make_groq("llama-3.3-70b-versatile")
@@ -317,6 +335,7 @@ def get_reasoning_llm() -> Any:
         or _make_together("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo")
         or _make_openrouter("qwen/qwen-2.5-7b-instruct:free")
         or _make_mistral("mistral-small-latest")
+        or _make_deepinfra("meta-llama/Meta-Llama-3.1-70B-Instruct")
         or _make_huggingface()
         or _make_ollama()
     )
@@ -332,6 +351,7 @@ def get_fast_llm() -> Any:
         or _make_together("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
         or _make_openrouter("google/gemma-2-9b-it:free")
         or _make_mistral("mistral-small-latest")
+        or _make_deepinfra("meta-llama/Meta-Llama-3.1-8B-Instruct")
         or _make_ollama()
     )
 
@@ -345,6 +365,7 @@ def get_code_llm() -> Any:
         or _make_together("Qwen/Qwen2.5-Coder-32B-Instruct")
         or _make_openrouter("qwen/qwen-2.5-coder-7b-instruct:free")
         or _make_mistral("codestral-latest")
+        or _make_deepinfra("Qwen/Qwen2.5-Coder-32B-Instruct")
         or _make_groq("llama3-70b-8192")
         or _make_ollama("codellama:latest")
         or _make_ollama()
@@ -360,6 +381,7 @@ def get_all_llms() -> list[Any]:
         _make_together(),
         _make_openrouter(),
         _make_mistral(),
+        _make_deepinfra(),
         _make_huggingface(),
         _make_ollama(),
     ]

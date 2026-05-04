@@ -31,6 +31,7 @@ _PROVIDERS = [
     {"provider": "together",    "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", "key_field": "together_api_key"},
     {"provider": "openrouter",  "model": "qwen/qwen-2.5-7b-instruct:free",           "key_field": "openrouter_api_key"},
     {"provider": "mistral",     "model": "mistral-small-latest",                     "key_field": "mistral_api_key"},
+    {"provider": "deepinfra",   "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",    "key_field": "deepinfra_api_key"},
     {"provider": "huggingface", "model": "mistralai/Mistral-7B-Instruct-v0.3",       "key_field": "huggingface_api_key"},
     {"provider": "ollama",      "model": None,                                        "key_field": None},
 ]
@@ -83,6 +84,10 @@ def _check_provider(provider: str, model: str | None, key_field: str | None) -> 
         elif provider == "mistral":
             from langchain_mistralai import ChatMistralAI
             llm = ChatMistralAI(model=model, api_key=s.mistral_api_key, temperature=0, max_tokens=50)
+        elif provider == "deepinfra":
+            from langchain_openai import ChatOpenAI
+            llm = ChatOpenAI(model=model, api_key=s.deepinfra_api_key,
+                             base_url="https://api.deepinfra.com/v1/openai", temperature=0, max_tokens=50)
         elif provider == "huggingface":
             from langchain_huggingface import HuggingFaceEndpoint
             llm = HuggingFaceEndpoint(repo_id=model,
