@@ -386,7 +386,7 @@ def get_fast_llm() -> Any:
     """LLM mais rápido disponível."""
     return (
         _make_cerebras("llama3.1-8b")
-        or _make_google("gemini-2.0-flash-lite")
+        or _make_google("gemini-2.0-flash")
         or _make_groq("llama-3.1-8b-instant")
         or _make_groq("gemma2-9b-it")
         or _make_nvidia("meta/llama-3.1-8b-instruct")
