@@ -30,7 +30,7 @@ _LLM_TIMEOUT_S = 45
 
 # ── Fábrica de clientes ────────────────────────────────────────────────────────
 
-def _make_cerebras(model: str = "llama3.3-70b") -> Any | None:
+def _make_cerebras(model: str = "llama3.1-8b") -> Any | None:
     s = get_settings()
     if not s.cerebras_api_key:
         return None
@@ -367,7 +367,8 @@ _router = LLMRouter()
 def get_reasoning_llm() -> Any:
     """Cascata: Cerebras → Google → Groq 70B → Nvidia → Together → OpenRouter → Mistral → Fireworks → DeepInfra → HF → Ollama."""
     return (
-        _make_cerebras("llama3.3-70b")
+        _make_cerebras("qwen-3-235b-a22b-instruct-2507")
+        or _make_cerebras("llama3.1-8b")
         or _make_google("gemini-2.5-flash")
         or _make_groq("llama-3.3-70b-versatile")
         or _make_groq("llama-3.1-8b-instant")
@@ -402,7 +403,8 @@ def get_fast_llm() -> Any:
 def get_code_llm() -> Any:
     """Melhor LLM para geração de código."""
     return (
-        _make_cerebras("llama3.3-70b")
+        _make_cerebras("qwen-3-235b-a22b-instruct-2507")
+        or _make_cerebras("llama3.1-8b")
         or _make_google("gemini-2.5-flash")
         or _make_groq("llama-3.3-70b-versatile")
         or _make_nvidia("qwen/qwen2.5-coder-32b-instruct")

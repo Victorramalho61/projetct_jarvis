@@ -195,6 +195,27 @@ def _route_to_agent(proposal: dict, decisions: list, db=None) -> None:
         except Exception as exc:
             logger.warning("proposal_supervisor: update status após routing %s: %s", proposal["id"], exc)
 
+    # Notifica quality_validator para validar pós-implementação
+    try:
+        send_agent_message(
+            from_agent="proposal_supervisor",
+            to_agent="quality_validator",
+            message=(
+                f"QA REQUERIDO PÓS-IMPLEMENTAÇÃO\n"
+                f"Proposta '{proposal.get('title','')}' (ID: {proposal['id']}) foi roteada para '{target}'.\n"
+                f"Tipo: {ptype} | Prioridade: {proposal.get('priority','medium')}\n"
+                f"Valide após implementação: endpoints afetados, integridade do banco, logs de erro, SLOs."
+            ),
+            context={
+                "proposal_id": proposal["id"],
+                "proposal_type": ptype,
+                "target_agent": target,
+                "qa_required": True,
+            },
+        )
+    except Exception as exc:
+        logger.debug("proposal_supervisor: notif quality_validator: %s", exc)
+
 
 def run(state: dict) -> dict:
     from graph_engine.llm import get_reasoning_llm, invoke_llm_with_timeout
