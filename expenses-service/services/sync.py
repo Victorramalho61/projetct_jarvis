@@ -71,3 +71,24 @@ def get_last_updated() -> str | None:
     except Exception:
         logger.warning("Não foi possível obter last_updated do cache", exc_info=True)
     return None
+
+
+def get_cached_dashboard(year: int) -> dict | None:
+    """Lê dashboard do cache Supabase. Retorna None se não encontrar ou cache inválido."""
+    try:
+        res = (
+            get_supabase()
+            .table("expenses_cache")
+            .select("payload, updated_at")
+            .eq("cache_key", f"dashboard_{year}")
+            .eq("status", "success")
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            payload = res.data[0]["payload"]
+            payload["last_updated"] = res.data[0]["updated_at"]
+            return payload
+    except Exception:
+        logger.warning("Erro ao ler cache dashboard_%d", year, exc_info=True)
+    return None

@@ -118,6 +118,35 @@ GROUP BY LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7)
 ORDER BY MES ASC
 """
 
+_YOY_MENSAL_QUERY = """
+SELECT MES,
+    CASE WHEN ORIGEM = 'Contrato' THEN 'contrato' ELSE 'eventual' END AS CATEGORIA,
+    SUM(TOTAL) AS TOTAL
+FROM (
+    SELECT
+        LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7) AS MES,
+        CASE
+            WHEN DOC.RECEBIMENTOFISICO IN (SELECT RECEBIMENTOFISICOPAI FROM CP_RECEBIMENTOFISICO WITH (NOLOCK) WHERE CONTRATO IS NOT NULL) THEN 'Contrato'
+            WHEN DOC.RECEBIMENTOFISICO IN (SELECT RECEBIMENTOFISICOPAI FROM CP_RECEBIMENTOFISICO WITH (NOLOCK) WHERE ORDEMCOMPRA IS NOT NULL) THEN 'Financeiro'
+            WHEN DOC.DOCUMENTODIGITADO LIKE '%OC%' AND DOC.DOCUMENTODIGITADO LIKE '%--%' THEN 'Financeiro'
+            WHEN DOC.DOCUMENTODIGITADO LIKE '%CME/%' OR DOC.DOCUMENTODIGITADO LIKE '%CSER/%'
+              OR DOC.DOCUMENTODIGITADO LIKE '%CSE/%' OR DOC.DOCUMENTODIGITADO LIKE '%CSCR/%'
+              OR DOC.DOCUMENTODIGITADO LIKE '%CSA/%' OR DOC.DOCUMENTODIGITADO LIKE '%CONT/%' THEN 'Contrato'
+            ELSE 'Financeiro'
+        END AS ORIGEM,
+        PAR.VALOR AS TOTAL
+    FROM FN_PARCELAS PAR WITH (NOLOCK)
+        LEFT JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+    WHERE PAR.EMPRESA = 1
+        AND DOC.GRUPOASSINATURAS IN (SELECT HANDLE FROM CP_GRUPOALCADAS WITH (NOLOCK) WHERE K_GESTOR = 23)
+        AND DOC.ENTRADASAIDA IN ('I','E')
+        AND DOC.ABRANGENCIA <> 'R'
+        AND PAR.DATAVENCIMENTO BETWEEN ? AND ?
+) AS T
+GROUP BY MES, CASE WHEN ORIGEM = 'Contrato' THEN 'contrato' ELSE 'eventual' END
+ORDER BY MES ASC
+"""
+
 
 def _serialize(value):
     if isinstance(value, (date, datetime)):
@@ -207,6 +236,36 @@ def _fetch_yoy(year: int) -> dict[str, float]:
     finally:
         conn.close()
     return {row[0]: round(float(row[1]), 2) for row in rows}
+
+
+def _fetch_yoy_mensal(year: int) -> dict[str, dict]:
+    """Returns {month_str: {contrato, eventual}} for the prior year (year-1)."""
+    prior_year = year - 1
+    date_from = f"{prior_year}-01-01"
+    date_to = f"{prior_year}-12-31"
+    conn = get_sql_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_YOY_MENSAL_QUERY, (date_from, date_to))
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    result: dict[str, dict] = {}
+    for mes, categoria, total in rows:
+        if mes not in result:
+            result[mes] = {"contrato": 0.0, "eventual": 0.0}
+        cat = categoria if categoria in ("contrato", "eventual") else "eventual"
+        result[mes][cat] += float(total) if total is not None else 0.0
+    return {k: {"contrato": round(v["contrato"], 2), "eventual": round(v["eventual"], 2)}
+            for k, v in result.items()}
+
+
+def _kpi_comp(cur: float, prev: float | None) -> dict | None:
+    if prev is None or prev == 0:
+        return None
+    pct = round((cur / prev - 1) * 100, 1)
+    direcao = "alta" if pct > 2 else ("baixa" if pct < -2 else "estavel")
+    return {"valor": round(cur - prev, 2), "pct": pct, "direcao": direcao}
 
 
 def fetch_dashboard(
@@ -334,24 +393,76 @@ def fetch_dashboard(
 
     # YoY: prior year monthly totals (only when year >= 2026)
     yoy: dict[str, float] = {}
+    yoy_mensal: dict[str, dict] = {}
     if year >= 2026:
         try:
             yoy = _fetch_yoy(year)
         except Exception:
             logger.exception("Erro ao buscar YoY")
+        try:
+            yoy_mensal = _fetch_yoy_mensal(year)
+        except Exception:
+            logger.exception("Erro ao buscar yoy_mensal")
+
+    # KPI comparisons — month-over-month (last 2 months from by_origem_mensal)
+    vs_mes_ant_total = vs_mes_ant_cont = vs_mes_ant_ev = None
+    if len(by_origem_mensal) >= 2:
+        last_m = by_origem_mensal[-1]
+        prev_m = by_origem_mensal[-2]
+        last_total = last_m["contrato"] + last_m["eventual"]
+        prev_total = prev_m["contrato"] + prev_m["eventual"]
+        vs_mes_ant_total = _kpi_comp(last_total, prev_total)
+        vs_mes_ant_cont = _kpi_comp(last_m["contrato"], prev_m["contrato"])
+        vs_mes_ant_ev = _kpi_comp(last_m["eventual"], prev_m["eventual"])
+
+    # vs prior year same period
+    vs_ly_total = None
+    if year >= 2026 and yoy:
+        existing_months = {m["mes"] for m in by_origem_mensal}
+        prior_period_keys = {m.replace(str(year), str(year - 1)) for m in existing_months}
+        ytd_prior = sum(yoy.get(k, 0.0) for k in prior_period_keys)
+        vs_ly_total = _kpi_comp(total_valor, ytd_prior) if ytd_prior > 0 else None
+
+    total_recorrente = round(sum(float(r.get("VALOR") or 0) for r in recorrente_rows), 2)
+    total_eventual_val = round(sum(float(r.get("VALOR") or 0) for r in eventual_rows), 2)
+    media_mensal_val = round(total_valor / months_in_period, 2)
 
     return {
         "kpis": {
+            # Legacy flat fields (kept for compatibility)
             "total_valor": round(total_valor, 2),
             "total_efetivo": round(total_efetivo, 2),
             "total_previsao": round(total_previsao, 2),
             "count_parcelas": len(rows),
             "count_efetivo": len(efetivo_rows),
             "count_previsao": len(previsao_rows),
-            "media_mensal": round(total_valor / months_in_period, 2),
-            "total_recorrente": round(sum(float(r.get("VALOR") or 0) for r in recorrente_rows), 2),
-            "total_eventual": round(sum(float(r.get("VALOR") or 0) for r in eventual_rows), 2),
+            "media_mensal": media_mensal_val,
+            "media_mensal_valor": media_mensal_val,
+            "total_recorrente": total_recorrente,
+            "total_eventual": total_eventual_val,
             "sparkline": sparkline,
+            # KPIWithContext objects
+            "total_ytd": {
+                "valor": round(total_valor, 2),
+                "sparkline": sparkline,
+                "vs_mes_anterior": vs_mes_ant_total,
+                "vs_ly": vs_ly_total,
+            },
+            "contratos": {
+                "valor": total_recorrente,
+                "sparkline": [],
+                "vs_mes_anterior": vs_mes_ant_cont,
+            },
+            "eventual": {
+                "valor": total_eventual_val,
+                "sparkline": [],
+                "vs_mes_anterior": vs_mes_ant_ev,
+            },
+            "media_mensal_kpi": {
+                "valor": media_mensal_val,
+                "sparkline": sparkline,
+                "vs_mes_anterior": None,
+            },
         },
         "by_month": by_month,
         "by_conta": by_conta,
@@ -362,5 +473,6 @@ def fetch_dashboard(
         "by_origem_mensal": by_origem_mensal,
         "filiais": filiais,
         "yoy": yoy,
+        "yoy_mensal": yoy_mensal,
         "rows": rows,
     }

@@ -228,7 +228,7 @@ function SupplierAccordion({
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr className="border-y border-gray-200 dark:border-gray-700">
-                          {['Conta', 'Valor', 'Vencimento', 'Liquidação', 'Filial', 'Origem', 'Tipo'].map((h) => (
+                          {['Histórico', 'Conta', 'Valor', 'Vencimento', 'Liquidação', 'Filial', 'Origem', 'Tipo'].map((h) => (
                             <th key={h} className={`px-5 py-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400 ${h === 'Valor' ? 'text-right' : 'text-left'}`}>
                               {h}
                             </th>
@@ -238,7 +238,8 @@ function SupplierAccordion({
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-800/40">
                         {g.rows.map((row, i) => (
                           <tr key={i} className="hover:bg-white dark:hover:bg-gray-800/30 transition-colors">
-                            <td className="px-5 py-2 max-w-[180px] truncate text-gray-600 dark:text-gray-400" title={row.CONTA ?? ''}>{row.CONTA || '—'}</td>
+                            <td className="px-5 py-2 max-w-[200px] truncate text-gray-600 dark:text-gray-400 text-[10px]" title={row.HISTORICO ?? row.DOCUMENTODIGITADO ?? ''}>{row.HISTORICO || row.DOCUMENTODIGITADO || '—'}</td>
+                            <td className="px-5 py-2 max-w-[160px] truncate text-gray-600 dark:text-gray-400" title={row.CONTA ?? ''}>{row.CONTA || '—'}</td>
                             <td className="px-5 py-2 text-right font-semibold text-gray-800 dark:text-gray-100 whitespace-nowrap tabular-nums">{fmtBrl(row.VALOR ?? 0)}</td>
                             <td className="px-5 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums">{row.DATAVENCIMENTO ? row.DATAVENCIMENTO.slice(0, 10) : '—'}</td>
                             <td className="px-5 py-2 text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums">{row.DATALIQUIDACAO ? row.DATALIQUIDACAO.slice(0, 10) : '—'}</td>
@@ -251,6 +252,7 @@ function SupplierAccordion({
                       <tfoot>
                         <tr className="border-t border-gray-200 dark:border-gray-700">
                           <td className="px-5 py-2 text-[10px] text-gray-400">{g.count} lançamentos</td>
+                          <td />
                           <td className="px-5 py-2 text-right font-bold text-gray-900 dark:text-white whitespace-nowrap tabular-nums">{fmtBrl(g.total)}</td>
                           <td colSpan={5} />
                         </tr>
@@ -269,9 +271,239 @@ function SupplierAccordion({
   )
 }
 
+// ── Eventual detail section ───────────────────────────────────────────────────
+
+function EventualDetailTable({ rows, fmtBrl }: { rows: ExpenseRow[]; fmtBrl: (v: number) => string }) {
+  const eventualRows = rows
+    .filter((r) => r.CATEGORIA === 'Eventual')
+    .sort((a, b) => (b.VALOR ?? 0) - (a.VALOR ?? 0))
+
+  if (eventualRows.length === 0) return null
+
+  return (
+    <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+      <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+          Detalhamento — Gastos Eventuais
+          <span className="ml-2 text-xs font-normal text-gray-500">({eventualRows.length} lançamentos)</span>
+        </h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-collapse">
+          <thead>
+            <tr className="border-b border-gray-100 dark:border-gray-800">
+              {['Fornecedor', 'Histórico / Descrição', 'Valor', 'Liquidação', 'Filial'].map((h) => (
+                <th key={h} className={`px-5 py-2.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500 ${h === 'Valor' ? 'text-right' : 'text-left'}`}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60">
+            {eventualRows.map((row, i) => (
+              <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                <td className="px-5 py-2.5 font-medium text-gray-800 dark:text-gray-100 max-w-[160px] truncate" title={row.PESSOA}>{row.PESSOA || '—'}</td>
+                <td className="px-5 py-2.5 text-gray-600 dark:text-gray-400 max-w-[280px] truncate" title={row.HISTORICO ?? ''}>{row.HISTORICO || row.DOCUMENTODIGITADO || '—'}</td>
+                <td className="px-5 py-2.5 text-right font-semibold text-gray-900 dark:text-white whitespace-nowrap tabular-nums">{fmtBrl(row.VALOR ?? 0)}</td>
+                <td className="px-5 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap tabular-nums">{row.DATALIQUIDACAO ? row.DATALIQUIDACAO.slice(0, 10) : '—'}</td>
+                <td className="px-5 py-2.5 text-gray-500 dark:text-gray-400 whitespace-nowrap">{row.FILIAL}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ── Comparison 2025 vs 2026 tab ───────────────────────────────────────────────
+
+const SHORT_MONTHS_LIST = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+function ComparisonTab({
+  byOrigemMensal,
+  yoyMensal,
+  currentYear,
+  fmtBrl,
+  fmtCompact,
+  chartGrid,
+  chartTick,
+}: {
+  byOrigemMensal: { mes: string; contrato: number; eventual: number }[]
+  yoyMensal: Record<string, { contrato: number; eventual: number }>
+  currentYear: number
+  fmtBrl: (v: number) => string
+  fmtCompact: (v: number) => string
+  chartGrid: string
+  chartTick: string
+}) {
+  const priorYear = currentYear - 1
+
+  // Build month-by-month comparison
+  const months = Array.from({ length: 12 }, (_, i) => {
+    const mm = String(i + 1).padStart(2, '0')
+    const curKey = `${currentYear}-${mm}`
+    const priKey = `${priorYear}-${mm}`
+    const cur = byOrigemMensal.find((m) => m.mes === curKey)
+    const pri = yoyMensal[priKey]
+    const curTotal = (cur?.contrato ?? 0) + (cur?.eventual ?? 0)
+    const priTotal = (pri?.contrato ?? 0) + (pri?.eventual ?? 0)
+    const pct = priTotal > 0 ? ((curTotal / priTotal - 1) * 100) : null
+    return {
+      mes: SHORT_MONTHS_LIST[i],
+      [`${priorYear}_cont`]: pri?.contrato ?? null,
+      [`${priorYear}_ev`]: pri?.eventual ?? null,
+      [`${priorYear}`]: priTotal > 0 ? priTotal : null,
+      [`${currentYear}_cont`]: cur?.contrato ?? null,
+      [`${currentYear}_ev`]: cur?.eventual ?? null,
+      [`${currentYear}`]: curTotal > 0 ? curTotal : null,
+      pct,
+    }
+  })
+
+  const priTotal = Object.values(yoyMensal).reduce((s, v) => s + v.contrato + v.eventual, 0)
+  const curTotal = byOrigemMensal.reduce((s, m) => s + m.contrato + m.eventual, 0)
+  const priCont = Object.values(yoyMensal).reduce((s, v) => s + v.contrato, 0)
+  const curCont = byOrigemMensal.reduce((s, m) => s + m.contrato, 0)
+  const priEv = Object.values(yoyMensal).reduce((s, v) => s + v.eventual, 0)
+  const curEv = byOrigemMensal.reduce((s, m) => s + m.eventual, 0)
+
+  function pctBadge(cur: number, pri: number) {
+    if (pri === 0) return null
+    const p = ((cur / pri - 1) * 100).toFixed(1)
+    const up = cur > pri
+    return (
+      <span className={`text-[10px] font-semibold ${up ? 'text-red-500' : 'text-emerald-500'}`}>
+        {up ? '▲' : '▼'} {Math.abs(Number(p))}%
+      </span>
+    )
+  }
+
+  const COLOR_PRI = '#6b7280'
+  const COLOR_CUR = '#3b82f6'
+
+  return (
+    <div className="space-y-6">
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: 'Total Geral', pri: priTotal, cur: curTotal },
+          { label: 'Contratos', pri: priCont, cur: curCont },
+          { label: 'Eventual', pri: priEv, cur: curEv },
+        ].map(({ label, pri, cur }) => (
+          <div key={label} className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500 mb-3">{label}</p>
+            <div className="flex items-end justify-between gap-2">
+              <div>
+                <p className="text-[10px] text-gray-400 mb-0.5">{priorYear}</p>
+                <p className="text-lg font-bold text-gray-400 tabular-nums">{fmtCompact(pri)}</p>
+              </div>
+              <div className="text-center">{pctBadge(cur, pri)}</div>
+              <div className="text-right">
+                <p className="text-[10px] text-gray-400 mb-0.5">{currentYear}</p>
+                <p className="text-lg font-bold text-blue-500 tabular-nums">{fmtCompact(cur)}</p>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Grouped bar chart */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+        <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+          Evolução Mensal — {priorYear} vs {currentYear}
+        </h2>
+        <ResponsiveContainer width="100%" height={260}>
+          <BarChart data={months} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke={chartGrid} vertical={false} />
+            <XAxis dataKey="mes" tick={{ fontSize: 11, fill: chartTick }} axisLine={false} tickLine={false} />
+            <YAxis tickFormatter={fmtCompact} tick={{ fontSize: 10, fill: chartTick }} axisLine={false} tickLine={false} width={65} />
+            <Tooltip
+              formatter={(v: number) => [fmtBrl(v)]}
+              contentStyle={{ backgroundColor: '#111827', border: '1px solid #374151', borderRadius: 8, fontSize: 12 }}
+              itemStyle={{ color: '#e5e7eb' }}
+              cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+            />
+            <Legend wrapperStyle={{ fontSize: 11, color: chartTick, paddingTop: 8 }} />
+            <Bar dataKey={String(priorYear)} name={String(priorYear)} fill={COLOR_PRI} radius={[3, 3, 0, 0]} maxBarSize={24} />
+            <Bar dataKey={String(currentYear)} name={String(currentYear)} fill={COLOR_CUR} radius={[3, 3, 0, 0]} maxBarSize={24} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Month-by-month table */}
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100 dark:border-gray-800">
+          <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Detalhamento Mês a Mês</h2>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50">
+                <th className="px-4 py-2.5 text-left text-[10px] font-semibold uppercase tracking-wide text-gray-500">Mês</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">{priorYear} Cont.</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">{priorYear} Ev.</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-gray-400">{priorYear} Total</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-blue-400">{currentYear} Cont.</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-blue-400">{currentYear} Ev.</th>
+                <th className="px-4 py-2.5 text-right text-[10px] font-semibold uppercase tracking-wide text-blue-400">{currentYear} Total</th>
+                <th className="px-4 py-2.5 text-center text-[10px] font-semibold uppercase tracking-wide text-gray-500">Δ%</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800/60">
+              {months.map((m) => {
+                const priT = (m[String(priorYear)] as number | null) ?? 0
+                const curT = (m[String(currentYear)] as number | null) ?? 0
+                const hasData = priT > 0 || curT > 0
+                if (!hasData) return null
+                return (
+                  <tr key={m.mes} className="hover:bg-gray-50 dark:hover:bg-gray-800/40 transition-colors">
+                    <td className="px-4 py-2.5 font-semibold text-gray-700 dark:text-gray-300">{m.mes}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">{(m[`${priorYear}_cont`] as number | null) ? fmtBrl(m[`${priorYear}_cont`] as number) : '—'}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">{(m[`${priorYear}_ev`] as number | null) ? fmtBrl(m[`${priorYear}_ev`] as number) : '—'}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums font-medium text-gray-700 dark:text-gray-300">{priT > 0 ? fmtBrl(priT) : '—'}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-blue-400">{(m[`${currentYear}_cont`] as number | null) ? fmtBrl(m[`${currentYear}_cont`] as number) : '—'}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-blue-400">{(m[`${currentYear}_ev`] as number | null) ? fmtBrl(m[`${currentYear}_ev`] as number) : '—'}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-blue-500">{curT > 0 ? fmtBrl(curT) : '—'}</td>
+                    <td className="px-4 py-2.5 text-center">
+                      {m.pct != null ? (
+                        <span className={`font-semibold ${m.pct > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                          {m.pct > 0 ? '+' : ''}{(m.pct as number).toFixed(1)}%
+                        </span>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 font-semibold">
+                <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300 text-[11px]">TOTAL</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">{fmtBrl(priCont)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-gray-500">{fmtBrl(priEv)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-gray-700 dark:text-gray-300">{fmtBrl(priTotal)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-blue-400">{fmtBrl(curCont)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-blue-400">{fmtBrl(curEv)}</td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-blue-500">{fmtBrl(curTotal)}</td>
+                <td className="px-4 py-2.5 text-center">
+                  {priTotal > 0 ? (
+                    <span className={`font-semibold ${curTotal > priTotal ? 'text-red-400' : 'text-emerald-400'}`}>
+                      {curTotal > priTotal ? '+' : ''}{(((curTotal / priTotal) - 1) * 100).toFixed(1)}%
+                    </span>
+                  ) : '—'}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
-type ActiveTab = 'gastos' | 'previsao'
+type ActiveTab = 'gastos' | 'previsao' | 'comparacao'
 
 export default function ExpensesPage() {
   const { token } = useAuth()
@@ -362,14 +594,17 @@ export default function ExpensesPage() {
   const supplierGroups = buildSupplierGroups(filteredRows)
 
   // Build monthly chart data: merge by_origem_mensal with yoy
-  const monthlyChartData = (data?.by_origem_mensal ?? []).map((m) => ({
-    mes: shortMonth(m.mes),
-    mesKey: m.mes,
-    Contrato: m.contrato,
-    Eventual: m.eventual,
-    Total: m.contrato + m.eventual,
-    LY: data?.yoy?.[m.mes] ?? null,
-  }))
+  const monthlyChartData = (data?.by_origem_mensal ?? []).map((m) => {
+    const lyKey = m.mes.replace(String(year), String(year - 1))
+    return {
+      mes: shortMonth(m.mes),
+      mesKey: m.mes,
+      Contrato: m.contrato,
+      Eventual: m.eventual,
+      Total: m.contrato + m.eventual,
+      LY: data?.yoy?.[lyKey] ?? null,
+    }
+  })
 
   const showLY = year === 2026 && Object.keys(data?.yoy ?? {}).length > 0
 
@@ -401,21 +636,30 @@ export default function ExpensesPage() {
     pct: Math.round((f.valor / maxForn) * 100),
   }))
 
-  // ForecastChart data — rename projecao → proj
-  const forecastMapped = (forecast?.meses ?? []).map((m) => ({
-    mes: shortMonth(m.mes),
-    real:    m.tipo === 'real'     ? m.valor : null,
-    proj:    m.tipo === 'projecao' ? m.valor : null,
-    min:     m.valor_min ?? null,
-    max:     m.valor_max ?? null,
-  }))
+  // ForecastChart data — filter to forecast year only, use stacked band
+  const forecastMapped = (forecast?.meses ?? [])
+    .filter((m) => m.mes.startsWith('2026'))
+    .map((m) => {
+      const minV = m.valor_min ?? null
+      const maxV = m.valor_max ?? null
+      return {
+        mes: shortMonth(m.mes),
+        real: m.tipo === 'real'     ? m.valor : null,
+        proj: m.tipo === 'projecao' ? m.valor : null,
+        base: minV,
+        band: (minV != null && maxV != null) ? maxV - minV : null,
+      }
+    })
 
   // YoY comparison chart (months that exist in both years)
-  const yoyChartData = (data?.by_origem_mensal ?? []).map((m) => ({
-    mes: shortMonth(m.mes),
-    '2026': m.contrato + m.eventual,
-    '2025': data?.yoy?.[m.mes] ?? null,
-  })).filter((d) => d['2025'] !== null)
+  const yoyChartData = (data?.by_origem_mensal ?? []).map((m) => {
+    const lyKey = m.mes.replace(String(year), String(year - 1))
+    return {
+      mes: shortMonth(m.mes),
+      [String(year)]: m.contrato + m.eventual,
+      [String(year - 1)]: data?.yoy?.[lyKey] ?? null,
+    }
+  }).filter((d) => d[String(year - 1)] !== null)
 
   // Current month key for reference line
   const currentMonth = new Date().toISOString().slice(0, 7) // "2026-05"
@@ -465,9 +709,16 @@ export default function ExpensesPage() {
             accentColor="blue"
             subtitle={`${data.kpis.count_parcelas} parcelas`}
             comparison={[
-              { label: 'vs. Mês Ant.', value: null },
-              { label: 'vs. Forecast', value: null },
-              ...(year === 2026 ? [{ label: 'vs. 2025', value: null }] : []),
+              ...(data.kpis.total_ytd?.vs_mes_anterior ? [{
+                label: 'vs. Mês Ant.',
+                value: `${data.kpis.total_ytd.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.total_ytd.vs_mes_anterior.pct.toFixed(1)}%`,
+                positive: data.kpis.total_ytd.vs_mes_anterior.direcao === 'baixa',
+              }] : []),
+              ...(data.kpis.total_ytd?.vs_ly ? [{
+                label: `vs. ${year - 1}`,
+                value: `${data.kpis.total_ytd.vs_ly.pct > 0 ? '+' : ''}${data.kpis.total_ytd.vs_ly.pct.toFixed(1)}%`,
+                positive: data.kpis.total_ytd.vs_ly.direcao === 'baixa',
+              }] : []),
             ]}
           />
           <KPICard
@@ -477,8 +728,11 @@ export default function ExpensesPage() {
             accentColor="violet"
             subtitle="despesas recorrentes"
             comparison={[
-              { label: 'vs. Mês Ant.', value: null },
-              { label: 'vs. Forecast', value: null },
+              ...(data.kpis.contratos?.vs_mes_anterior ? [{
+                label: 'vs. Mês Ant.',
+                value: `${data.kpis.contratos.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.contratos.vs_mes_anterior.pct.toFixed(1)}%`,
+                positive: data.kpis.contratos.vs_mes_anterior.direcao === 'baixa',
+              }] : []),
             ]}
           />
           <KPICard
@@ -488,37 +742,42 @@ export default function ExpensesPage() {
             accentColor="amber"
             subtitle="compras e pontuais"
             comparison={[
-              { label: 'vs. Mês Ant.', value: null },
-              { label: 'vs. Forecast', value: null },
+              ...(data.kpis.eventual?.vs_mes_anterior ? [{
+                label: 'vs. Mês Ant.',
+                value: `${data.kpis.eventual.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.eventual.vs_mes_anterior.pct.toFixed(1)}%`,
+                positive: data.kpis.eventual.vs_mes_anterior.direcao === 'baixa',
+              }] : []),
             ]}
           />
           <KPICard
             title="Média Mensal"
-            value={FMT_BRL(data.kpis.media_mensal?.valor ?? data.kpis.media_mensal_valor ?? data.kpis.media_mensal)}
+            value={FMT_BRL(data.kpis.media_mensal_kpi?.valor ?? data.kpis.media_mensal_valor ?? data.kpis.media_mensal)}
             loading={loading}
             accentColor="teal"
             subtitle="no ano selecionado"
-            comparison={[
-              { label: 'vs. Mês Ant.', value: null },
-            ]}
+            comparison={[]}
           />
         </div>
       ) : null}
 
       {/* ── Sub-tabs ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 border-b border-gray-200 dark:border-gray-800 pb-0">
-        {(['gastos', 'previsao'] as ActiveTab[]).map((tab) => (
+        {([
+          { id: 'gastos', label: 'Gastos' },
+          { id: 'previsao', label: 'Previsão' },
+          { id: 'comparacao', label: `${year - 1} vs ${year}` },
+        ] as { id: ActiveTab; label: string }[]).map(({ id, label }) => (
           <button
-            key={tab}
+            key={id}
             type="button"
-            onClick={() => setActiveTab(tab)}
+            onClick={() => setActiveTab(id)}
             className={`px-5 py-2.5 text-sm font-semibold rounded-t-lg transition-colors -mb-px border-b-2 ${
-              activeTab === tab
+              activeTab === id
                 ? 'border-blue-500 text-blue-400 bg-white dark:bg-gray-900'
                 : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-900/50'
             }`}
           >
-            {tab === 'gastos' ? 'Gastos' : 'Previsão'}
+            {label}
           </button>
         ))}
       </div>
@@ -676,6 +935,9 @@ export default function ExpensesPage() {
 
           {/* Row 3: Accordion por fornecedor */}
           <SupplierAccordion groups={supplierGroups} fmtBrl={FMT_BRL} />
+
+          {/* Row 3b: Detalhamento eventuais */}
+          <EventualDetailTable rows={filteredRows} fmtBrl={FMT_BRL} />
 
           {/* Row 4: Tabela de lançamentos (paginada) */}
           <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
@@ -871,8 +1133,8 @@ export default function ExpensesPage() {
                         cursor={{ fill: '#1f2937' }}
                       />
                       <Legend wrapperStyle={{ fontSize: 11, color: chartTick, paddingTop: 8 }} />
-                      <Bar dataKey="2025" fill={COLOR_2025} radius={[3, 3, 0, 0]} maxBarSize={28} />
-                      <Bar dataKey="2026" fill={COLOR_2026} radius={[3, 3, 0, 0]} maxBarSize={28} />
+                      <Bar dataKey={String(year - 1)} fill={COLOR_2025} radius={[3, 3, 0, 0]} maxBarSize={28} />
+                      <Bar dataKey={String(year)} fill={COLOR_2026} radius={[3, 3, 0, 0]} maxBarSize={28} />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartCard>
@@ -956,6 +1218,37 @@ export default function ExpensesPage() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ════════════════════════════════════════════════════════════════════ */}
+      {/* TAB: COMPARAÇÃO                                                     */}
+      {/* ════════════════════════════════════════════════════════════════════ */}
+
+      {activeTab === 'comparacao' && (
+        <div className="space-y-6">
+          {loading && !data ? (
+            <SkeletonGrid />
+          ) : data ? (
+            Object.keys(data.yoy_mensal ?? {}).length === 0 && year < 2026 ? (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-12 text-center">
+                <p className="text-4xl mb-3">📊</p>
+                <p className="text-gray-600 dark:text-gray-400 font-medium">
+                  Selecione o ano 2026 para ver a comparação com 2025
+                </p>
+              </div>
+            ) : (
+              <ComparisonTab
+                byOrigemMensal={data.by_origem_mensal}
+                yoyMensal={data.yoy_mensal ?? {}}
+                currentYear={year}
+                fmtBrl={FMT_BRL}
+                fmtCompact={FMT_COMPACT}
+                chartGrid={chartGrid}
+                chartTick={chartTick}
+              />
+            )
+          ) : null}
         </div>
       )}
     </div>

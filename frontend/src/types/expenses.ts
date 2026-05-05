@@ -17,7 +17,7 @@ export interface DashboardKPIs {
   total_ytd: KPIWithContext
   contratos: KPIWithContext
   eventual: KPIWithContext
-  media_mensal: KPIWithContext
+  media_mensal_kpi: KPIWithContext
   // legacy fields still returned by API
   total_valor: number
   total_efetivo: number
@@ -25,6 +25,7 @@ export interface DashboardKPIs {
   count_parcelas: number
   count_efetivo: number
   count_previsao: number
+  media_mensal: number
   media_mensal_valor: number
   total_recorrente: number
   total_eventual: number
@@ -69,6 +70,7 @@ export interface ExpenseDashboard {
   by_categoria: { categoria: string; valor: number }[]
   filiais: string[]
   yoy: Record<string, number>  // {month: valor_ly}
+  yoy_mensal: Record<string, { contrato: number; eventual: number }>  // {month: {contrato, eventual}}
   rows: ExpenseRow[]
 }
 

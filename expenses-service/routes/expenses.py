@@ -6,7 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from auth import require_role
 from services.expenses import fetch_dashboard
 from services.forecast import fetch_forecast
-from services.sync import get_last_updated, run_expenses_sync
+from services.sync import get_cached_dashboard, get_last_updated, run_expenses_sync
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 logger = logging.getLogger(__name__)
@@ -31,6 +31,11 @@ async def dashboard(
             year = date.today().year
 
     try:
+        # Use Supabase cache for unfiltered requests (much faster than ERP)
+        if not filial and tipo in ("todos", ""):
+            cached = get_cached_dashboard(year)
+            if cached:
+                return cached
         result = fetch_dashboard(year, filial, tipo)
         result["last_updated"] = get_last_updated()
         return result

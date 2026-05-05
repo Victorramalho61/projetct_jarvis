@@ -24,8 +24,8 @@ export interface ForecastDataPoint {
   mes: string
   real: number | null
   proj: number | null
-  min: number | null
-  max: number | null
+  base: number | null   // lower bound of confidence band
+  band: number | null   // width = upper - lower
 }
 
 interface Props {
@@ -40,7 +40,7 @@ function CustomTooltip({ active, payload, label }: {
 }) {
   if (!active || !payload?.length) return null
   const rows = payload.filter(
-    (p) => p.dataKey !== 'max' && p.dataKey !== 'min' && p.value != null,
+    (p) => p.dataKey !== 'band' && p.dataKey !== 'base' && p.value != null,
   )
   if (!rows.length) return null
   return (
@@ -122,26 +122,25 @@ export default function ForecastChart({ data, todayLabel }: Props) {
             />
             <Tooltip content={<CustomTooltip />} />
 
-            {/* Confidence band: max fills with gradient */}
+            {/* Confidence band: stacked areas (base transparent + band gradient) */}
             <Area
-              dataKey="max"
+              dataKey="base"
+              stackId="fc"
+              stroke="none"
+              fill="transparent"
+              legendType="none"
+              isAnimationActive={false}
+              name="base"
+            />
+            <Area
+              dataKey="band"
+              stackId="fc"
               stroke="none"
               fill="url(#fcBand)"
               legendType="none"
               isAnimationActive
               animationDuration={700}
-              name="max"
-            />
-            {/* Confidence band: min masks with --bg-base CSS variable */}
-            <Area
-              dataKey="min"
-              stroke="none"
-              fill="var(--bg-base, #111827)"
-              fillOpacity={1}
-              legendType="none"
-              isAnimationActive
-              animationDuration={700}
-              name="min"
+              name="band"
             />
 
             {/* Projected — dashed */}
