@@ -158,14 +158,41 @@ def _run_maintenance(snapshot: dict, decisions: list, findings: list) -> None:
         logger.warning("db_dba_agent: rotina de backup: %s", exc)
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    """Executa SQL seguro de proposals DBA aprovadas por humanos."""
+    from graph_engine.tools.db_admin_tools import execute_safe_sql
+
+    sql = proposal.get("sql_proposal") or proposal.get("proposed_fix") or ""
+    if not sql or not sql.strip():
+        return False, "Proposal DBA sem SQL definido — implementação manual necessária"
+
+    sql_upper = sql.strip().upper()
+    if any(sql_upper.startswith(p) for p in _AUTO_SAFE_PREFIXES):
+        try:
+            result = execute_safe_sql(sql)
+            return True, f"SQL executado: {result[:200]}"
+        except Exception as exc:
+            return False, f"Falha ao executar SQL: {exc}"
+
+    action = proposal.get("proposed_action", "")[:200] or proposal.get("title", "")[:100]
+    return False, f"SQL requer revisão manual do DBA (não é ANALYZE/INDEX CONCURRENTLY): {action}"
+
+
 def run(state: dict) -> dict:
     from graph_engine.llm import get_reasoning_llm
     from graph_engine.tools.supabase_tools import insert_improvement_proposal, insert_agent_event, send_agent_message
     from graph_engine.tools.db_admin_tools import execute_safe_sql
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
+    from db import get_supabase
     from langchain_core.messages import SystemMessage, HumanMessage
 
     findings = []
     decisions = []
+
+    db = get_supabase()
+    processed = process_inbox_proposals("db_dba_agent", db, _handle_proposal, decisions)
+    if processed:
+        logger.info("db_dba_agent: %d proposals da inbox processadas", processed)
 
     try:
         snapshot = _collect_snapshot()

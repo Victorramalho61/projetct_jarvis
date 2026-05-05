@@ -124,6 +124,7 @@ _PIPELINE_AGENTS: dict[str, list[str]] = {
     "monitoring":  [
         "uptime", "quality", "docker_intel", "backend_agent",
         "infrastructure", "api_agent", "log_scanner",
+        "agent_health_supervisor",
     ],
     "security":    ["security", "code_security"],
     "cicd":        ["cicd_monitor"],

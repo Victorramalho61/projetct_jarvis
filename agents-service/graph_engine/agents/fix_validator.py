@@ -3,6 +3,36 @@ from graph_engine.tools.code_tools import analyze_python_code, check_security_pa
 from graph_engine.tools.supabase_tools import log_event, update_improvement_proposal
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    """Valida código de propostas code_fix/refactoring aprovadas por humanos."""
+    code = proposal.get("proposed_fix") or proposal.get("proposed_action") or ""
+    affected = proposal.get("affected_files") or []
+
+    if not code or not code.strip():
+        return True, "Proposta advisory reconhecida — sem código para validar, implementação manual"
+
+    # Se não parece código Python (sem newlines, keywords, etc.), tratar como advisory
+    python_indicators = ["def ", "class ", "import ", "from ", "return ", "if ", "for ", "while ", "try:", "\n    "]
+    if not any(ind in code for ind in python_indicators):
+        return True, f"Proposta advisory registrada: {code[:100]}"
+
+    analysis = analyze_python_code(code)
+    if not analysis.get("valid_syntax", True):
+        return False, f"Código com sintaxe inválida: {analysis.get('syntax_error', 'erro desconhecido')}"
+
+    security_issues = check_security_patterns(code)
+    if security_issues:
+        issues_str = "; ".join(i.get("description", "") for i in security_issues[:3])
+        return False, f"Código bloqueado por padrões de segurança: {issues_str}"
+
+    import_check = validate_script_imports(code)
+    if not import_check.get("approved", True):
+        return False, f"Imports bloqueados: {import_check.get('blocked_imports', [])}"
+
+    files_str = ", ".join(str(f) for f in affected[:3]) if affected else "arquivo não especificado"
+    return True, f"Código validado — implementar manualmente em: {files_str}"
+
+
 def validate_proposal(proposal: dict) -> dict:
     """Valida uma proposta de tipo code_fix tecnicamente."""
     code = proposal.get("proposed_action", "")
@@ -30,10 +60,19 @@ def validate_proposal(proposal: dict) -> dict:
 
 
 def run(state: dict) -> dict:
-    findings = state.get("findings", [])
-    decisions = []
+    from db import get_supabase
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
 
-    for finding in findings:
+    db = get_supabase()
+    decisions: list = []
+
+    # Processa proposals aprovadas por humanos vindas da inbox
+    processed = process_inbox_proposals("fix_validator", db, _handle_proposal, decisions)
+    if processed:
+        log_event("info", "fix_validator", f"{processed} proposals da inbox processadas")
+
+    # Valida code_fix vindas do pipeline de análise (comportamento original)
+    for finding in state.get("findings", []):
         if finding.get("type") == "improvement_proposal" and finding.get("proposal", {}).get("proposal_type") == "code_fix":
             proposal = finding["proposal"]
             validation = validate_proposal(proposal)

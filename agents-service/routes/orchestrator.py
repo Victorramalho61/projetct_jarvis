@@ -422,6 +422,91 @@ async def seed_slas(
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/agents/proposals/process-inbox")
+async def process_proposals_inbox_stream(
+    _user: dict = Depends(require_role("admin")),
+):
+    """
+    SSE stream: processa todos os agentes com proposals pendentes na inbox.
+    Emite eventos de progresso conforme cada agente termina.
+    """
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
+
+    # Agentes que recebem proposals via inbox, na ordem de prioridade
+    _AGENTS = [
+        ("docker_intel",   "graph_engine.agents.docker_intel"),
+        ("fix_validator",  "graph_engine.agents.fix_validator"),
+        ("evolution_agent","graph_engine.agents.evolution_agent"),
+        ("db_dba_agent",   "graph_engine.agents.db_dba_agent"),
+        ("infrastructure", "graph_engine.agents.infrastructure"),
+        ("automation",     "graph_engine.agents.automation"),
+        ("uptime",         "graph_engine.agents.uptime"),
+        ("change_mgmt",    "graph_engine.agents.change_mgmt"),
+    ]
+
+    db = get_supabase()
+
+    def _count_inbox(agent_name: str) -> int:
+        from graph_engine.tools.supabase_tools import get_pending_messages
+        msgs = get_pending_messages(agent_name)
+        return sum(1 for m in msgs if m.get("context", {}).get("proposal_id"))
+
+    def _count_db_status(status: str) -> int:
+        return db.table("improvement_proposals").select("id", count="exact").eq("validation_status", status).execute().count or 0
+
+    async def _generate():
+        import importlib, json as _json
+
+        total_in_progress = _count_db_status("auto_implementing")
+        yield f"data: {_json.dumps({'type': 'start', 'total': total_in_progress})}\n\n"
+
+        grand_applied = 0
+        grand_failed  = 0
+        grand_skipped = 0
+
+        for agent_name, module_path in _AGENTS:
+            inbox_count = _count_inbox(agent_name)
+            if inbox_count == 0:
+                yield f"data: {_json.dumps({'type': 'agent_skip', 'agent': agent_name, 'reason': 'inbox vazia'})}\n\n"
+                grand_skipped += 1
+                await asyncio.sleep(0)
+                continue
+
+            yield f"data: {_json.dumps({'type': 'agent_start', 'agent': agent_name, 'inbox': inbox_count})}\n\n"
+
+            try:
+                mod = importlib.import_module(module_path)
+                handler = getattr(mod, "_handle_proposal", None)
+                if handler is None:
+                    yield f"data: {_json.dumps({'type': 'agent_error', 'agent': agent_name, 'error': 'sem _handle_proposal'})}\n\n"
+                    continue
+
+                decisions: list = []
+                processed = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda an=agent_name, h=handler, d=decisions: process_inbox_proposals(an, db, h, d),
+                )
+                applied = sum(1 for d in decisions if "aplicada:" in str(d))
+                failed  = processed - applied
+                grand_applied += applied
+                grand_failed  += failed
+
+                yield f"data: {_json.dumps({'type': 'agent_done', 'agent': agent_name, 'processed': processed, 'applied': applied, 'failed': failed})}\n\n"
+            except Exception as exc:
+                yield f"data: {_json.dumps({'type': 'agent_error', 'agent': agent_name, 'error': str(exc)[:200]})}\n\n"
+
+            await asyncio.sleep(0)
+
+        remaining = _count_db_status("auto_implementing")
+        yield f"data: {_json.dumps({'type': 'done', 'applied': grand_applied, 'failed': grand_failed, 'remaining': remaining})}\n\n"
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/agents/proposals/metrics")
 async def proposals_metrics(
     _user: dict = Depends(require_role("admin")),

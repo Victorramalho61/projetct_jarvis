@@ -9,7 +9,21 @@ _MEM_HIGH = 80.0  # % de memória para recomendar aumento de limite
 _MEM_LOW = 20.0   # % de memória para recomendar redução de limite (economia)
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    """Proposals de infraestrutura: documenta e sinaliza para revisão manual do DevOps."""
+    action = proposal.get("proposed_action", "") or ""
+    title = proposal.get("title", "")[:80]
+    return True, f"Recomendação de infra registrada — revisar docker-compose.yml manualmente: {action[:150] or title}"
+
+
 def run(state: dict) -> dict:
+    from db import get_supabase
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
+
+    db = get_supabase()
+    decisions: list = []
+    process_inbox_proposals("infrastructure", db, _handle_proposal, decisions)
+
     findings = []
     containers = list_containers()
 
@@ -42,7 +56,7 @@ def run(state: dict) -> dict:
                 findings.append({"type": "unstable_container", "container": c["name"], "restart_count": restart_count})
                 log_event("warning", "infrastructure", f"Container {c['name']} reiniciou {restart_count}x")
 
-    return {"findings": findings, "context": {"infrastructure_ran_at": datetime.now(timezone.utc).isoformat()}}
+    return {"findings": findings, "decisions": decisions, "context": {"infrastructure_ran_at": datetime.now(timezone.utc).isoformat()}}
 
 
 def build():

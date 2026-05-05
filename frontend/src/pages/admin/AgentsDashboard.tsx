@@ -1,17 +1,15 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useNotifications } from "../../hooks/useNotifications";
-import AgentsPage from "./AgentsPage";
 import OrchestratorPage from "./OrchestratorPage";
 import CTOInboxPage from "./CTOInboxPage";
 import ProposalsPage from "./ProposalsPage";
 import ChangesPage from "./ChangesPage";
 import AgentFlowView from "../../components/agents/AgentFlowView";
 
-type Tab = "agentes" | "orquestrador" | "visualizacao" | "cto" | "proposals" | "mudancas";
+type Tab = "orquestrador" | "visualizacao" | "cto" | "proposals" | "mudancas";
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "agentes",       label: "Agentes" },
   { id: "orquestrador",  label: "Orquestrador" },
   { id: "visualizacao",  label: "Visualização ao Vivo" },
   { id: "cto",           label: "CTO" },
@@ -26,7 +24,7 @@ export default function AgentsDashboard() {
 
   const getTabFromSearch = (): Tab => {
     const p = new URLSearchParams(location.search).get("tab");
-    return (TABS.find(t => t.id === p)?.id ?? "agentes") as Tab;
+    return (TABS.find(t => t.id === p)?.id ?? "orquestrador") as Tab;
   };
 
   const [activeTab, setActiveTab] = useState<Tab>(getTabFromSearch);
@@ -91,7 +89,6 @@ export default function AgentsDashboard() {
 
       {/* Tab Content */}
       <div className="flex-1 overflow-auto">
-        {activeTab === "agentes"       && <AgentsPage />}
         {activeTab === "orquestrador"  && <OrchestratorPage />}
         {activeTab === "visualizacao"  && (
           <div className="p-6">

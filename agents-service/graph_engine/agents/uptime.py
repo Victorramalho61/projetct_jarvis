@@ -12,9 +12,34 @@ _NO_AUTO_RESTART = {"jarvis-frontend-1", "jarvis-agents-service-1"}
 _MEM_ALERT_THRESHOLD = 90.0
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    from graph_engine.tools.docker_tools import restart_container
+    ptype = proposal.get("proposal_type", "")
+    action = proposal.get("proposed_action", "") or ""
+    if ptype == "monitoring":
+        return True, f"Melhoria de monitoramento registrada: {action[:200] or proposal.get('title','')[:100]}"
+    if "restart" in action.lower():
+        import re
+        m = re.search(r"jarvis-[\w-]+-\d+", action + " " + proposal.get("title",""))
+        if m:
+            try:
+                result = restart_container(m.group(0))
+                if result.get("success"):
+                    return True, f"Container {m.group(0)} reiniciado"
+                return False, f"Falha ao reiniciar: {result.get('error','')}"
+            except Exception as exc:
+                return False, str(exc)
+    return True, f"Recomendação de uptime registrada: {action[:200] or proposal.get('title','')[:100]}"
+
+
 def run(state: dict) -> dict:
+    from db import get_supabase
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
+
+    db = get_supabase()
     findings = []
-    decisions = []
+    decisions: list = []
+    process_inbox_proposals("uptime", db, _handle_proposal, decisions)
 
     # 1. Verifica serviços via HTTP
     services = check_all_services()

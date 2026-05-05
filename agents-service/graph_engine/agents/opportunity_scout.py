@@ -89,15 +89,15 @@ def _aggregate_signals() -> list[dict]:
     runs = query_agent_runs(status="error", limit=50)
     agent_errors: dict = {}
     for run in runs:
-        aid = run.get("agent_id", "unknown")
+        aid = run.get("agent_id") or "unknown"
         agent_errors[aid] = agent_errors.get(aid, 0) + 1
 
-    failing_agents = [(a, c) for a, c in agent_errors.items() if c > 3]
+    failing_agents = [(a, c) for a, c in agent_errors.items() if c > 3 and a != "unknown"]
     if failing_agents:
         opportunities.append({
             "category": "failing_agents",
             "title": f"{len(failing_agents)} agentes com falhas repetidas",
-            "description": f"Agentes: {', '.join(a for a, _ in failing_agents[:5])}",
+            "description": f"Agentes: {', '.join(str(a) for a, _ in failing_agents[:5])}",
             "count": len(failing_agents),
             "score": len(failing_agents) * 4,
             "effort": "médio",

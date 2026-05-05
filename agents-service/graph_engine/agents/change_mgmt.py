@@ -8,9 +8,19 @@ _EMERGENCY_SLA_HOURS = 4
 _NORMAL_SLA_HOURS = 48
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    action = proposal.get("proposed_action", "") or proposal.get("title", "")
+    return True, f"Melhoria de processo documentada e encaminhada para RFC: {action[:200]}"
+
+
 def run(state: dict) -> dict:
+    from db import get_supabase
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
+
+    db = get_supabase()
     findings = []
-    decisions = []
+    decisions: list = []
+    process_inbox_proposals("change_mgmt", db, _handle_proposal, decisions)
     now = datetime.now(timezone.utc)
 
     pending = query_change_requests(status="pending")

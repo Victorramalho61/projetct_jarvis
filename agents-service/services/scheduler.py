@@ -140,14 +140,3 @@ def _register_langgraph_pipelines() -> None:
         logger.info("Pipeline '%s' registrado no scheduler", name)
 
     logger.info("LangGraph pipelines registrados: %d", len(pipelines))
-
-    # Agent Health Supervisor — roda a cada 15min independente do CTO
-    _scheduler.add_job(
-        _make_agent_health_job(),
-        trigger=IntervalTrigger(minutes=s.monitoring_interval_minutes, timezone=_TZ),
-        id="agent_health_supervisor",
-        replace_existing=True,
-        max_instances=1,
-        misfire_grace_time=120,
-    )
-    logger.info("Agent Health Supervisor registrado no scheduler")

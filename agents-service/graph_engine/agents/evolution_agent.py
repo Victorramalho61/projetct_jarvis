@@ -140,6 +140,16 @@ def _motivate_agents(state: dict) -> str:
     )
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    """Proposals de new_feature/new_agent/modernization: documenta no backlog."""
+    ptype = proposal.get("proposal_type", "")
+    title = proposal.get("title", "")[:80]
+    _REQUIRES_DEV = {"new_feature", "new_agent", "modernization", "automation", "refactoring"}
+    if ptype in _REQUIRES_DEV:
+        return True, f"Adicionada ao roadmap de evolução — requer sprint de desenvolvimento: {title}"
+    return True, f"Proposta de evolução registrada: {title}"
+
+
 def run(state: dict) -> dict:
     from graph_engine.llm import get_reasoning_llm
     from graph_engine.tools.supabase_tools import (
@@ -149,10 +159,16 @@ def run(state: dict) -> dict:
         send_human_notification,
     )
     from db import get_supabase
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
     from langchain_core.messages import SystemMessage, HumanMessage
 
     findings = []
     decisions = []
+
+    db = get_supabase()
+    processed = process_inbox_proposals("evolution_agent", db, _handle_proposal, decisions)
+    if processed:
+        logger.info("evolution_agent: %d proposals da inbox processadas", processed)
 
     system_state = _read_system_state()
     knowledge_context = _study_knowledge_base()

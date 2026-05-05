@@ -96,46 +96,41 @@ function MessageCard({ msg, onRead }: { msg: AgentMessage; onRead: (id: string) 
         </div>
       )}
 
-      {/* Mensagem principal */}
-      {expanded && (
-        <div className="space-y-3">
-          <div className="bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-100 dark:border-gray-700">
-            <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
-              {msg.message}
-            </pre>
-          </div>
-
-          {/* Inovações destacadas */}
-          {innovations.length > 0 && (
-            <div>
-              <p className="text-xs font-semibold text-gray-600 dark:text-gray-400 mb-2">Inovações destacadas:</p>
-              <div className="space-y-1.5">
-                {innovations.map((inn: any, i: number) => (
-                  <div key={i} className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
-                      inn.priority === "critical" ? "bg-red-100 text-red-700" :
-                      inn.priority === "high" ? "bg-orange-100 text-orange-700" :
-                      "bg-yellow-100 text-yellow-700"
-                    }`}>
-                      {inn.priority}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{inn.title}</p>
-                      {inn.business_value && (
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{inn.business_value}</p>
-                      )}
-                    </div>
-                  </div>
-                ))}
+      {/* Inovações sempre visíveis (do contexto) */}
+      {innovations.length > 0 && (
+        <div className="mb-3 space-y-1.5">
+          {innovations.map((inn: any, i: number) => (
+            <div key={i} className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+              <span className={`text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0 ${
+                inn.priority === "critical" ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" :
+                inn.priority === "high"     ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300" :
+                                              "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300"
+              }`}>
+                {inn.priority}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-gray-800 dark:text-gray-200">{inn.title}</p>
+                {inn.business_value && (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{inn.business_value}</p>
+                )}
               </div>
             </div>
-          )}
+          ))}
         </div>
       )}
 
-      {!expanded && (
+      {/* Mensagem completa (expandível) */}
+      {expanded && (
+        <div className="bg-white dark:bg-gray-900 rounded-lg p-3 border border-gray-100 dark:border-gray-700">
+          <pre className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap font-sans leading-relaxed">
+            {msg.message}
+          </pre>
+        </div>
+      )}
+
+      {!expanded && innovations.length === 0 && (
         <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mt-1">
-          {msg.message?.split("\n").find(l => l.trim() && !l.startsWith("#") && !l.startsWith("🚀") && !l.startsWith("📊")) ?? msg.message?.slice(0, 120)}
+          {msg.message?.split("\n").filter(l => l.trim() && !l.startsWith("🚀") && !l.startsWith("📊") && !l.startsWith("💡") && !l.startsWith("🏆")).slice(0, 2).join(" ") || msg.message?.slice(0, 120)}
         </p>
       )}
     </div>

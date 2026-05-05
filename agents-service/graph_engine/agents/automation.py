@@ -4,7 +4,19 @@ from datetime import datetime, timezone
 from graph_engine.tools.supabase_tools import insert_improvement_proposal, log_event, query_agent_runs, query_agents
 
 
+def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
+    action = proposal.get("proposed_action", "") or proposal.get("title", "")
+    return True, f"Automação registrada para implementação: {action[:200]}"
+
+
 def run(state: dict) -> dict:
+    from db import get_supabase
+    from graph_engine.tools.proposal_executor import process_inbox_proposals
+
+    db = get_supabase()
+    decisions: list = []
+    process_inbox_proposals("automation", db, _handle_proposal, decisions)
+
     findings = []
     agents = query_agents(enabled=True)
 
@@ -29,7 +41,7 @@ def run(state: dict) -> dict:
             )
             log_event("info", "automation_agent", f"Agente '{agent['name']}' candidato a agendamento automático")
 
-    return {"findings": findings, "context": {"automation_ran_at": datetime.now(timezone.utc).isoformat()}}
+    return {"findings": findings, "decisions": decisions, "context": {"automation_ran_at": datetime.now(timezone.utc).isoformat()}}
 
 
 def build():

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { apiFetch } from "../../lib/api";
 import type { Proposal, Priority } from "../../types/agents";
@@ -6,6 +6,7 @@ import type { Proposal, Priority } from "../../types/agents";
 interface ProposalMetrics {
   pending: number;
   approved_waiting: number;
+  in_progress: number;
   applied_success: number;
   rejected: number;
   implementation_failed: number;
@@ -23,7 +24,9 @@ const PRIORITY_STYLE: Record<Priority, string> = {
 
 const STATUS_STYLE: Record<string, string> = {
   pending:                "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
+  pending_cto:            "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
   approved:               "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  auto_implementing:      "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
   rejected:               "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
   applied:                "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
   implementation_failed:  "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200",
@@ -31,7 +34,9 @@ const STATUS_STYLE: Record<string, string> = {
 
 const STATUS_LABEL: Record<string, string> = {
   pending:               "Pendente",
+  pending_cto:           "Aguarda CTO",
   approved:              "Aprovada",
+  auto_implementing:     "Em Execução",
   rejected:              "Rejeitada",
   applied:               "Aplicada",
   implementation_failed: "Falhou",
@@ -58,10 +63,13 @@ function fmt(iso?: string) {
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
+
 export default function ProposalsPage() {
   const { token } = useAuth();
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [metrics, setMetrics] = useState<ProposalMetrics | null>(null);
+  const [prevInProgress, setPrevInProgress] = useState<number | null>(null);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [statusFilter, setStatusFilter] = useState("pending");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -70,12 +78,85 @@ export default function ProposalsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [failModal, setFailModal] = useState<{ id: string } | null>(null);
   const [failReason, setFailReason] = useState("");
+  const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const metricsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Estado do processamento de inbox
+  interface AgentProgress { agent: string; status: "waiting" | "running" | "done" | "error" | "skip"; processed?: number; applied?: number; failed?: number; error?: string; inbox?: number; }
+  const [processing, setProcessing] = useState(false);
+  const [processLog, setProcessLog] = useState<AgentProgress[]>([]);
+  const [processTotal, setProcessTotal] = useState(0);
+  const [processDone, setProcessDone] = useState<{ applied: number; failed: number; remaining: number } | null>(null);
+
+  const triggerProcessInbox = () => {
+    if (!token || processing) return;
+    setProcessing(true);
+    setProcessLog([]);
+    setProcessDone(null);
+    setProcessTotal(0);
+
+    const url = `/api/agents/proposals/process-inbox`;
+    const es = new EventSource(`${url}?_auth=${encodeURIComponent(token)}`);
+
+    // SSE não suporta headers padrão; usamos fetch com ReadableStream
+    es.close();
+
+    fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async res => {
+        const reader = res.body!.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            try {
+              const ev = JSON.parse(line.slice(6));
+              if (ev.type === "start") {
+                setProcessTotal(ev.total);
+              } else if (ev.type === "agent_start") {
+                setProcessLog(p => [...p, { agent: ev.agent, status: "running", inbox: ev.inbox }]);
+              } else if (ev.type === "agent_done") {
+                setProcessLog(p => p.map(x => x.agent === ev.agent
+                  ? { ...x, status: "done", processed: ev.processed, applied: ev.applied, failed: ev.failed }
+                  : x));
+                loadMetrics();
+              } else if (ev.type === "agent_error") {
+                setProcessLog(p => p.map(x => x.agent === ev.agent
+                  ? { ...x, status: "error", error: ev.error }
+                  : x.agent === "_new_" ? x : x));
+                if (!processLog.find(x => x.agent === ev.agent)) {
+                  setProcessLog(p => [...p, { agent: ev.agent, status: "error", error: ev.error }]);
+                }
+              } else if (ev.type === "agent_skip") {
+                // silencia skips
+              } else if (ev.type === "done") {
+                setProcessDone({ applied: ev.applied, failed: ev.failed, remaining: ev.remaining });
+                setProcessing(false);
+                loadMetrics();
+                load();
+              }
+            } catch { /* JSON inválido */ }
+          }
+        }
+        setProcessing(false);
+      })
+      .catch(e => { setError(e.message); setProcessing(false); });
+  };
 
   const loadMetrics = useCallback(async () => {
     if (!token) return;
     try {
       const data = await apiFetch<ProposalMetrics>("/api/agents/proposals/metrics", { token });
-      setMetrics(data);
+      setMetrics(prev => {
+        if (prev !== null) setPrevInProgress(prev.in_progress ?? 0);
+        return data;
+      });
+      setLastRefresh(new Date());
     } catch { /* silencioso */ }
   }, [token]);
 
@@ -96,14 +177,27 @@ export default function ProposalsPage() {
   }, [token, statusFilter]);
 
   useEffect(() => { loadMetrics(); }, [loadMetrics]);
-
   useEffect(() => { load(); }, [load]);
+
+  // Métricas: atualiza a cada 10s independentemente do filtro
+  useEffect(() => {
+    if (metricsTimerRef.current) clearInterval(metricsTimerRef.current);
+    metricsTimerRef.current = setInterval(loadMetrics, 10_000);
+    return () => { if (metricsTimerRef.current) clearInterval(metricsTimerRef.current); };
+  }, [loadMetrics]);
+
+  // Lista de proposals: atualiza a cada 30s
+  useEffect(() => {
+    if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
+    refreshTimerRef.current = setInterval(load, 30_000);
+    return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current); };
+  }, [load]);
 
   const approve = async (id: string) => {
     if (!token) return;
     try {
       await apiFetch(`/api/agents/proposals/${id}/approve`, { token, method: "PATCH", json: {} });
-      await load();
+      await Promise.all([load(), loadMetrics()]);
     } catch (e: any) { setError(e.message); }
   };
 
@@ -115,7 +209,7 @@ export default function ProposalsPage() {
       });
       setRejectModal(null);
       setRejectReason("");
-      await load();
+      await Promise.all([load(), loadMetrics()]);
     } catch (e: any) { setError(e.message); }
   };
 
@@ -123,7 +217,7 @@ export default function ProposalsPage() {
     if (!token) return;
     try {
       await apiFetch(`/api/agents/proposals/${id}/mark-applied`, { token, method: "PATCH", json: {} });
-      await load();
+      await Promise.all([load(), loadMetrics()]);
     } catch (e: any) { setError(e.message); }
   };
 
@@ -135,7 +229,7 @@ export default function ProposalsPage() {
       });
       setFailModal(null);
       setFailReason("");
-      await load();
+      await Promise.all([load(), loadMetrics()]);
     } catch (e: any) { setError(e.message); }
   };
 
@@ -156,6 +250,7 @@ export default function ProposalsPage() {
           >
             <option value="pending">Pendentes</option>
             <option value="approved">Aprovadas</option>
+            <option value="auto_implementing">Em Execução</option>
             <option value="rejected">Rejeitadas</option>
             <option value="applied">Aplicadas</option>
             <option value="implementation_failed">Falhou</option>
@@ -164,32 +259,169 @@ export default function ProposalsPage() {
           <button onClick={load} className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
             Atualizar
           </button>
+          <button
+            onClick={triggerProcessInbox}
+            disabled={processing}
+            className="text-sm px-3 py-1.5 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium"
+            title="Processa imediatamente todas as proposals em fila nos agentes"
+          >
+            {processing ? "Processando..." : "Processar fila agora"}
+          </button>
         </div>
       </div>
 
       {/* Painel de métricas */}
-      {metrics && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">{metrics.execution_rate_pct}%</p>
-            <p className="text-xs text-gray-500 mt-1">Taxa de execução</p>
-            <p className="text-xs text-gray-400">{metrics.applied_success} aplicadas</p>
+      {metrics && (() => {
+        const inProg = metrics.in_progress ?? 0;
+        const delta = prevInProgress !== null ? inProg - prevInProgress : 0;
+        const queueMoving = delta < 0;
+        const queueGrowing = delta > 0;
+        return (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-green-600 dark:text-green-400">{metrics.execution_rate_pct}%</p>
+                <p className="text-xs text-gray-500 mt-1">Taxa de execução</p>
+                <p className="text-xs text-gray-400">{metrics.applied_success} aplicadas</p>
+              </div>
+
+              {/* Contador da fila */}
+              <div
+                className={`rounded-xl border p-4 text-center cursor-pointer transition-colors ${
+                  queueMoving
+                    ? "bg-green-50 border-green-300 dark:bg-green-900/20 dark:border-green-600"
+                    : queueGrowing
+                    ? "bg-orange-50 border-orange-300 dark:bg-orange-900/20 dark:border-orange-600"
+                    : "bg-purple-50 border-purple-200 dark:bg-purple-900/20 dark:border-purple-700"
+                }`}
+                onClick={() => setStatusFilter("auto_implementing")}
+                title="Clique para ver proposals em execução"
+              >
+                <div className="flex items-center justify-center gap-1">
+                  <p className={`text-2xl font-bold ${
+                    queueMoving ? "text-green-600 dark:text-green-400"
+                    : queueGrowing ? "text-orange-600 dark:text-orange-400"
+                    : "text-purple-600 dark:text-purple-400"
+                  }`}>{inProg}</p>
+                  {delta !== 0 && (
+                    <span className={`text-sm font-semibold ${delta < 0 ? "text-green-500" : "text-orange-500"}`}>
+                      {delta < 0 ? `${delta}` : `+${delta}`}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 mt-1">Fila de execução</p>
+                <p className="text-xs text-gray-400">
+                  {queueMoving ? "avançando" : queueGrowing ? "crescendo" : "aguardando agentes"}
+                </p>
+                {lastRefresh && (
+                  <p className="text-xs text-gray-300 dark:text-gray-600 mt-0.5">
+                    atualizado {lastRefresh.toLocaleTimeString("pt-BR", { timeStyle: "short" })}
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{metrics.approved_waiting}</p>
+                <p className="text-xs text-gray-500 mt-1">Aprovadas aguardando</p>
+                <p className="text-xs text-gray-400">execução pendente</p>
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-red-600 dark:text-red-400">{metrics.failure_rate_pct}%</p>
+                <p className="text-xs text-gray-500 mt-1">Taxa de falha</p>
+                <p className="text-xs text-gray-400">{metrics.implementation_failed} com erro</p>
+              </div>
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
+                <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{metrics.pending}</p>
+                <p className="text-xs text-gray-500 mt-1">Aguardando aprovação</p>
+                <p className="text-xs text-gray-400">propostas pendentes</p>
+              </div>
+            </div>
+
+            {/* Aviso de fila parada */}
+            {inProg > 0 && prevInProgress !== null && !queueMoving && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-lg p-3 flex items-start gap-3">
+                <span className="text-amber-500 text-lg mt-0.5">⚠</span>
+                <div>
+                  <p className="text-sm font-medium text-amber-800 dark:text-amber-300">
+                    {inProg} proposal{inProg !== 1 ? "s" : ""} roteada{inProg !== 1 ? "s" : ""} para agentes mas sem progresso
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    Os agentes receberam as mensagens mas não estão marcando as proposals como executadas. Você pode marcar manualmente usando os botões "Aplicada" ou "Falhou" em cada proposal.
+                  </p>
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
+
+      {/* Painel de execução em tempo real */}
+      {(processing || processDone || processLog.length > 0) && (
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-gray-800 dark:text-gray-200">
+              Execução da fila
+              {processing && <span className="ml-2 inline-block w-2 h-2 rounded-full bg-purple-500 animate-pulse" />}
+            </h3>
+            {processDone && (
+              <div className="flex items-center gap-3 text-xs">
+                <span className="text-green-600 font-medium">{processDone.applied} aplicadas</span>
+                {processDone.failed > 0 && <span className="text-red-500 font-medium">{processDone.failed} falharam</span>}
+                <span className="text-gray-400">{processDone.remaining} restantes na fila</span>
+              </div>
+            )}
           </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{metrics.approved_waiting}</p>
-            <p className="text-xs text-gray-500 mt-1">Aprovadas aguardando</p>
-            <p className="text-xs text-gray-400">execução pendente</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-red-600 dark:text-red-400">{metrics.failure_rate_pct}%</p>
-            <p className="text-xs text-gray-500 mt-1">Taxa de falha</p>
-            <p className="text-xs text-gray-400">{metrics.implementation_failed} com erro</p>
-          </div>
-          <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
-            <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{metrics.pending}</p>
-            <p className="text-xs text-gray-500 mt-1">Aguardando aprovação</p>
-            <p className="text-xs text-gray-400">propostas pendentes</p>
-          </div>
+
+          {/* Barra de progresso geral */}
+          {processTotal > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>
+                  {processDone
+                    ? `Concluído — ${processTotal - processDone.remaining} de ${processTotal} processadas`
+                    : `Processando ${processTotal} proposals em fila...`}
+                </span>
+                <span>
+                  {processDone
+                    ? `${Math.round(100 * (processTotal - processDone.remaining) / Math.max(processTotal, 1))}%`
+                    : `${Math.round(100 * processLog.filter(x => x.status === "done" || x.status === "error").reduce((a, x) => a + (x.processed ?? 0), 0) / Math.max(processTotal, 1))}%`}
+                </span>
+              </div>
+              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-purple-500 transition-all duration-500 rounded-full"
+                  style={{
+                    width: `${processDone
+                      ? Math.round(100 * (processTotal - processDone.remaining) / Math.max(processTotal, 1))
+                      : Math.round(100 * processLog.filter(x => x.status === "done" || x.status === "error").reduce((a, x) => a + (x.processed ?? 0), 0) / Math.max(processTotal, 1))}%`
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Log por agente */}
+          {processLog.length > 0 && (
+            <div className="space-y-1">
+              {processLog.map(row => (
+                <div key={row.agent} className="flex items-center gap-2 text-xs">
+                  <span className="w-2 h-2 rounded-full flex-shrink-0" style={{
+                    backgroundColor: row.status === "done" ? "#22c55e" : row.status === "error" ? "#ef4444" : row.status === "running" ? "#a855f7" : "#9ca3af"
+                  }} />
+                  <span className="font-mono text-gray-600 dark:text-gray-400 w-36 truncate">{row.agent}</span>
+                  {row.status === "running" && <span className="text-purple-500">processando {row.inbox} mensagens...</span>}
+                  {row.status === "done" && (
+                    <span className="text-gray-600 dark:text-gray-400">
+                      {row.processed} processadas —
+                      <span className="text-green-600 ml-1">{row.applied} aplicadas</span>
+                      {(row.failed ?? 0) > 0 && <span className="text-red-500 ml-1">{row.failed} falharam</span>}
+                    </span>
+                  )}
+                  {row.status === "error" && <span className="text-red-500 truncate">{row.error}</span>}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
