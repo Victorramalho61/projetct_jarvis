@@ -130,6 +130,10 @@ O sistema de agentes é orquestrado via LangGraph com 6 pipelines que rodam em s
 | `governance` | diário (6h) | opportunity_scout, log_strategic_advisor, change_mgmt, itil_version, quality_validator, docs, quality_code_backend, quality_code_frontend, integration_validator, change_validator, scheduling, automation, log_intelligence, log_improver, fix_validator, **proposal_supervisor**, **llm_manager_agent** |
 | `evolution` | diário (7h) | evolution_agent, frontend_agent |
 
+**Roteamento manual de proposals**: além do pipeline diário às 6h, o `proposal_supervisor` pode ser acionado imediatamente via `POST /api/agents/proposals/route-approved` (botão "Rotear N aprovadas" na página Proposals).
+
+**Nota**: `proposal_supervisor` processa até 200 proposals aprovadas por ciclo. Proposals de tipo `index`/`vacuum` são auto-executadas (SQL seguro). Demais tipos são roteadas para o agente responsável e mudam para status `auto_implementing`.
+
 Além dos pipelines, o `agent_health_supervisor` roda a cada 15 min como job separado.
 
 ### CTO Agent — Supervisor Central
@@ -311,6 +315,8 @@ Ver `.env.example` na raiz para a lista completa. Variáveis críticas:
 | `TOGETHER_API_KEY` | Together AI free tier — fallback LLM (opcional) |
 | `HUGGINGFACE_API_KEY` | HuggingFace inference API — fallback LLM (opcional) |
 | `POSTGRES_DIRECT_URL` | PostgreSQL direto para DBA agent (pg_stat_*, psycopg2) |
+| `GITHUB_TOKEN` | Token de acesso ao GitHub (agentes de docs/code) |
+| `GITHUB_REPO` | Repositório no formato `owner/repo` (ex: `Victorramalho61/projetct_jarvis`) |
 
 Geração dos JWTs do Supabase:
 ```python

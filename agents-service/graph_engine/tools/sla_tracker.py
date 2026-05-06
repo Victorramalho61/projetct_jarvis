@@ -136,6 +136,11 @@ PREDEFINED_SLAS: dict[str, list[tuple]] = {
         ("delay_detection_rate",        "% de atrasos detectados proativamente",    90.0,">=", "%",     75.0),
         ("conflict_resolution_rate",    "% de conflitos de agenda resolvidos",     100.0,">=", "%",     90.0),
     ],
+    "governance": [
+        ("contratos_vencendo_30d",   "Contratos vigentes vencendo em 30 dias",        0.0, "<=", "count",  5.0),
+        ("ocorrencias_pendentes",    "Ocorrências (glosas/multas) pendentes",          0.0, "<=", "count", 10.0),
+        ("cache_age_hours",          "Horas desde último sync do cache de governança", 6.0, "<=", "hours", 12.0),
+    ],
 }
 
 

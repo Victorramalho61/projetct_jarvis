@@ -13,6 +13,7 @@ from db import get_settings
 from limiter import limiter
 from routes.health import router as health_router
 from routes.expenses import router as expenses_router
+from routes.governance import router as governance_router
 
 app = FastAPI(title="Jarvis Expenses Service")
 app.state.limiter = limiter
@@ -38,3 +39,4 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 
 app.include_router(health_router)
 app.include_router(expenses_router, prefix="/api")
+app.include_router(governance_router, prefix="/api")

@@ -88,6 +88,7 @@ _AGENT_KNOWLEDGE = {
     "db_dba_agent":         ("DBA",        "DBA PostgreSQL — saúde, índices, backups"),
     "opportunity_scout":    ("Governance", "Radar de oportunidades e melhorias"),
     "evolution_agent":      ("Evolution",  "Propõe inovações e novos agentes"),
+    "governance":           ("Expenses",   "Governança de contratos TI — confronto Benner vs contratos cadastrados, SLAs, glosas"),
 }
 
 _SYSTEM_PROMPT = """Você é o CTO Agent do sistema Jarvis — o supervisor infalível e autoritário de TI da Voetur/VTCLog.

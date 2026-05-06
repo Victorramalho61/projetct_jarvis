@@ -11,7 +11,7 @@ _YEARS = [2025, 2026]
 
 
 def run_expenses_sync() -> str:
-    """Pré-computa dashboard e forecast para cada ano e persiste no Supabase."""
+    """Pré-computa dashboard, forecast e KPIs de governança e persiste no Supabase."""
     db = get_supabase()
     total_parcelas = 0
     errors: list[str] = []
@@ -33,6 +33,15 @@ def run_expenses_sync() -> str:
     except Exception as exc:
         errors.append(f"forecast_2026: {exc}")
         logger.exception("Erro ao sincronizar forecast 2026")
+
+    try:
+        from services.governance import get_governance_kpis
+        gov = get_governance_kpis()
+        _upsert(db, 2026, "governance_dashboard", gov)
+        logger.info("Cache governance_dashboard salvo (%d contratos)", gov.get("total_contratos", 0))
+    except Exception as exc:
+        errors.append(f"governance_dashboard: {exc}")
+        logger.exception("Erro ao sincronizar governance_dashboard")
 
     if errors:
         raise RuntimeError("; ".join(errors))
@@ -91,4 +100,25 @@ def get_cached_dashboard(year: int) -> dict | None:
             return payload
     except Exception:
         logger.warning("Erro ao ler cache dashboard_%d", year, exc_info=True)
+    return None
+
+
+def get_cached_governance_dashboard() -> dict | None:
+    """Lê KPIs de governança do cache Supabase."""
+    try:
+        res = (
+            get_supabase()
+            .table("expenses_cache")
+            .select("payload, updated_at")
+            .eq("cache_key", "governance_dashboard")
+            .eq("status", "success")
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            payload = res.data[0]["payload"]
+            payload["last_updated"] = res.data[0]["updated_at"]
+            return payload
+    except Exception:
+        logger.warning("Erro ao ler cache governance_dashboard", exc_info=True)
     return None

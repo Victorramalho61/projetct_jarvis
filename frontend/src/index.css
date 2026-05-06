@@ -138,3 +138,18 @@ html.dark .donut-legend__pct { color: #f1f5f9; }
 html.dark .radial-legend__name { color: #94a3b8; }
 .radial-legend__value{ font-size: 11.5px; font-family: var(--font-mono); color: #111827; }
 html.dark .radial-legend__value { color: #f1f5f9; }
+
+/* ── Badges ───────────────────────────────────────────────────────────────── */
+.badge-green  { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400; }
+.badge-red    { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400; }
+.badge-amber  { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400; }
+.badge-yellow { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400; }
+.badge-gray   { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400; }
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+.btn-primary  { @apply inline-flex items-center gap-2 rounded-lg bg-brand-green px-4 py-2 text-white font-medium hover:bg-brand-deep transition-colors disabled:opacity-50 disabled:cursor-not-allowed; }
+.btn-secondary{ @apply inline-flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-4 py-2 text-gray-700 dark:text-gray-300 font-medium hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50; }
+
+/* ── Form inputs ──────────────────────────────────────────────────────────── */
+.form-label { @apply block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1; }
+.form-input { @apply w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-green/40; }

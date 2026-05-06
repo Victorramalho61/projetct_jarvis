@@ -18,6 +18,7 @@ import InitializePasswordPage from "./pages/InitializePasswordPage";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import ExpensesPage from "./pages/admin/ExpensesPage";
+import GovernancePage from "./pages/admin/GovernancePage";
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
             {/* Módulo de Agentes consolidado — abas via ?tab= */}
             <Route path="/admin/agentes" element={<AgentsDashboard />} />
             <Route path="/admin/gastos" element={<ExpensesPage />} />
+            <Route path="/admin/governanca" element={<GovernancePage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
