@@ -257,6 +257,8 @@ services:
         VITE_API_URL: ${VITE_API_URL}
     restart: unless-stopped
     logging: *logging
+    mem_limit: 256m
+    cpus: "0.5"
     ports:
       - "443:443"
       - "80:80"
@@ -274,6 +276,8 @@ services:
       context: ./core-service
     restart: unless-stopped
     logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -301,6 +305,8 @@ services:
       context: ./monitoring-service
     restart: unless-stopped
     logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -336,6 +342,8 @@ services:
       options:
         max-size: "50m"
         max-file: "5"
+    mem_limit: 512m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -362,6 +370,8 @@ services:
       context: ./moneypenny-service
     restart: unless-stopped
     logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -424,6 +434,9 @@ services:
       context: ./agents-service
     restart: unless-stopped
     logging: *logging
+    mem_limit: 2g
+    mem_reservation: 512m
+    cpus: "2"
     depends_on:
       db:
         condition: service_healthy
@@ -481,6 +494,9 @@ services:
     build:
       context: ./expenses-service
     restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy

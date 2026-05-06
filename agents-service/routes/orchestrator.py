@@ -478,6 +478,21 @@ async def route_approved_proposals(_user: dict = Depends(require_role("admin")))
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.post("/agents/proposals/prioritize")
+async def prioritize_proposals(_user: dict = Depends(require_role("admin"))):
+    """Executa o ciclo de priorização imediato: re-score + auto-approve elegíveis + digest ao CTO."""
+    try:
+        from graph_engine.agents.proposal_prioritizer import run as prioritizer_run
+        result = await asyncio.get_event_loop().run_in_executor(None, prioritizer_run, {})
+        return {
+            "pending_count": result.get("context", {}).get("pending_count", 0),
+            "auto_approved": result.get("context", {}).get("auto_approved", 0),
+            "decisions": result.get("decisions", []),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/agents/proposals/process-inbox")
 async def process_proposals_inbox_stream(
     _user: dict = Depends(require_role("admin")),

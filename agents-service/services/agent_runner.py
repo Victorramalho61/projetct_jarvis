@@ -136,6 +136,7 @@ _PIPELINE_AGENTS: dict[str, list[str]] = {
         "integration_validator", "change_validator",
         "scheduling", "automation",
         "log_intelligence", "log_improver", "fix_validator",
+        "proposal_prioritizer",
         "proposal_supervisor",
         "llm_manager_agent",
         "cto_assessor_agent",

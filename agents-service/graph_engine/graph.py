@@ -43,6 +43,8 @@ _AGENT_REGISTRY: dict[str, str] = {
     "agent_health_supervisor": "graph_engine.agents.agent_health_supervisor",
     # Supervisor de proposals — garante execução das proposals aprovadas por humanos
     "proposal_supervisor":     "graph_engine.agents.proposal_supervisor",
+    # Prioritizer — priorização diária de proposals pendentes via LLM
+    "proposal_prioritizer":    "graph_engine.agents.proposal_prioritizer",
     # LLM Manager — monitora saúde dos LLMs e SLA de acesso dos agentes
     "llm_manager_agent":       "graph_engine.agents.llm_manager_agent",
     # CTO Assessor — arquiteto sênior, segunda opinião e crivo final das proposals
