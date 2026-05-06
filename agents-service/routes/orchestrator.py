@@ -264,6 +264,32 @@ async def get_agent_health(_user: dict = Depends(require_role("admin"))):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
+@router.get("/agents/orchestrator/opportunities")
+async def get_opportunities(_user: dict = Depends(require_role("admin"))):
+    db = get_supabase()
+    try:
+        events = (
+            db.table("agent_events")
+            .select("payload,created_at")
+            .eq("event_type", "opportunities_mapped")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not events:
+            return {"opportunities": [], "generated_at": None}
+        latest = events[0]
+        payload = latest.get("payload") or {}
+        return {
+            "opportunities": payload.get("opportunities", []),
+            "count": payload.get("count", 0),
+            "generated_at": latest.get("created_at"),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.get("/agents/orchestrator/findings")
 async def get_findings(limit: int = 50, _user: dict = Depends(require_role("admin"))):
     db = get_supabase()
@@ -418,6 +444,36 @@ async def seed_slas(
         from graph_engine.tools.sla_tracker import seed_predefined_slas
         count = seed_predefined_slas()
         return {"ok": True, "slas_created": count}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/agents/proposals/route-approved")
+async def route_approved_proposals(_user: dict = Depends(require_role("admin"))):
+    """Roteia imediatamente todas as proposals aprovadas aguardando para os agentes responsáveis."""
+    try:
+        from graph_engine.agents.proposal_supervisor import _route_to_agent, _try_auto_execute
+        db = get_supabase()
+        pending = (
+            db.table("improvement_proposals")
+            .select("*")
+            .eq("validation_status", "approved")
+            .eq("applied", False)
+            .order("created_at")
+            .limit(200)
+            .execute()
+            .data or []
+        )
+        decisions: list = []
+        routed = 0
+        auto_applied = 0
+        for proposal in pending:
+            if _try_auto_execute(proposal, decisions, db):
+                auto_applied += 1
+            else:
+                _route_to_agent(proposal, decisions, db)
+                routed += 1
+        return {"routed": routed, "auto_applied": auto_applied, "total": len(pending)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

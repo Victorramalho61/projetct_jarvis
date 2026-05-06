@@ -236,7 +236,7 @@ def run(state: dict) -> dict:
         .eq("validation_status", "approved")
         .eq("applied", False)
         .order("created_at")
-        .limit(50)
+        .limit(200)
         .execute()
         .data or []
     )

@@ -32,7 +32,7 @@ def _correlate_errors(logs: list[dict]) -> list[dict]:
             continue
         # Trunca para janela de 5 minutos
         bucket = ts[:15] + "0:00"
-        source = entry.get("source", "unknown")
+        source = entry.get("module", "unknown")
         time_buckets[bucket][source].append(entry.get("message", ""))
 
     cascades = []

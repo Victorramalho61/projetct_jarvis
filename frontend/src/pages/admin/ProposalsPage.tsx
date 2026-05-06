@@ -87,6 +87,26 @@ export default function ProposalsPage() {
   const [processLog, setProcessLog] = useState<AgentProgress[]>([]);
   const [processTotal, setProcessTotal] = useState(0);
   const [processDone, setProcessDone] = useState<{ applied: number; failed: number; remaining: number } | null>(null);
+  const [routing, setRouting] = useState(false);
+  const [routeResult, setRouteResult] = useState<{ routed: number; auto_applied: number } | null>(null);
+
+  const triggerRouteApproved = async () => {
+    if (!token || routing) return;
+    setRouting(true);
+    setRouteResult(null);
+    try {
+      const r = await apiFetch<{ routed: number; auto_applied: number; total: number }>(
+        "/api/agents/proposals/route-approved",
+        { method: "POST", token, json: {} }
+      );
+      setRouteResult(r);
+      await Promise.all([load(), loadMetrics()]);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setRouting(false);
+    }
+  };
 
   const triggerProcessInbox = () => {
     if (!token || processing) return;
@@ -259,6 +279,16 @@ export default function ProposalsPage() {
           <button onClick={load} className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
             Atualizar
           </button>
+          {(metrics?.approved_waiting ?? 0) > 0 && (
+            <button
+              onClick={triggerRouteApproved}
+              disabled={routing}
+              className="text-sm px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium"
+              title="Roteia todas as proposals aprovadas para os agentes responsáveis"
+            >
+              {routing ? "Roteando..." : `Rotear ${metrics!.approved_waiting} aprovadas`}
+            </button>
+          )}
           <button
             onClick={triggerProcessInbox}
             disabled={processing}
@@ -422,6 +452,12 @@ export default function ProposalsPage() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {routeResult && (
+        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3 text-sm text-blue-700 dark:text-blue-300">
+          Roteamento concluído: {routeResult.routed} enviadas para agentes, {routeResult.auto_applied} executadas automaticamente.
         </div>
       )}
 

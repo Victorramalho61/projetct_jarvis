@@ -311,12 +311,26 @@ def run(state: dict) -> dict:
         except Exception as exc:
             logger.error("evolution_agent: erro ao inserir innovation: %s", exc)
 
+    recent_runs = system_state.get("recent_runs", [])
+    failed_runs_count = sum(1 for r in recent_runs if r.get("status") == "error")
+    success_runs_count = sum(1 for r in recent_runs if r.get("status") == "success")
+
+    if not briefing_items:
+        fallback_lines = [f"- {len(pending_proposals)} proposals aguardando revisão"]
+        if failed_runs_count:
+            fallback_lines.append(f"- {failed_runs_count} execuções com erro nas últimas execuções")
+        if success_runs_count:
+            fallback_lines.append(f"- {success_runs_count} execuções bem-sucedidas recentes")
+        if opportunities:
+            fallback_lines.append(f"- {len(opportunities)} oportunidades mapeadas para análise")
+        briefing_items = fallback_lines
+
     motivational = _motivate_agents(system_state)
     briefing = (
-        f"🚀 EVOLUTION BRIEFING — {datetime.now(timezone.utc).strftime('%d/%m/%Y')}\n\n"
-        f"📊 Estado: {len(_AGENT_REGISTRY)} agentes ativos, {len(pending_proposals)} proposals pendentes\n\n"
-        f"💡 Inovações de hoje:\n" + "\n".join(briefing_items or ["Analisando oportunidades..."]) +
-        f"\n\n🏆 {motivational}"
+        f"EVOLUTION BRIEFING — {datetime.now(timezone.utc).strftime('%d/%m/%Y')}\n\n"
+        f"Estado: {len(_AGENT_REGISTRY)} agentes ativos, {len(pending_proposals)} proposals pendentes\n\n"
+        f"Inovações de hoje:\n" + "\n".join(briefing_items) +
+        f"\n\n{motivational}"
     )
 
     try:
@@ -348,6 +362,25 @@ def run(state: dict) -> dict:
         logger.error("evolution_agent: erro ao enviar briefing: %s", exc)
 
     try:
+        recent_runs = system_state.get("recent_runs", [])
+        failed_runs = [r for r in recent_runs if r.get("status") == "error"]
+        recent_metrics = system_state.get("quality_metrics", [])
+
+        findings_lines = []
+        if opportunities:
+            findings_lines += [f"- {o.get('title', '')}" for o in opportunities[:5]]
+        if pending_proposals:
+            by_priority = {}
+            for p in pending_proposals:
+                pri = p.get("priority", "medium")
+                by_priority[pri] = by_priority.get(pri, 0) + 1
+            findings_lines.append(f"- {len(pending_proposals)} proposals pendentes: {by_priority}")
+        if failed_runs:
+            failed_agents = list({r.get("agent_id") or r.get("pipeline_name") for r in failed_runs[:5]})
+            findings_lines.append(f"- {len(failed_runs)} execuções com erro (agentes: {', '.join(str(a) for a in failed_agents[:3])})")
+        if not findings_lines:
+            findings_lines.append("- Sistema operando normalmente sem achados relevantes")
+
         db = get_supabase()
         db.table("governance_reports").insert({
             "period": "daily",
@@ -357,9 +390,11 @@ def run(state: dict) -> dict:
                 "pending_proposals": len(pending_proposals),
                 "innovations_proposed": len(innovations),
                 "opportunities_analyzed": len(opportunities),
+                "failed_runs_24h": len(failed_runs),
+                "quality_metrics_count": len(recent_metrics),
             },
-            "findings_summary": "\n".join(f"- {o.get('title', '')}" for o in opportunities[:5]),
-            "recommendations": "\n".join(f"- {i.get('title', '')}: {i.get('proposed_implementation', '')[:100]}" for i in innovations[:3]),
+            "findings_summary": "\n".join(findings_lines),
+            "recommendations": "\n".join(f"- {i.get('title', '')}: {i.get('proposed_implementation', '')[:100]}" for i in innovations[:3]) or "- Sem recomendações geradas neste ciclo",
             "agents_health": {},
             "generated_by": "evolution_agent",
         }).execute()

@@ -8,6 +8,12 @@ export class ApiError extends Error {
   }
 }
 
+let _onUnauthorized: (() => void) | null = null;
+
+export function setUnauthorizedHandler(fn: () => void): void {
+  _onUnauthorized = fn;
+}
+
 type FetchOptions = Omit<RequestInit, "body"> & {
   token?: string | null;
   json?: unknown;
@@ -36,6 +42,9 @@ export async function apiFetch<T = unknown>(
   }
 
   if (!response.ok) {
+    if (response.status === 401 && _onUnauthorized) {
+      _onUnauthorized();
+    }
     const body = await response.json().catch(() => ({}));
     throw new ApiError(
       response.status,

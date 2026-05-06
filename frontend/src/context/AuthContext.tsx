@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
-import { apiFetch } from "../lib/api";
+import { apiFetch, setUnauthorizedHandler } from "../lib/api";
 
 export type Role = "admin" | "user";
 
@@ -58,6 +58,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setUser(null);
   }
+
+  useEffect(() => {
+    setUnauthorizedHandler(logout);
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, token, loading, login, logout }}>

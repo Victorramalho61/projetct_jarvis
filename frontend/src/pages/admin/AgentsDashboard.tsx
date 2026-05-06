@@ -6,8 +6,9 @@ import CTOInboxPage from "./CTOInboxPage";
 import ProposalsPage from "./ProposalsPage";
 import ChangesPage from "./ChangesPage";
 import AgentFlowView from "../../components/agents/AgentFlowView";
+import OpportunitiesPage from "./OpportunitiesPage";
 
-type Tab = "orquestrador" | "visualizacao" | "cto" | "proposals" | "mudancas";
+type Tab = "orquestrador" | "visualizacao" | "cto" | "proposals" | "mudancas" | "oportunidades";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "orquestrador",  label: "Orquestrador" },
@@ -15,6 +16,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "cto",           label: "CTO" },
   { id: "proposals",     label: "Proposals" },
   { id: "mudancas",      label: "Mudanças" },
+  { id: "oportunidades", label: "Oportunidades" },
 ];
 
 export default function AgentsDashboard() {
@@ -104,6 +106,7 @@ export default function AgentsDashboard() {
         {activeTab === "cto"           && <CTOInboxPage />}
         {activeTab === "proposals"     && <ProposalsPage />}
         {activeTab === "mudancas"      && <ChangesPage />}
+        {activeTab === "oportunidades" && <OpportunitiesPage />}
       </div>
     </div>
   );

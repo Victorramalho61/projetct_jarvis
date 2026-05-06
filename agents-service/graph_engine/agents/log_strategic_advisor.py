@@ -31,7 +31,7 @@ def _analyze_trends(data: dict) -> dict:
 
     module_week: dict = defaultdict(lambda: defaultdict(int))
     for entry in logs:
-        module = entry.get("source", "unknown")
+        module = entry.get("module", "unknown")
         ts = entry.get("created_at", "")
         week = ts[:10] if ts else "unknown"
         module_week[module][week] += 1

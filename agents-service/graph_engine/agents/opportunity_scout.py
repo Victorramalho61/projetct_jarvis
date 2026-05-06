@@ -52,7 +52,7 @@ def _aggregate_signals() -> list[dict]:
     logs = query_app_logs(level="error", limit=500, since_minutes=43200)  # 30 dias
     module_count: dict = {}
     for entry in logs:
-        module = entry.get("source") or "unknown"
+        module = entry.get("module") or "unknown"
         module_count[module] = module_count.get(module, 0) + 1
 
     recurring = [(m, c) for m, c in module_count.items() if c > 50]
