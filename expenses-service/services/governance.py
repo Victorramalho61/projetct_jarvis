@@ -405,6 +405,126 @@ def list_sla_violations(contract_id: str | None = None) -> list[dict]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Aderência — verificação automática de pagamentos vs contrato
+# ──────────────────────────────────────────────────────────────────────────────
+
+def check_payment_adherence(contract_id: str) -> dict:
+    """
+    Verifica aderência dos pagamentos Benner ao contrato cadastrado.
+    Auto-registra ocorrências para divergências ainda não registradas.
+    Retorna: total_executado, total_pago, a_pagar, novas_ocorrencias, divergencias.
+    """
+    db = get_supabase()
+    res = db.table("contracts").select("*").eq("id", contract_id).limit(1).execute()
+    if not res.data:
+        return {"status": "not_found"}
+
+    c = res.data[0]
+    valor_mensal = float(c.get("valor_mensal") or 0)
+    valor_total  = float(c.get("valor_total")  or 0)
+
+    payments: list[dict] = []
+    if c.get("fornecedor_benner_handle"):
+        payments = fetch_contract_payments_by_handle(int(c["fornecedor_benner_handle"]))
+    elif c.get("benner_documento_match"):
+        payments = fetch_contract_payments_by_docmatch(c["benner_documento_match"])
+
+    total_executado = sum(p["valor"] or 0 for p in payments)
+    total_pago      = sum(p["valor"] or 0 for p in payments if p.get("status_par") == "pago")
+    a_pagar         = max(0.0, valor_total - total_pago)
+
+    if not payments or valor_mensal <= 0:
+        return {
+            "status":            "sem_dados",
+            "total_executado":   round(total_executado, 2),
+            "total_pago":        round(total_pago, 2),
+            "a_pagar":           round(a_pagar, 2),
+            "novas_ocorrencias": 0,
+            "divergencias":      [],
+        }
+
+    # Agrupar por mês
+    pago_por_mes: dict[str, float] = {}
+    for p in payments:
+        mes = (p.get("mes") or "")[:7]
+        if mes:
+            pago_por_mes[mes] = pago_por_mes.get(mes, 0) + (p["valor"] or 0)
+
+    # Ocorrências já registradas (evitar duplicatas)
+    existing = (
+        db.table("contract_occurrences")
+        .select("competencia,tipo")
+        .eq("contract_id", contract_id)
+        .in_("tipo", ["divergencia_valor_maior", "divergencia_valor_menor"])
+        .execute()
+        .data or []
+    )
+    existing_keys = {(o["competencia"], o["tipo"]) for o in existing}
+
+    now = datetime.now(timezone.utc).isoformat()
+    tolerancia = valor_mensal * 0.02  # 2% de tolerância
+    divergencias = []
+    novas_ocorrencias = 0
+
+    for mes, pago in sorted(pago_por_mes.items()):
+        delta = pago - valor_mensal
+        if abs(delta) <= tolerancia:
+            tipo_div = "ok"
+        elif delta > 0:
+            tipo_div = "a_maior"
+        else:
+            tipo_div = "a_menor"
+
+        divergencias.append({
+            "mes":      mes,
+            "previsto": valor_mensal,
+            "pago":     round(pago, 2),
+            "delta":    round(delta, 2),
+            "tipo":     tipo_div,
+        })
+
+        if tipo_div == "ok":
+            continue
+
+        occ_tipo = "divergencia_valor_maior" if tipo_div == "a_maior" else "divergencia_valor_menor"
+        key = (mes, occ_tipo)
+        if key in existing_keys:
+            continue
+
+        sinal = f"+{delta:.2f}" if delta > 0 else f"{delta:.2f}"
+        desc = (
+            f"Pagamento {mes}: R$ {pago:.2f} | Previsto: R$ {valor_mensal:.2f} | "
+            f"Diferença: R$ {sinal} ({'acima' if delta > 0 else 'abaixo'} do contrato)"
+        )
+        try:
+            db.table("contract_occurrences").insert({
+                "contract_id":    contract_id,
+                "tipo":           occ_tipo,
+                "descricao":      desc,
+                "data_ocorrencia": f"{mes}-01",
+                "competencia":    mes,
+                "valor":          round(delta, 2),
+                "status":         "pendente",
+                "created_at":     now,
+                "updated_at":     now,
+            }).execute()
+            novas_ocorrencias += 1
+            existing_keys.add(key)
+        except Exception as exc:
+            logger.warning("Falha ao criar ocorrência aderência %s/%s: %s", contract_id, mes, exc)
+
+    has_divergence = any(d["tipo"] != "ok" for d in divergencias)
+    return {
+        "status":            "divergente" if has_divergence else "ok",
+        "total_executado":   round(total_executado, 2),
+        "total_pago":        round(total_pago, 2),
+        "a_pagar":           round(a_pagar, 2),
+        "novas_ocorrencias": novas_ocorrencias,
+        "divergencias":      divergencias,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # KPIs gerenciais (para cache + dashboard)
 # ──────────────────────────────────────────────────────────────────────────────
 

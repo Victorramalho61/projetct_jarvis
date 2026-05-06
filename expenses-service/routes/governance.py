@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from auth import require_role
 from limiter import limiter
 from services.governance import (
+    check_payment_adherence,
     compute_contract_divergences,
     create_contract,
     create_occurrence,
@@ -323,6 +324,24 @@ async def create_sla_violation_endpoint(
     except Exception as exc:
         logger.exception("Erro ao registrar violação SLA: %s", exc)
         raise HTTPException(status_code=500, detail="Erro ao registrar violação SLA.")
+
+
+@router.post("/contracts/{contract_id}/check-adherence")
+@limiter.limit("10/minute")
+async def check_contract_adherence(
+    request: Request,
+    contract_id: str,
+    _: dict = Depends(require_role("admin")),
+):
+    """
+    Verifica aderência dos pagamentos Benner ao contrato.
+    Auto-registra ocorrências para divergências (valor a maior / a menor).
+    """
+    try:
+        return check_payment_adherence(contract_id)
+    except Exception as exc:
+        logger.exception("Erro ao verificar aderência do contrato %s: %s", contract_id, exc)
+        raise HTTPException(status_code=500, detail="Erro ao verificar aderência.")
 
 
 @router.post("/discover")
