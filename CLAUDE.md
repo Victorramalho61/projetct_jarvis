@@ -57,10 +57,6 @@ Novo microsserviço para gestão de contratos de TI.
 
 - **Google Gemini**: usa endpoint OpenAI-compatível em `v1beta/openai`, com modelos `gemini-1.5-flash` (padrão) e `gemini-2.0-flash-lite`
 - **Cerebras**: modelo corrigido e validado pós-implementação
-- **Quality Validator**: integrado ao pipeline de propostas para evitar duplicatas e rejeitar entradas com `agent_name=None`
-- **Proposals**: 
-  - Fila corrigida para garantir envio contínuo; métricas em tempo real na `ProposalsPage`
-  - Resiliência aprimorada com priorização por `priority`, `effort` e `risk`
-  - Limite de até 3 propostas por execução do agente `docker_intel`
-  - Card de "taxa de falha" clicável filtra propostas com erro para análise rápida
-- **Freshservice**: correção de filtro que causava erro 400; queries de `agent_runs` foram unificadas para melhor desempenho
+- **Resiliência e priorização**: validação de `priority`, `effort` e `risk` em proposals; limite de até 3 propostas por execução no `docker_intel` agent
+- **Proposals com erro**: card de taxa de falha no frontend agora é clicável e filtra proposals com falhas
+- **SSE e polling**: intervalo de SSE aumentado de 2s para 5s; polling interno reduzido para 60s para melhor estabilidade e desempenho
