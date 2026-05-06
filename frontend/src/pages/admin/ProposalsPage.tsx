@@ -355,11 +355,21 @@ export default function ProposalsPage() {
                 <p className="text-xs text-gray-500 mt-1">Aprovadas aguardando</p>
                 <p className="text-xs text-gray-400">execução pendente</p>
               </div>
-              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
+              <button
+                onClick={() => metrics.implementation_failed > 0 && setStatusFilter("implementation_failed")}
+                className={`bg-white dark:bg-gray-800 rounded-xl border p-4 text-center w-full transition-colors ${
+                  metrics.implementation_failed > 0
+                    ? "border-red-300 dark:border-red-700 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer"
+                    : "border-gray-200 dark:border-gray-700"
+                }`}
+              >
                 <p className="text-2xl font-bold text-red-600 dark:text-red-400">{metrics.failure_rate_pct}%</p>
                 <p className="text-xs text-gray-500 mt-1">Taxa de falha</p>
-                <p className="text-xs text-gray-400">{metrics.implementation_failed} com erro</p>
-              </div>
+                <p className="text-xs text-gray-400">
+                  {metrics.implementation_failed} com erro
+                  {metrics.implementation_failed > 0 && <span className="ml-1 text-red-500">— ver →</span>}
+                </p>
+              </button>
               <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4 text-center">
                 <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{metrics.pending}</p>
                 <p className="text-xs text-gray-500 mt-1">Aguardando aprovação</p>
