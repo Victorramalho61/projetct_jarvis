@@ -42,11 +42,24 @@ def _handle_proposal(proposal: dict, _msg: dict) -> tuple[bool, str]:
     note = (action[:200] if action else title[:200])
     return True, f"Recomendação Docker registrada: {note}"
 
+_VALID_PRIORITIES = {"critical", "high", "medium", "low"}
+_VALID_EFFORTS = {"hours", "days", "weeks"}
+_VALID_RISKS = {"low", "medium", "high", "critical"}
+
 _SYSTEM_PROMPT = """Você é um especialista em Docker e infraestrutura analisando métricas de containers.
 Receberá logs e estatísticas de containers Docker do sistema Jarvis.
-Identifique problemas e oportunidades de otimização.
-Retorne um array JSON de propostas com os campos: proposal_type, title, description, proposed_action, priority, estimated_effort, risk, auto_implementable.
-Responda APENAS com o JSON, sem explicações."""
+Identifique problemas e oportunidades de otimização CONCRETOS e ESPECÍFICOS — não gere proposals genéricas.
+Retorne um array JSON de propostas com os campos obrigatórios:
+- proposal_type: string (ex: "infrastructure", "performance", "security")
+- title: string específico descrevendo a melhoria
+- description: string detalhada do problema identificado
+- proposed_action: string com ação técnica concreta
+- priority: EXATAMENTE um de: "critical", "high", "medium", "low" — NUNCA use números
+- estimated_effort: EXATAMENTE um de: "hours", "days", "weeks"
+- risk: EXATAMENTE um de: "low", "medium", "high", "critical"
+- auto_implementable: boolean
+
+Retorne no máximo 3 proposals por execução. Responda APENAS com o JSON array, sem explicações."""
 
 
 def run(state: dict) -> dict:
@@ -91,7 +104,19 @@ def run(state: dict) -> dict:
         proposals_raw = []
 
     submitted = []
-    for p in proposals_raw:
+    for p in proposals_raw[:3]:  # máximo 3 por execução
+        priority = str(p.get("priority", "low")).lower()
+        effort = str(p.get("estimated_effort", "hours")).lower()
+        risk = str(p.get("risk", "low")).lower()
+
+        if priority not in _VALID_PRIORITIES:
+            log.warning("docker_intel: priority inválida '%s' descartada", priority)
+            continue
+        if effort not in _VALID_EFFORTS:
+            effort = "hours"
+        if risk not in _VALID_RISKS:
+            risk = "low"
+
         try:
             result = insert_improvement_proposal(
                 source_agent="docker_intel",
@@ -99,10 +124,10 @@ def run(state: dict) -> dict:
                 title=p.get("title", "Otimização Docker"),
                 description=p.get("description", ""),
                 proposed_action=p.get("proposed_action", ""),
-                priority=p.get("priority", "low"),
-                estimated_effort=p.get("estimated_effort", "hours"),
-                risk=p.get("risk", "low"),
-                auto_implementable=p.get("auto_implementable", False),
+                priority=priority,
+                estimated_effort=effort,
+                risk=risk,
+                auto_implementable=bool(p.get("auto_implementable", False)),
                 affected_files=["docker-compose.yml"],
             )
             submitted.append(result)
