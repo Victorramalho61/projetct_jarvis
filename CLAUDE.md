@@ -24,6 +24,7 @@ Inter-serviço: `agents-service` chama `freshservice-service` via HTTP interno c
 - **Kong config**: `volumes/api/kong.yml` — declarativo, restart do Kong aplica mudanças.
 - **Portas expostas ao host**: apenas 80/443 (nginx) e 127.0.0.1 para Supabase/Evolution/monitor-agent. Microsserviços 8001-8007 são internos.
 - **Health checks e polling**: intervalos reduzidos para 5 minutos (health check) e 60 segundos (polling interno); SSE ajustado de 2s para 5s para maior estabilidade.
+- **Resiliência e priorização**: implementada priorização de proposals com base em `priority`, `effort` e `risk`; limitação de até 3 proposals por execução no `docker_intel` agent.
 
 ## Módulo Gastos TI (expenses-service:8006)
 
@@ -43,7 +44,7 @@ Novo microsserviço para gestão de contratos de TI.
 - **Endpoints**: `GET /api/contracts/dashboard` · `GET /api/contracts/oportunidades` (oportunidades de renegociação)
 - **Dashboard**: exibe contratos ativos, próximos vencimentos, alertas de revisão e indicadores de gasto
 - **Oportunidades**: análise automatizada de contratos com potencial de economia (backlog de propostas)
-- **Cruzamento Jarvis×Benner**: validação de aderência e totais financeiros sincronizados entre sistemas
+- **Cruzamento Jarvis×Benner**: validação de aderência, totais financeiros sincronizados entre sistemas e verificação de consistência de dados
 - **Frontend**: `ContractsPage.tsx` + `components/contracts/` (ContractCard, RenewalTimeline, SavingsOpportunities)
 - **Env vars**: herda credenciais do `expenses-service` via variáveis compartilhadas em `docker-compose.yml`
 
@@ -57,6 +58,4 @@ Novo microsserviço para gestão de contratos de TI.
 
 - **Google Gemini**: usa endpoint OpenAI-compatível em `v1beta/openai`, com modelos `gemini-1.5-flash` (padrão) e `gemini-2.0-flash-lite`
 - **Cerebras**: modelo corrigido e validado pós-implementação
-- **Resiliência e priorização**: validação de `priority`, `effort` e `risk` em proposals; limite de até 3 propostas por execução no `docker_intel` agent
-- **Proposals com erro**: card de taxa de falha no frontend agora é clicável e filtra proposals com falhas
-- **SSE e polling**: intervalo de SSE aumentado de 2s para 5s; polling interno reduzido para 60s para melhor estabilidade e desempenho
+- **Resiliência**: melhorias na tolerância a falhas, com priorização de proposals e limites de recursos; card de "taxa de falha" no frontend agora filtra proposals com erro ao ser clicado
