@@ -65,7 +65,7 @@ Supabase Self-Hosted (Docker app_net):
 
 Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna Docker.
 
-> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos e polling de agentes ajustado para 60 segundos.
+> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos, polling de agentes ajustado para 60 segundos e polling SSE alterado de 2s para 5s.
 
 ---
 
@@ -78,20 +78,19 @@ Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna 
 - **Monitor Agent**: Python 3.12 + psutil — expõe `/metrics` (CPU/RAM/disco)
 - **CI/CD**: GitHub Actions (self-hosted runner) → `deploy.sh` → `docker compose up -d --build`
 
-> **Melhorias recentes**: Resiliência em proposals, priorização com base em impacto (priority/effort/risk) e limitação a 3 propostas por ciclo.
+> **Melhorias recentes**: Resiliência em proposals, priorização com base em impacto (priority/effort/risk), limitação a 3 propostas por ciclo e card de taxa de falha agora clicável, filtrando proposals com erro.
 
 ---
 
 ## Microsserviços — Estrutura Padrão
 
-Cada serviço tem a mesma estrutura:
+Cada serviço segue estrutura modular com:
+- `main.py`: ponto de entrada e rotas FastAPI
+- `routers/`: endpoints organizados por recurso
+- `services/`: lógica de negócio e integrações externas
+- `models/`: Pydantic models e esquemas de validação
+- `utils/`: funções auxiliares e tratamento de erros
+- `agent_runner.py` (em agents-service): execução e orquestração de agentes com geração de JWT para chamadas internas
+- `sse.py`: streaming de eventos para dashboards em tempo real (polling ajustado para 5s)
 
-```
-{service}/
-├── Dockerfile
-├── requirements.txt
-├── main.py          # FastAPI: routers + CORS + lifespan
-├── db.py            # Supabase client + Settings (pydantic-settings)
-├── auth.py          # JWT decode + require_role dependency
-├── limiter.py       # slowapi rate lim
-```
+Configurações centralizadas via variáveis de ambiente e `.env`. Logs padronizados em JSON para ingestão no sistema de monitoramento.
