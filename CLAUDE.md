@@ -23,6 +23,7 @@ Inter-serviço: `agents-service` chama `freshservice-service` via HTTP interno c
 - **Deploy**: `deploy.sh` na raiz → `docker compose up -d --build`. CI/CD via GitHub Actions (self-hosted runner no servidor).
 - **Kong config**: `volumes/api/kong.yml` — declarativo, restart do Kong aplica mudanças.
 - **Portas expostas ao host**: apenas 80/443 (nginx) e 127.0.0.1 para Supabase/Evolution/monitor-agent. Microsserviços 8001-8007 são internos.
+- **Health checks e polling**: intervalos reduzidos para 5 minutos (health check) e 60 segundos (polling interno); SSE ajustado de 2s para 5s para maior estabilidade.
 
 ## Módulo Gastos TI (expenses-service:8006)
 
@@ -42,6 +43,7 @@ Novo microsserviço para gestão de contratos de TI.
 - **Endpoints**: `GET /api/contracts/dashboard` · `GET /api/contracts/oportunidades` (oportunidades de renegociação)
 - **Dashboard**: exibe contratos ativos, próximos vencimentos, alertas de revisão e indicadores de gasto
 - **Oportunidades**: análise automatizada de contratos com potencial de economia (backlog de propostas)
+- **Cruzamento Jarvis×Benner**: validação de aderência e totais financeiros sincronizados entre sistemas
 - **Frontend**: `ContractsPage.tsx` + `components/contracts/` (ContractCard, RenewalTimeline, SavingsOpportunities)
 - **Env vars**: herda credenciais do `expenses-service` via variáveis compartilhadas em `docker-compose.yml`
 
@@ -56,4 +58,9 @@ Novo microsserviço para gestão de contratos de TI.
 - **Google Gemini**: usa endpoint OpenAI-compatível em `v1beta/openai`, com modelos `gemini-1.5-flash` (padrão) e `gemini-2.0-flash-lite`
 - **Cerebras**: modelo corrigido e validado pós-implementação
 - **Quality Validator**: integrado ao pipeline de propostas para evitar duplicatas e rejeitar entradas com `agent_name=None`
-- **Proposals**: fila corrigida para garantir envio contínuo; métricas em tempo real na `ProposalsPage`
+- **Proposals**: 
+  - Fila corrigida para garantir envio contínuo; métricas em tempo real na `ProposalsPage`
+  - Resiliência aprimorada com priorização por `priority`, `effort` e `risk`
+  - Limite de até 3 propostas por execução do agente `docker_intel`
+  - Card de "taxa de falha" clicável filtra propostas com erro para análise rápida
+- **Freshservice**: correção de filtro que causava erro 400; queries de `agent_runs` foram unificadas para melhor desempenho
