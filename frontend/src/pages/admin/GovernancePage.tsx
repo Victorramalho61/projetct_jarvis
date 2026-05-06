@@ -5,7 +5,6 @@ import { apiFetch } from '../../lib/api'
 import type {
   BennerContract,
   Contract,
-  ContractDivergence,
   ContractOccurrence,
   ContractPayment,
   ContractStatus,
