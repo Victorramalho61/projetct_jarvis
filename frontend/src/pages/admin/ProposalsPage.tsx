@@ -199,17 +199,17 @@ export default function ProposalsPage() {
   useEffect(() => { loadMetrics(); }, [loadMetrics]);
   useEffect(() => { load(); }, [load]);
 
-  // Métricas: atualiza a cada 10s independentemente do filtro
+  // Métricas: atualiza a cada 60s
   useEffect(() => {
     if (metricsTimerRef.current) clearInterval(metricsTimerRef.current);
-    metricsTimerRef.current = setInterval(loadMetrics, 10_000);
+    metricsTimerRef.current = setInterval(loadMetrics, 60_000);
     return () => { if (metricsTimerRef.current) clearInterval(metricsTimerRef.current); };
   }, [loadMetrics]);
 
-  // Lista de proposals: atualiza a cada 30s
+  // Lista de proposals: atualiza a cada 60s
   useEffect(() => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    refreshTimerRef.current = setInterval(load, 30_000);
+    refreshTimerRef.current = setInterval(load, 60_000);
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current); };
   }, [load]);
 

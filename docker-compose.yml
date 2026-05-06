@@ -295,7 +295,7 @@ services:
       - app_net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
-      interval: 30s
+      interval: 300s
       timeout: 5s
       retries: 3
       start_period: 10s
@@ -328,7 +328,7 @@ services:
       - app_net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\""]
-      interval: 30s
+      interval: 300s
       timeout: 5s
       retries: 3
       start_period: 15s
@@ -394,7 +394,7 @@ services:
       - app_net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health')\""]
-      interval: 30s
+      interval: 300s
       timeout: 5s
       retries: 3
       start_period: 15s
@@ -485,7 +485,7 @@ services:
       - app_net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8005/health')\""]
-      interval: 30s
+      interval: 300s
       timeout: 5s
       retries: 3
       start_period: 15s
@@ -516,7 +516,7 @@ services:
       - app_net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8006/health')\""]
-      interval: 60s
+      interval: 300s
       timeout: 5s
       retries: 3
       start_period: 20s
