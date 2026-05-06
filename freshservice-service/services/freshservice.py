@@ -138,12 +138,22 @@ class FreshserviceClient:
             "per_page": 10,
         }).get("tickets", [])
 
+    # status 6 = Waiting on Third Party (padrão Freshservice)
+    _WAITING_VENDOR_STATUS = 6
+
     def get_waiting_vendor_tickets(self, page: int = 1) -> list[dict]:
-        return self._get("/tickets", {
-            "filter": "waiting_on_third_party",
-            "page": page,
-            "per_page": PAGE_SIZE,
-        }).get("tickets", [])
+        try:
+            return self._get("/tickets/filter", {
+                "query": f'"status:{self._WAITING_VENDOR_STATUS}"',
+                "page": page,
+                "per_page": PAGE_SIZE,
+            }).get("tickets", [])
+        except Exception as exc:
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            if status_code in (400, 422):
+                logger.warning("get_waiting_vendor_tickets: status %s inválido para esta conta (%s)", self._WAITING_VENDOR_STATUS, exc)
+                return []
+            raise
 
 
 def _extract_ticket_row(raw: dict) -> dict:

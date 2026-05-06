@@ -152,24 +152,16 @@ async def stream_agent_activity(request: Request, _user: dict = Depends(require_
             if await request.is_disconnected():
                 break
 
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
             heartbeat_counter += 1
 
             try:
+                # Uma query só: novos runs OU runs que tiveram finished_at atualizado
                 new_runs = (
                     db.table("agent_runs")
                     .select("id,pipeline_name,run_type,status,started_at,finished_at,output,error")
-                    .gt("started_at", last_run_ts)
+                    .or_(f"started_at.gt.{last_run_ts},and(finished_at.gt.{last_run_ts},finished_at.not.is.null)")
                     .order("started_at")
-                    .execute().data or []
-                )
-                # Inclui runs que mudaram de status (finished_at atualizado)
-                updated_runs = (
-                    db.table("agent_runs")
-                    .select("id,pipeline_name,run_type,status,started_at,finished_at,output,error")
-                    .gt("finished_at", last_run_ts)
-                    .not_.is_("finished_at", "null")
-                    .order("finished_at")
                     .execute().data or []
                 )
 
@@ -181,7 +173,7 @@ async def stream_agent_activity(request: Request, _user: dict = Depends(require_
                     .execute().data or []
                 )
 
-                all_runs = {r["id"]: r for r in (new_runs + updated_runs)}.values()
+                all_runs = {r["id"]: r for r in new_runs}.values()
 
                 if all_runs or new_msgs:
                     payload = json.dumps({
@@ -193,7 +185,9 @@ async def stream_agent_activity(request: Request, _user: dict = Depends(require_
                     yield f"data: {payload}\n\n"
 
                     if new_runs:
-                        last_run_ts = max(r["started_at"] for r in new_runs)
+                        started_ts = [r["started_at"] for r in new_runs if r.get("started_at")]
+                        if started_ts:
+                            last_run_ts = max(started_ts)
                     if new_msgs:
                         last_msg_ts = max(m["created_at"] for m in new_msgs)
 
