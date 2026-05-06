@@ -12,7 +12,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e sete módulos:
 | Moneypenny | moneypenny-service | Resumo diário de e-mails e agenda via Microsoft 365 |
 | Agentes | agents-service | Jobs agendados + criação de agentes via Claude AI |
 | Gastos TI | expenses-service | Dashboard financeiro executivo — despesas de TI via ERP Benner |
-| Governança | governance-service | Cruzamento Jarvis×Benner, análise de aderência contratual, totais financeiros e dashboard de oportunidades |
+| Governança | governance-service | Cruzamento Jarvis×Benner, análise de aderência contratual, totais financeiros, verificação de conformidade e dashboard de oportunidades |
 
 ---
 
@@ -65,6 +65,8 @@ Supabase Self-Hosted (Docker app_net):
 
 Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna Docker.
 
+> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos e polling de agentes ajustado para 60 segundos.
+
 ---
 
 ## Stack
@@ -75,6 +77,8 @@ Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna 
 - **Banco**: Supabase self-hosted (PostgreSQL 15, GoTrue, PostgREST, Realtime, Storage)
 - **Monitor Agent**: Python 3.12 + psutil — expõe `/metrics` (CPU/RAM/disco)
 - **CI/CD**: GitHub Actions (self-hosted runner) → `deploy.sh` → `docker compose up -d --build`
+
+> **Melhorias recentes**: Resiliência em proposals, priorização com base em impacto (priority/effort/risk) e limitação a 3 propostas por ciclo.
 
 ---
 
@@ -89,23 +93,5 @@ Cada serviço tem a mesma estrutura:
 ├── main.py          # FastAPI: routers + CORS + lifespan
 ├── db.py            # Supabase client + Settings (pydantic-settings)
 ├── auth.py          # JWT decode + require_role dependency
-├── limiter.py       # slowapi rate limiter
-├── app_logger.py    # log_event → tabela app_logs
-├── routes/
-│   ├── health.py    # GET /health (liveness) + GET /ready (readiness)
-│   └── {module}.py
-└── services/
-    └── {specific}.py
+├── limiter.py       # slowapi rate lim
 ```
-
-`db.py`, `auth.py`, `limiter.py` e `app_logger.py` são cópias compartilhadas — mudanças devem ser replicadas nos 6 serviços.
-
-### Schedulers
-
-| Serviço | Job | Frequência |
-|---|---|---|
-| monitoring-service | Health checks de sistemas externos | 5 minutos |
-| agents-service | Execução de agentes inteligentes (SSE polling) | 60 segundos |
-| freshservice-service | Sincronização de tickets | 60 segundos |
-| governance-service | Validação de aderência contratual e cruzamento financeiro | Diário |
-| moneypenny-service | Processamento de e-mails e eventos do calendário | Diário |
