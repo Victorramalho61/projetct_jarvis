@@ -65,7 +65,7 @@ Supabase Self-Hosted (Docker app_net):
 
 Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna Docker.
 
-> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos, polling de agentes ajustado para 60 segundos, polling SSE alterado de 2s para 5s, validação de priorização (priority/effort/risk) e limitação a 3 propostas por ciclo no módulo de agentes, correção em filtro Freshservice que gerava erro 400, otimização com merge de queries em agent_runs, implementação do cruzamento Jarvis×Benner, verificação de aderência contratual, cálculo de totais financeiros e dashboard de oportunidades no módulo de governança.
+> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos, polling de agentes ajustado para 60 segundos, polling SSE alterado de 2s para 5s, validação de priorização (priority/effort/risk) e limitação a 3 propostas por ciclo no módulo de agentes, correção em filtro Freshservice que gerava erro 400, otimização com merge de queries em agent_runs, implementação do cruzamento Jarvis×Benner, verificação de aderência contratual, cálculo de totais financeiros e dashboard de oportunidades no módulo de governança. Documentação atualizada automaticamente pelo agente em 2026-05-07.
 
 ---
 
@@ -74,5 +74,4 @@ Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Recharts → build com `nginx:alpine`
 - **Microsserviços**: FastAPI (Python 3.11) + Supabase SDK + APScheduler + httpx + slowapi + pyodbc
 - **Gateway**: Kong 2.8.1 — config declarativa em `volumes/api/kong.yml`
-- **Banco**: Supabase self-hosted (PostgreSQL 15, GoTrue, PostgREST, Realtime, Storage)
-- **Monitor Agent**: Python
+- **Banco**: Supabase self-hosted (PostgreSQL 15, GoTrue, PostgREST, Realtime)
