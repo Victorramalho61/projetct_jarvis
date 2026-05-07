@@ -56,4 +56,4 @@ Novo microsserviço para gestão de contratos de TI.
 
 ## Integrações com ERP Benner
 
-Ambos `expenses-service` e `contracts-service` utilizam a mesma conexão com o ERP Benner via `pyodbc`. A configuração é centralizada nas variáveis de ambiente compartilhadas no `docker-compose.yml`, garantindo consistência e facilitando manutenção. Acesso restrito a dados de TI via filtro por `K_GESTOR = 23`.
+Ambos os módulos `expenses-service` e `contracts-service` utilizam a mesma conexão com o ERP Benner via `pyodbc`. A configuração de conexão é centralizada nas variáveis de ambiente compartilhadas no `docker-compose.yml`, garantindo consistência e facilitando manutenção. A integração é otimizada com cache em Supabase para consultas pesadas e filtros específicos por empresa e gestor.
