@@ -73,5 +73,4 @@ Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna 
 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Recharts → build com `nginx:alpine`
 - **Microsserviços**: FastAPI (Python 3.11) + Supabase SDK + APScheduler + httpx + slowapi + pyodbc
-- **Gateway**: Kong 2.8.1 — config declarativa em `volumes/api/kong.yml`
-- **Banco**: Supabase self-hosted (PostgreSQL 15, GoTrue, PostgREST, Realtime)
+- **Gateway**: Kong 2.8.1 — config declarativa em `volumes/api-gateway/kong.yml`
