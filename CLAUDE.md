@@ -54,8 +54,6 @@ Novo microsserviço para gestão de contratos de TI.
 - `schema_freshservice.sql` — tabelas Freshservice
 - `schema_contracts.sql` — nova tabela `contracts` com campos: `id`, `nome`, `fornecedor`, `valor`, `inicio`, `fim`, `revisao`, `gestor`, `status`
 
-## Integrações com LLMs
+## Integrações com ERP Benner
 
-- **Google Gemini**: usa endpoint OpenAI-compatível em `v1beta/openai`, com modelos `gemini-1.5-flash` (padrão) e `gemini-2.0-flash-lite`
-- **Cerebras**: modelo corrigido e validado pós-implementação
-- **Resiliência**: melhorias na tolerância a falhas, com priorização de proposals e limites de recursos; card de "taxa de falha" no frontend agora filtra proposals com erro ao ser clicado
+Ambos `expenses-service` e `contracts-service` utilizam a mesma conexão com o ERP Benner via `pyodbc`. A configuração é centralizada nas variáveis de ambiente compartilhadas no `docker-compose.yml`, garantindo consistência e facilitando manutenção. Acesso restrito a dados de TI via filtro por `K_GESTOR = 23`.
