@@ -65,7 +65,7 @@ Supabase Self-Hosted (Docker app_net):
 
 Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna Docker.
 
-> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos, polling de agentes ajustado para 60 segundos, polling SSE alterado de 2s para 5s, validação de priorização (priority/effort/risk) e limitação a 3 propostas por ciclo no módulo de agentes.
+> **Atualizações recentes**: Intervalos de health checks reduzidos para 5 minutos, polling de agentes ajustado para 60 segundos, polling SSE alterado de 2s para 5s, validação de priorização (priority/effort/risk) e limitação a 3 propostas por ciclo no módulo de agentes, correção em filtro Freshservice que gerava erro 400, otimização com merge de queries em agent_runs.
 
 ---
 
@@ -78,4 +78,4 @@ Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna 
 - **Monitor Agent**: Python 3.12 + psutil — expõe `/metrics` (CPU/RAM/disco)
 - **CI/CD**: GitHub Actions (self-hosted runner) → `deploy.sh` → `docker compose up -d --build`
 
-> **Melhorias recentes**: Governança com cruzamento Jarvis×Benner e verificação de aderência contratual aprimorada, resiliência em proposals, priorização com base em impacto (priority/effort/risk), limitação a 3 propostas por ciclo e card de taxa de falhas.
+> **Melhorias recentes**: Módulo de governança com cruzamento completo Jarvis×Benner, cálculo de totais financeiros e verificação robusta de aderência contratual e conformidade.
