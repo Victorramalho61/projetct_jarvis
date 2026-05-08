@@ -870,7 +870,7 @@ function ChamadosTab({ token }: { token: string }) {
 // ── Main Page ──────────────────────────────────────────────────────────────────
 
 export default function PayFlyPage() {
-  const { user, token } = useAuth()
+  const { token } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
   const activeTab = (searchParams.get('tab') as PayFlyTab) ?? 'investimentos'
@@ -909,11 +909,11 @@ export default function PayFlyPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === 'investimentos' && <InvestimentosTab token={token} />}
+      {activeTab === 'investimentos' && <InvestimentosTab token={token ?? ''} />}
       {activeTab === 'monitoramento' && <Placeholder title="Monitoramento" />}
       {activeTab === 'governanca'    && <Placeholder title="Governança & Auditoria" />}
-      {activeTab === 'midia'         && <MidiaTab token={token} />}
-      {activeTab === 'chamados'      && <ChamadosTab token={token} />}
+      {activeTab === 'midia'         && <MidiaTab token={token ?? ''} />}
+      {activeTab === 'chamados'      && <ChamadosTab token={token ?? ''} />}
     </div>
   )
 }
