@@ -2,7 +2,7 @@
 
 ## Arquitetura
 
-5 microsserviços FastAPI (Python 3.11) + React frontend + Supabase self-hosted, orquestrados via Docker Compose. Kong roteia `/api/*` para cada serviço.
+6 microsserviços FastAPI (Python 3.11) + React frontend + Supabase self-hosted, orquestrados via Docker Compose. Kong roteia `/api/*` para cada serviço.
 
 ```
 nginx:443 → Kong:8000 → core-service:8001        (/api/auth, /api/users, /api/admin, /api/health)
@@ -10,21 +10,35 @@ nginx:443 → Kong:8000 → core-service:8001        (/api/auth, /api/users, /ap
                       → freshservice-service:8003 (/api/freshservice/*)
                       → moneypenny-service:8004   (/api/moneypenny/*)
                       → agents-service:8005       (/api/agents/*)
-                      → expenses-service:8006     (/api/expenses/*)
-                      → contracts-service:8007    (/api/contracts/*)
+                      → expenses-service:8006     (/api/expenses/*, /api/expenses/governance/*)
 ```
 
-Inter-serviço: `agents-service` chama `freshservice-service` via HTTP interno com JWT gerado em `agents-service/services/agent_runner.py`.
+Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-service` via HTTP interno com JWT (com `exp` de 5 min) gerado em `agent_runner.py`. Header `X-Trace-ID` é propagado em todas as chamadas.
 
 ## Regras importantes
 
-- **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas em todos os 5.
+- **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas nos 6.
+- **app_logger.py** aceita `trace_id` opcional — sempre passar quando disponível via `current_trace_id.get()` do `main.py`.
 - **Autenticação**: rotas admin usam `Depends(require_role("admin"))`, nunca `get_current_user` diretamente em rotas protegidas.
 - **Deploy**: `deploy.sh` na raiz → `docker compose up -d --build`. CI/CD via GitHub Actions (self-hosted runner no servidor).
 - **Kong config**: `volumes/api/kong.yml` — declarativo, restart do Kong aplica mudanças.
-- **Portas expostas ao host**: apenas 80/443 (nginx) e 127.0.0.1 para Supabase/Evolution/monitor-agent. Microsserviços 8001-8007 são internos.
+- **Portas expostas ao host**: apenas 80/443 (nginx) e 127.0.0.1 para Supabase/Evolution/monitor-agent. Microsserviços 8001–8007 são internos.
 - **Health checks e polling**: intervalos reduzidos para 5 minutos (health check) e 60 segundos (polling interno); SSE ajustado de 2s para 5s para maior estabilidade.
 - **Resiliência e priorização**: implementada priorização de proposals com base em `priority`, `effort` e `risk`; limitação de até 3 proposals por execução no `docker_intel` agent.
+
+## Resiliência (expenses-service + Benner)
+
+- `expenses-service/services/resilience.py` — `CircuitBreaker("benner")` + `@sql_retry` (3 tentativas, 2s→10s backoff)
+- `get_sql_connection()` em `db.py` usa o circuit breaker automaticamente
+- `TTLCache(ttl=300)` nos serviços `governance.py` e `payfly.py` para queries Benner pesadas
+- Cache Supabase (`expenses_cache`) cobre dashboard/forecast via `POST /api/expenses/sync`
+
+## Observabilidade
+
+- `app_logs.trace_id` — coluna adicionada ao schema; permite correlacionar logs entre serviços pelo mesmo `X-Trace-ID`
+- `run_error_growth_check()` em `monitoring-service/services/log_monitor.py` — roda a cada 6h, detecta módulos com crescimento ≥ 80% de erros e envia WhatsApp + abre GitHub issue
+- Alerta WhatsApp automático quando `consecutive_down_count == 3` em qualquer sistema monitorado
+- `/ready` padronizado em todos os 6 serviços: `{status, service, uptime_seconds, components: {...}}`
 
 ## Módulo Gastos TI (expenses-service:8006)
 

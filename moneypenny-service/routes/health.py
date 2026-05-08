@@ -27,10 +27,10 @@ async def ready():
         async with httpx.AsyncClient(timeout=3.0) as c:
             r = await c.get(f"{s.supabase_url}/rest/v1/",
                             headers={"apikey": s.supabase_key})
-        checks["db"] = {"status": "ok" if r.status_code < 500 else "error",
-                        "latency_ms": int((time.monotonic() - t0) * 1000)}
+        checks["database"] = {"status": "ok" if r.status_code < 500 else "degraded",
+                               "latency_ms": int((time.monotonic() - t0) * 1000)}
     except Exception as e:
-        checks["db"] = {"status": "error", "detail": str(e)}
+        checks["database"] = {"status": "down", "latency_ms": None}
 
     if s.microsoft_tenant_id:
         t1 = time.monotonic()
@@ -39,12 +39,13 @@ async def ready():
                 r = await c.get(
                     f"https://login.microsoftonline.com/{s.microsoft_tenant_id}/v2.0/.well-known/openid-configuration"
                 )
-            checks["microsoft"] = {
-                "status": "ok" if r.status_code == 200 else "error",
+            checks["microsoft_365"] = {
+                "status": "ok" if r.status_code == 200 else "degraded",
                 "latency_ms": int((time.monotonic() - t1) * 1000)
             }
         except Exception as e:
-            checks["microsoft"] = {"status": "error", "detail": str(e)}
+            checks["microsoft_365"] = {"status": "down", "latency_ms": None}
 
-    overall = "ok" if all(v["status"] == "ok" for v in checks.values()) else "degraded"
-    return {"status": overall, "service": _SERVICE, "checks": checks}
+    overall = "ok" if all(v.get("status") == "ok" for v in checks.values()) else "degraded"
+    return {"status": overall, "service": _SERVICE,
+            "uptime_seconds": round(time.monotonic() - _START), "components": checks}

@@ -120,12 +120,13 @@ def _register_langgraph_pipelines() -> None:
     s = get_settings()
 
     pipelines = [
-        ("monitoring", IntervalTrigger(minutes=s.monitoring_interval_minutes, timezone=_TZ)),
-        ("security",   IntervalTrigger(minutes=s.security_interval_minutes, timezone=_TZ)),
-        ("cicd",       IntervalTrigger(minutes=s.cicd_interval_minutes, timezone=_TZ)),
-        ("dba",        IntervalTrigger(hours=s.dba_interval_hours, timezone=_TZ)),
-        ("governance", CronTrigger(hour=s.governance_cron_hour, minute=0, timezone=_TZ)),
-        ("evolution",  CronTrigger(hour=s.evolution_cron_hour, minute=0, timezone=_TZ)),
+        ("monitoring",    IntervalTrigger(minutes=s.monitoring_interval_minutes, timezone=_TZ)),
+        ("security",      IntervalTrigger(minutes=s.security_interval_minutes, timezone=_TZ)),
+        ("cicd",          IntervalTrigger(minutes=s.cicd_interval_minutes, timezone=_TZ)),
+        ("dba",           IntervalTrigger(hours=s.dba_interval_hours, timezone=_TZ)),
+        ("governance",    CronTrigger(hour=s.governance_cron_hour, minute=0, timezone=_TZ)),
+        ("evolution",     CronTrigger(hour=s.evolution_cron_hour, minute=0, timezone=_TZ)),
+        ("documentation", CronTrigger(hour=7, minute=0, timezone=_TZ)),
     ]
 
     for name, trigger in pipelines:

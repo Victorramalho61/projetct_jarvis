@@ -26,7 +26,7 @@ def scan_all_scripts() -> list[dict]:
             if not syntax["valid_syntax"]:
                 details.append(f"Sintaxe inválida: {syntax['syntax_error']}")
             insert_security_alert("high", "code_security", desc + "; ".join(details), f"agent:{agent.get('id')}")
-            log_event("error", "code_security", f"Problemas no agente {agent_name}", "; ".join(details))
+            log_event("warning", "code_security", f"Problemas de segurança no agente {agent_name}", "; ".join(details))
         results.append({"agent_id": agent.get("id"), "agent_name": agent_name, "approved": not has_issues, "issues": details if has_issues else []})
     return results
 

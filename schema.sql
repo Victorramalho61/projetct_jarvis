@@ -52,8 +52,12 @@ CREATE TABLE IF NOT EXISTS public.app_logs (
     module     text NOT NULL,
     message    text NOT NULL,
     detail     text,
-    user_id    uuid REFERENCES public.profiles(id) ON DELETE SET NULL
+    user_id    uuid REFERENCES public.profiles(id) ON DELETE SET NULL,
+    trace_id   text
 );
+
+-- migration: adiciona trace_id em instâncias existentes sem a coluna
+ALTER TABLE public.app_logs ADD COLUMN IF NOT EXISTS trace_id text;
 
 -- monitored_systems
 CREATE TABLE IF NOT EXISTS public.monitored_systems (

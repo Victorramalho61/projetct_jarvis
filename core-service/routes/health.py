@@ -19,17 +19,40 @@ def health():
 
 @router.get("/ready")
 async def ready():
-    checks: dict = {}
+    components: dict = {}
     s = get_settings()
+
+    # Supabase
     t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=3.0) as c:
-            r = await c.get(f"{s.supabase_url}/rest/v1/",
-                            headers={"apikey": s.supabase_key})
-        checks["db"] = {"status": "ok" if r.status_code < 500 else "error",
-                        "latency_ms": int((time.monotonic() - t0) * 1000)}
-    except Exception as e:
-        checks["db"] = {"status": "error", "detail": str(e)}
+            r = await c.get(f"{s.supabase_url}/rest/v1/", headers={"apikey": s.supabase_key})
+        components["database"] = {"status": "ok" if r.status_code < 500 else "degraded",
+                                   "latency_ms": int((time.monotonic() - t0) * 1000)}
+    except Exception:
+        components["database"] = {"status": "down", "latency_ms": None}
 
-    overall = "ok" if all(v["status"] == "ok" for v in checks.values()) else "degraded"
-    return {"status": overall, "service": _SERVICE, "checks": checks}
+    # SMTP
+    t0 = time.monotonic()
+    try:
+        import socket
+        sock = socket.create_connection(("smtp.office365.com", 587), timeout=3)
+        sock.close()
+        components["smtp"] = {"status": "ok", "latency_ms": int((time.monotonic() - t0) * 1000)}
+    except Exception:
+        components["smtp"] = {"status": "down", "latency_ms": None}
+
+    # WhatsApp (Evolution API)
+    if getattr(s, "whatsapp_api_url", None):
+        t0 = time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as c:
+                r = await c.get(f"{s.whatsapp_api_url}/")
+            components["whatsapp"] = {"status": "ok" if r.status_code < 500 else "degraded",
+                                       "latency_ms": int((time.monotonic() - t0) * 1000)}
+        except Exception:
+            components["whatsapp"] = {"status": "down", "latency_ms": None}
+
+    overall = "ok" if all(v.get("status") == "ok" for v in components.values()) else "degraded"
+    return {"status": overall, "service": _SERVICE,
+            "uptime_seconds": round(time.monotonic() - _START), "components": components}

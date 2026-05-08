@@ -19,27 +19,29 @@ def health():
 
 @router.get("/ready")
 async def ready():
-    checks: dict = {}
+    components: dict = {}
     s = get_settings()
 
+    # Supabase
     t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=3.0) as c:
-            r = await c.get(f"{s.supabase_url}/rest/v1/",
-                            headers={"apikey": s.supabase_key})
-        checks["db"] = {"status": "ok" if r.status_code < 500 else "error",
-                        "latency_ms": int((time.monotonic() - t0) * 1000)}
-    except Exception as e:
-        checks["db"] = {"status": "error", "detail": str(e)}
+            r = await c.get(f"{s.supabase_url}/rest/v1/", headers={"apikey": s.supabase_key})
+        components["database"] = {"status": "ok" if r.status_code < 500 else "degraded",
+                                   "latency_ms": int((time.monotonic() - t0) * 1000)}
+    except Exception:
+        components["database"] = {"status": "down", "latency_ms": None}
 
-    t1 = time.monotonic()
+    # Monitor Agent
+    t0 = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=3.0) as c:
             r = await c.get(f"{s.monitor_agent_url}/metrics")
-        checks["monitor_agent"] = {"status": "ok" if r.status_code == 200 else "error",
-                                   "latency_ms": int((time.monotonic() - t1) * 1000)}
-    except Exception as e:
-        checks["monitor_agent"] = {"status": "error", "detail": str(e)}
+        components["monitor_agent"] = {"status": "ok" if r.status_code == 200 else "degraded",
+                                        "latency_ms": int((time.monotonic() - t0) * 1000)}
+    except Exception:
+        components["monitor_agent"] = {"status": "down", "latency_ms": None}
 
-    overall = "ok" if all(v["status"] == "ok" for v in checks.values()) else "degraded"
-    return {"status": overall, "service": _SERVICE, "checks": checks}
+    overall = "ok" if all(v.get("status") == "ok" for v in components.values()) else "degraded"
+    return {"status": overall, "service": _SERVICE,
+            "uptime_seconds": round(time.monotonic() - _START), "components": components}

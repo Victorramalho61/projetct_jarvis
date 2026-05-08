@@ -33,6 +33,8 @@ def get_supabase() -> Client:
 
 
 def get_sql_connection() -> pyodbc.Connection:
+    from services.resilience import get_benner_circuit_breaker, sql_retry
+
     s = get_settings()
     conn_str = (
         f"DRIVER={{{s.sql_server_driver}}};"
@@ -41,4 +43,9 @@ def get_sql_connection() -> pyodbc.Connection:
         f"UID={s.sql_server_user};PWD={s.sql_server_password};"
         f"TrustServerCertificate=yes;"
     )
-    return pyodbc.connect(conn_str, timeout=15)
+
+    @sql_retry
+    def _connect():
+        return pyodbc.connect(conn_str, timeout=15)
+
+    return get_benner_circuit_breaker().call(_connect)

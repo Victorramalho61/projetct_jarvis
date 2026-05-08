@@ -219,6 +219,8 @@ async def run_check(system: dict, checked_by: str = "scheduler") -> dict:
         ).eq("id", system["id"]).execute()
         if new_count >= 2:
             log_event("error", "monitoring", f"Sistema DOWN: {system['name']}", detail=result.detail)
+        if new_count == 3:
+            asyncio.create_task(_alert_system_down(system["name"], new_count, result.detail))
 
     elif result.status == "degraded":
         log_event("warning", "monitoring", f"Sistema DEGRADADO: {system['name']}", detail=result.detail)
@@ -232,6 +234,40 @@ async def run_check(system: dict, checked_by: str = "scheduler") -> dict:
             ).eq("id", system["id"]).execute()
 
     return row
+
+
+async def _alert_system_down(name: str, count: int, detail: str | None) -> None:
+    s = get_settings()
+    if not s.whatsapp_api_url:
+        return
+    db = get_supabase()
+    admins = (
+        db.table("profiles")
+        .select("whatsapp_phone")
+        .eq("role", "admin")
+        .eq("active", True)
+        .neq("whatsapp_phone", "")
+        .execute()
+    )
+    text = (
+        f"🔴 *JARVIS — Sistema DOWN*\n\n"
+        f"*{name}* está fora do ar há {count} checks consecutivos.\n"
+        f"Detalhe: {(detail or 'sem detalhe')[:120]}\n\n"
+        f"Acesse o painel de monitoramento para diagnóstico."
+    )
+    async with httpx.AsyncClient(timeout=10) as client:
+        for admin in (admins.data or []):
+            phone = admin.get("whatsapp_phone")
+            if not phone:
+                continue
+            try:
+                await client.post(
+                    f"{s.whatsapp_api_url}/message/sendText/{s.whatsapp_instance}",
+                    headers={"apikey": s.whatsapp_api_key},
+                    json={"number": phone, "text": text},
+                )
+            except Exception as exc:
+                logger.warning("Falha ao enviar alerta WhatsApp: %s", exc)
 
 
 async def run_all_checks() -> None:

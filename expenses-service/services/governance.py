@@ -10,9 +10,14 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
 
+from cachetools import TTLCache
 from db import get_sql_connection, get_supabase
 
 logger = logging.getLogger(__name__)
+
+# Cache in-process para queries Benner de leitura — 5min TTL, sem Redis
+_discovery_cache: TTLCache = TTLCache(maxsize=5, ttl=300)
+_payments_cache: TTLCache = TTLCache(maxsize=50, ttl=300)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -109,6 +114,10 @@ ORDER BY PAR.DATAVENCIMENTO
 
 def fetch_benner_contracts_discovery() -> list[dict]:
     """Descobre contratos ativos no Benner via CP_RECEBIMENTOFISICO.CONTRATO."""
+    cache_key = "discovery"
+    if cache_key in _discovery_cache:
+        return _discovery_cache[cache_key]
+
     conn = get_sql_connection()
     try:
         cur = conn.cursor()
@@ -128,6 +137,7 @@ def fetch_benner_contracts_discovery() -> list[dict]:
                 "total_valor":      _to_float(r.get("total_valor")),
                 "ultima_liquidacao": _iso_date(r.get("ultima_liquidacao")),
             })
+        _discovery_cache[cache_key] = rows
         return rows
     finally:
         conn.close()
@@ -135,6 +145,10 @@ def fetch_benner_contracts_discovery() -> list[dict]:
 
 def fetch_contract_payments_by_handle(benner_handle: int) -> list[dict]:
     """Pagamentos Benner de um contrato pelo handle CP_RECEBIMENTOFISICO.CONTRATO."""
+    cache_key = f"payments_handle_{benner_handle}"
+    if cache_key in _payments_cache:
+        return _payments_cache[cache_key]
+
     conn = get_sql_connection()
     try:
         cur = conn.cursor()
@@ -153,6 +167,7 @@ def fetch_contract_payments_by_handle(benner_handle: int) -> list[dict]:
                 "historico":      r.get("historico"),
                 "filial":         r.get("filial"),
             })
+        _payments_cache[cache_key] = rows
         return rows
     finally:
         conn.close()

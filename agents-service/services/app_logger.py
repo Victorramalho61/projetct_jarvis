@@ -10,6 +10,7 @@ def log_event(
     message: str,
     user_id: str | None = None,
     detail: str | None = None,
+    trace_id: str | None = None,
 ) -> None:
     try:
         db = get_supabase()
@@ -19,6 +20,7 @@ def log_event(
             "message": message,
             "user_id": user_id,
             "detail": detail,
+            "trace_id": trace_id,
         }).execute()
     except Exception as exc:
         _logger.error("Failed to write app log: %s", exc)

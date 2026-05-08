@@ -27,10 +27,10 @@ async def ready():
         async with httpx.AsyncClient(timeout=3.0) as c:
             r = await c.get(f"{s.supabase_url}/rest/v1/",
                             headers={"apikey": s.supabase_key})
-        checks["db"] = {"status": "ok" if r.status_code < 500 else "error",
-                        "latency_ms": int((time.monotonic() - t0) * 1000)}
+        checks["database"] = {"status": "ok" if r.status_code < 500 else "degraded",
+                               "latency_ms": int((time.monotonic() - t0) * 1000)}
     except Exception as e:
-        checks["db"] = {"status": "error", "detail": str(e)}
+        checks["database"] = {"status": "down", "latency_ms": None}
 
     if s.freshservice_api_key:
         t1 = time.monotonic()
@@ -41,11 +41,12 @@ async def ready():
                     auth=(s.freshservice_api_key, "X")
                 )
             checks["freshservice"] = {
-                "status": "ok" if r.status_code < 500 else "error",
+                "status": "ok" if r.status_code < 500 else "degraded",
                 "latency_ms": int((time.monotonic() - t1) * 1000)
             }
         except Exception as e:
-            checks["freshservice"] = {"status": "error", "detail": str(e)}
+            checks["freshservice"] = {"status": "down", "latency_ms": None}
 
-    overall = "ok" if all(v["status"] == "ok" for v in checks.values()) else "degraded"
-    return {"status": overall, "service": _SERVICE, "checks": checks}
+    overall = "ok" if all(v.get("status") == "ok" for v in checks.values()) else "degraded"
+    return {"status": overall, "service": _SERVICE,
+            "uptime_seconds": round(time.monotonic() - _START), "components": checks}
