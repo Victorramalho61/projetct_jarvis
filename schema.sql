@@ -207,3 +207,7 @@ CREATE INDEX IF NOT EXISTS idx_security_alerts_time
 CREATE INDEX IF NOT EXISTS idx_system_checks_status_time
     ON public.system_checks (status, checked_at DESC)
     WHERE status != 'up';
+
+-- agent_messages: queries por to_agent + status (inbox, notificações, pipelines)
+CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent_status
+    ON public.agent_messages (to_agent, status, created_at DESC);
