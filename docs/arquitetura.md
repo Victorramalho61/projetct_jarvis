@@ -74,3 +74,9 @@ Microsserviços (8001–8007): sem portas expostas ao host, apenas rede interna 
 - **Frontend**: React 18 + TypeScript + Vite + Tailwind CSS + Recharts → build com `nginx:alpine`
 - **Microsserviços**: FastAPI (Python 3.11) + Supabase SDK + APScheduler + httpx + slowapi + pyodbc
 - **Gateway**: Kong 2.8.1 — config declarativa em `volumes/api-gateway/kong.yml`
+- **Orquestração**: Docker Compose + rede interna `app_net`, Supabase como backend unificado
+- **Automação**: Agentes Python com execução agendada e geração dinâmica via Claude AI
+- **Monitoramento**: Prometheus + Grafana (métricas internas), logs centralizados via Docker
+- **Segurança**: JWT via Supabase GoTrue, comunicação interna via HTTP com JWT assinado, variáveis sensíveis em secrets Docker
+
+> ✅ Última atualização da documentação: **2026-05-08** — sincronizada com o histórico de commits.
