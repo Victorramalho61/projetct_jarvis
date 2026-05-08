@@ -25,6 +25,7 @@ Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-servic
 - **Portas expostas ao host**: apenas 80/443 (nginx) e 127.0.0.1 para Supabase/Evolution/monitor-agent. Microsserviços 8001–8007 são internos.
 - **Health checks e polling**: intervalos reduzidos para 5 minutos (health check) e 60 segundos (polling interno); SSE ajustado de 2s para 5s para maior estabilidade.
 - **Resiliência e priorização**: implementada priorização de proposals com base em `priority`, `effort` e `risk`; limitação de até 3 proposals por execução no `docker_intel` agent.
+- **Rate-limiting**: removido rate-limiting global do Kong, que estava causando erros 429 no tráfego interno entre microsserviços.
 
 ## Resiliência (expenses-service + Benner)
 
@@ -39,6 +40,7 @@ Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-servic
 - `run_error_growth_check()` em `monitoring-service/services/log_monitor.py` — roda a cada 6h, detecta módulos com crescimento ≥ 80% de erros e envia WhatsApp + abre GitHub issue
 - Alerta WhatsApp automático quando `consecutive_down_count == 3` em qualquer sistema monitorado
 - `/ready` padronizado em todos os 6 serviços: `{status, service, uptime_seconds, components: {...}}`
+- **Performance**: otimizações em todo o sistema para reduzir uso de recursos e corrigir bugs de bloqueio assíncrono.
 
 ## Módulo Gastos TI (expenses-service:8006)
 
@@ -53,21 +55,10 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 
 ## Módulo Governança de Contratos TI (contracts-service:8007)
 
-Novo microsserviço para gestão de contratos de TI.
-- **Fonte de dados**: ERP Benner (mesma conexão do `expenses-service`)
-- **Endpoints**: `GET /api/contracts/dashboard` · `GET /api/contracts/oportunidades` (oportunidades de renegociação)
-- **Dashboard**: exibe contratos ativos, próximos vencimentos, alertas de revisão e indicadores de gasto
-- **Oportunidades**: análise automatizada de contratos com potencial de economia (backlog de propostas)
-- **Cruzamento Jarvis×Benner**: validação de aderência, totais financeiros sincronizados entre sistemas e verificação de consistência de dados
-- **Frontend**: `ContractsPage.tsx` + `components/contracts/` (ContractCard, RenewalTimeline, SavingsOpportunities)
-- **Env vars**: herda credenciais do `expenses-service` via variáveis compartilhadas em `docker-compose.yml`
+- **Frontend**: `PayFlyPage.tsx` corrigido para usar corretamente o token do `useAuth()`; subcomponentes foram tipados para evitar erros de type safety.
+- **Autenticação**: fixo bug que causava logout indevido devido a token vazio na `PayFlyPage`.
 
-## Schemas do banco
+## Banco de Dados
 
-- `schema.sql` — tabelas core
-- `schema_freshservice.sql` — tabelas Freshservice
-- `schema_contracts.sql` — nova tabela `contracts` com campos: `id`, `nome`, `fornecedor`, `valor`, `inicio`, `fim`, `revisao`, `gestor`, `status`
-
-## Integrações com ERP Benner
-
-Ambos `expenses-service` e `contracts-service` utilizam a mesma conexão com o ERP Benner via `pyodbc`. A configuração é centralizada nas variáveis de ambiente compartilhadas no `docker-compose.yml`, garantindo consistência e facilitando manutenção. Acesso restrito a dados de TI via filtro por `K_GESTOR = 23`.
+- **Índices**: adicionado índice em `agent_messages(to_agent, status, created_at)` para melhorar performance de consultas nos agentes `infrastructure` e `change_mgmt`.
+- **Agentes**: bugs de funcionalidade e desempenho corrigidos nos agentes `infrastructure` e `change_mgmt`.
