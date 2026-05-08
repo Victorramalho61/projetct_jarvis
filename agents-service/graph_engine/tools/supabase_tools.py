@@ -10,14 +10,25 @@ def _db():
 
 def query_app_logs(level: str | None = None, limit: int = 100, since_minutes: int = 120) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(minutes=since_minutes)).isoformat()
-    q = _db().table("app_logs").select("*").gte("created_at", since).order("created_at", desc=True).limit(limit)
+    q = (
+        _db().table("app_logs")
+        .select("id,level,module,message,detail,created_at,trace_id")
+        .gte("created_at", since)
+        .order("created_at", desc=True)
+        .limit(limit)
+    )
     if level:
         q = q.eq("level", level)
     return q.execute().data or []
 
 
 def query_agent_runs(status: str | None = None, agent_id: str | None = None, limit: int = 50) -> list[dict]:
-    q = _db().table("agent_runs").select("*").order("started_at", desc=True).limit(limit)
+    q = (
+        _db().table("agent_runs")
+        .select("id,agent_id,pipeline_name,run_type,status,started_at,finished_at,output,error")
+        .order("started_at", desc=True)
+        .limit(limit)
+    )
     if status:
         q = q.eq("status", status)
     if agent_id:
@@ -26,14 +37,23 @@ def query_agent_runs(status: str | None = None, agent_id: str | None = None, lim
 
 
 def query_system_checks(system_id: str | None = None, limit: int = 50) -> list[dict]:
-    q = _db().table("system_checks").select("*").order("checked_at", desc=True).limit(limit)
+    q = (
+        _db().table("system_checks")
+        .select("id,system_id,status,latency_ms,http_status,detail,checked_at")
+        .order("checked_at", desc=True)
+        .limit(limit)
+    )
     if system_id:
         q = q.eq("system_id", system_id)
     return q.execute().data or []
 
 
 def query_monitored_systems(enabled: bool = True) -> list[dict]:
-    q = _db().table("monitored_systems").select("*").eq("enabled", enabled)
+    q = (
+        _db().table("monitored_systems")
+        .select("id,name,description,url,system_type,check_interval_minutes,enabled,consecutive_down_count")
+        .eq("enabled", enabled)
+    )
     return q.execute().data or []
 
 
@@ -69,8 +89,17 @@ def query_quality_metrics(metric_name: str | None = None, service: str | None = 
     return q.execute().data or []
 
 
-def insert_change_request(title: str, description: str, change_type: str, priority: str, requested_by: str, rollback_plan: str | None = None) -> dict:
-    res = _db().table("change_requests").insert({
+def insert_change_request(
+    title: str,
+    description: str,
+    change_type: str,
+    priority: str,
+    requested_by: str,
+    rollback_plan: str | None = None,
+    sla_deadline: str | None = None,
+    context: dict | None = None,
+) -> dict:
+    payload: dict = {
         "title": title,
         "description": description,
         "change_type": change_type,
@@ -78,7 +107,12 @@ def insert_change_request(title: str, description: str, change_type: str, priori
         "requested_by": requested_by,
         "rollback_plan": rollback_plan,
         "status": "pending",
-    }).execute()
+    }
+    if sla_deadline:
+        payload["sla_deadline"] = sla_deadline
+    if context:
+        payload["context"] = context
+    res = _db().table("change_requests").insert(payload).execute()
     return res.data[0] if res.data else {}
 
 

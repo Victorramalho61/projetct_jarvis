@@ -235,7 +235,16 @@ plugins:
         - Authorization
         - apikey
         - x-client-info
+        - X-Trace-ID
       exposed_headers:
         - X-Auth-Token
+        - X-Trace-ID
       credentials: true
       max_age: 3600
+
+  - name: rate-limiting
+    config:
+      minute: 120
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import date
 
@@ -6,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from auth import require_role
 from services.expenses import fetch_dashboard
 from services.forecast import fetch_forecast
-from services.sync import get_cached_dashboard, get_last_updated, run_expenses_sync
+from services.sync import get_cached_dashboard, get_cached_forecast, get_last_updated, run_expenses_sync
 
 router = APIRouter(prefix="/expenses", tags=["expenses"])
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ async def dashboard(
             cached = get_cached_dashboard(year)
             if cached:
                 return cached
-        result = fetch_dashboard(year, filial, tipo)
+        result = await asyncio.to_thread(fetch_dashboard, year, filial, tipo)
         result["last_updated"] = get_last_updated()
         return result
     except Exception as exc:
@@ -50,7 +51,10 @@ async def forecast_endpoint(
     _: dict = Depends(require_role("admin")),
 ):
     try:
-        return fetch_forecast(year)
+        cached = get_cached_forecast(year)
+        if cached:
+            return cached
+        return await asyncio.to_thread(fetch_forecast, year)
     except Exception as exc:
         logger.exception("Erro ao buscar previsão: %s", exc)
         raise HTTPException(status_code=500, detail="Erro ao calcular previsão.")

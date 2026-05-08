@@ -202,14 +202,14 @@ export default function ProposalsPage() {
   // Métricas: atualiza a cada 60s
   useEffect(() => {
     if (metricsTimerRef.current) clearInterval(metricsTimerRef.current);
-    metricsTimerRef.current = setInterval(loadMetrics, 60_000);
+    metricsTimerRef.current = setInterval(loadMetrics, 120_000);
     return () => { if (metricsTimerRef.current) clearInterval(metricsTimerRef.current); };
   }, [loadMetrics]);
 
   // Lista de proposals: atualiza a cada 60s
   useEffect(() => {
     if (refreshTimerRef.current) clearInterval(refreshTimerRef.current);
-    refreshTimerRef.current = setInterval(load, 60_000);
+    refreshTimerRef.current = setInterval(load, 120_000);
     return () => { if (refreshTimerRef.current) clearInterval(refreshTimerRef.current); };
   }, [load]);
 

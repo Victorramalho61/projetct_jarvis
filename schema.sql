@@ -175,3 +175,35 @@ CREATE INDEX IF NOT EXISTS idx_expenses_cache_year ON public.expenses_cache(year
 CREATE INDEX IF NOT EXISTS idx_expenses_cache_updated ON public.expenses_cache(updated_at DESC);
 
 ALTER TABLE public.expenses_cache DISABLE ROW LEVEL SECURITY;
+
+-- ── Performance indexes ────────────────────────────────────────────────────────
+-- app_logs: log_monitor faz range scan por created_at a cada 6h
+CREATE INDEX IF NOT EXISTS idx_app_logs_created_at
+    ON public.app_logs (created_at DESC);
+
+-- app_logs: correlação de logs por trace_id entre serviços
+CREATE INDEX IF NOT EXISTS idx_app_logs_trace_id
+    ON public.app_logs (trace_id)
+    WHERE trace_id IS NOT NULL;
+
+-- app_logs: queries por módulo + level + created_at (log_monitor, growth check)
+CREATE INDEX IF NOT EXISTS idx_app_logs_module_level_time
+    ON public.app_logs (module, level, created_at DESC);
+
+-- correction_proposals: join com app_logs por source_log_id
+CREATE INDEX IF NOT EXISTS idx_correction_proposals_source_log
+    ON public.correction_proposals (source_log_id)
+    WHERE source_log_id IS NOT NULL;
+
+-- quality_metrics: queries temporais dos agentes DBA e evolution
+CREATE INDEX IF NOT EXISTS idx_quality_metrics_time
+    ON public.quality_metrics (measured_at DESC);
+
+-- security_alerts: queries temporais do code_security agent
+CREATE INDEX IF NOT EXISTS idx_security_alerts_time
+    ON public.security_alerts (created_at DESC);
+
+-- system_checks: filtro por status para alertas (exclui 'up' que é maioria)
+CREATE INDEX IF NOT EXISTS idx_system_checks_status_time
+    ON public.system_checks (status, checked_at DESC)
+    WHERE status != 'up';

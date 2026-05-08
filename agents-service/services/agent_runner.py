@@ -164,6 +164,7 @@ _PIPELINE_AGENTS: dict[str, list[str]] = {
 
 
 _PIPELINE_TIMEOUT_S = 900  # 15 minutos por pipeline
+_AGENT_TIMEOUT_S = 180     # 3 minutos por agente individual
 _AGENT_MAX_RETRIES = 2
 _AGENT_RETRY_BACKOFF_S = 3
 
@@ -174,17 +175,29 @@ async def _run_agent_with_retry(
     trace_id: str,
     run_agent_by_name,
 ) -> dict:
-    """Executa um agente com até _AGENT_MAX_RETRIES tentativas antes de falhar."""
+    """Executa um agente com até _AGENT_MAX_RETRIES tentativas e timeout por agente."""
     last_exc: Exception | None = None
     for attempt in range(1, _AGENT_MAX_RETRIES + 1):
         try:
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda an=agent_name: run_agent_by_name(
-                    an, extra_state={"current_pipeline": pipeline, "trace_id": trace_id}
+            result = await asyncio.wait_for(
+                asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda an=agent_name: run_agent_by_name(
+                        an, extra_state={"current_pipeline": pipeline, "trace_id": trace_id}
+                    ),
                 ),
+                timeout=_AGENT_TIMEOUT_S,
             )
             return result
+        except asyncio.TimeoutError:
+            last_exc = TimeoutError(f"{agent_name}: timeout após {_AGENT_TIMEOUT_S}s")
+            if attempt < _AGENT_MAX_RETRIES:
+                logger.warning(
+                    "[%s][%s] %s timeout (tentativa %d/%d), retry em %ds",
+                    trace_id, pipeline, agent_name, attempt, _AGENT_MAX_RETRIES,
+                    _AGENT_RETRY_BACKOFF_S,
+                )
+                await asyncio.sleep(_AGENT_RETRY_BACKOFF_S)
         except Exception as exc:
             last_exc = exc
             if attempt < _AGENT_MAX_RETRIES:

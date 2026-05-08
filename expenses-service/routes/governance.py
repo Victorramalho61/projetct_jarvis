@@ -6,6 +6,7 @@ Todos os endpoints aplicam @limiter.limit() escalonado conforme custo da operaç
   - Endpoint de descoberta: 5/minute (query agregada mais pesada)
   - Endpoints Supabase apenas: 20–60/minute
 """
+import asyncio
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -211,9 +212,9 @@ async def get_contract_payments(
         if not c:
             raise HTTPException(status_code=404, detail="Contrato não encontrado.")
         if c.get("fornecedor_benner_handle"):
-            return fetch_contract_payments_by_handle(int(c["fornecedor_benner_handle"]))
+            return await asyncio.to_thread(fetch_contract_payments_by_handle, int(c["fornecedor_benner_handle"]))
         if c.get("benner_documento_match"):
-            return fetch_contract_payments_by_docmatch(c["benner_documento_match"])
+            return await asyncio.to_thread(fetch_contract_payments_by_docmatch, c["benner_documento_match"])
         return []
     except HTTPException:
         raise
@@ -231,7 +232,7 @@ async def get_contract_divergences(
 ):
     """Confronto previsto (contrato) vs realizado (Benner) por mês (SQL Server — pesado)."""
     try:
-        return compute_contract_divergences(contract_id)
+        return await asyncio.to_thread(compute_contract_divergences, contract_id)
     except Exception as exc:
         logger.exception("Erro ao calcular divergências do contrato %s: %s", contract_id, exc)
         raise HTTPException(status_code=500, detail="Erro ao calcular divergências.")

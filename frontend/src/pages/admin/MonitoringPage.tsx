@@ -37,7 +37,7 @@ export default function MonitoringPage() {
 
   useEffect(() => {
     if (autoRefresh) {
-      intervalRef.current = setInterval(() => fetchDashboard(), 30_000);
+      intervalRef.current = setInterval(() => fetchDashboard(), 60_000);
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
     }

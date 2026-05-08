@@ -51,7 +51,7 @@ export default function LogsPage() {
 
   useEffect(() => {
     if (autoRefresh) {
-      intervalRef.current = setInterval(fetchLogs, 5000);
+      intervalRef.current = setInterval(fetchLogs, 30_000);
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
     }

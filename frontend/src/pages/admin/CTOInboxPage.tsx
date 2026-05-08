@@ -166,7 +166,7 @@ export default function CTOInboxPage() {
 
   useEffect(() => {
     load();
-    const interval = setInterval(load, 30_000);
+    const interval = setInterval(load, 60_000);
     return () => clearInterval(interval);
   }, [load]);
 

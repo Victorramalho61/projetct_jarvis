@@ -10,6 +10,7 @@ _scheduler = AsyncIOScheduler(timezone="UTC")
 def start_scheduler() -> None:
     from services.monitor import run_all_checks
     from services.log_monitor import run_log_monitor, run_error_growth_check
+    from services.retention import run_data_retention
 
     _scheduler.add_job(run_all_checks, CronTrigger(minute="*/5"),
                        id="monitoring_checks", replace_existing=True,
@@ -25,8 +26,13 @@ def start_scheduler() -> None:
                        id="error_growth_check", replace_existing=True,
                        max_instances=1, misfire_grace_time=300)
 
+    # Diário às 03h BRT (06h UTC) — remove registros antigos para manter banco leve
+    _scheduler.add_job(run_data_retention, CronTrigger(hour=6, minute=0, timezone="UTC"),
+                       id="data_retention", replace_existing=True,
+                       max_instances=1, misfire_grace_time=600)
+
     _scheduler.start()
-    logger.info("Monitoring scheduler started — checks every 5 min, log monitor daily at 08h BRT, growth check every 6h")
+    logger.info("Monitoring scheduler started — checks every 5 min, log monitor daily at 08h BRT, growth check every 6h, retention daily at 03h BRT")
 
 
 def stop_scheduler() -> None:

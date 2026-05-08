@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Bar,
   BarChart,
@@ -591,10 +591,10 @@ export default function ExpensesPage() {
   const pageRows   = filteredRows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
   const totalPages = Math.ceil(totalRows / PAGE_SIZE)
 
-  const supplierGroups = buildSupplierGroups(filteredRows)
+  const supplierGroups = useMemo(() => buildSupplierGroups(filteredRows), [filteredRows])
 
   // Build monthly chart data: merge by_origem_mensal with yoy
-  const monthlyChartData = (data?.by_origem_mensal ?? []).map((m) => {
+  const monthlyChartData = useMemo(() => (data?.by_origem_mensal ?? []).map((m) => {
     const lyKey = m.mes.replace(String(year), String(year - 1))
     return {
       mes: shortMonth(m.mes),
@@ -604,40 +604,52 @@ export default function ExpensesPage() {
       Total: m.contrato + m.eventual,
       LY: data?.yoy?.[lyKey] ?? null,
     }
-  })
+  }), [data, year])
 
   const showLY = year === 2026 && Object.keys(data?.yoy ?? {}).length > 0
 
   // Donut total
-  const origemTotal = (data?.by_origem ?? []).reduce((s, o) => s + o.valor, 0)
+  const origemTotal = useMemo(
+    () => (data?.by_origem ?? []).reduce((s, o) => s + o.valor, 0),
+    [data]
+  )
 
   // Top 5 fornecedores
-  const topFornecedores = [...(data?.by_fornecedor ?? [])]
-    .sort((a, b) => b.valor - a.valor)
-    .slice(0, 5)
+  const topFornecedores = useMemo(
+    () => [...(data?.by_fornecedor ?? [])].sort((a, b) => b.valor - a.valor).slice(0, 5),
+    [data]
+  )
 
   // Filiais sorted desc
-  const filiaisData = [...(data?.by_filial ?? [])].sort((a, b) => b.valor - a.valor).slice(0, 5)
+  const filiaisData = useMemo(
+    () => [...(data?.by_filial ?? [])].sort((a, b) => b.valor - a.valor).slice(0, 5),
+    [data]
+  )
 
   // DonutOrigem data (after origemTotal)
   const ORIGEM_COLORS_LIST = ['#3b82f6', '#8b5cf6', '#6b7280', '#f97316']
-  const origemData = (data?.by_origem ?? []).map((o) => ({
-    name: o.origem,
-    value: o.valor,
-    pct: origemTotal > 0 ? Math.round((o.valor / origemTotal) * 100) : 0,
-  }))
+  const origemData = useMemo(
+    () => (data?.by_origem ?? []).map((o) => ({
+      name: o.origem,
+      value: o.valor,
+      pct: origemTotal > 0 ? Math.round((o.valor / origemTotal) * 100) : 0,
+    })),
+    [data, origemTotal]
+  )
 
   // FornecedoresRadial data (after topFornecedores)
   const RADIAL_COLORS = ['#3b82f6', '#8b5cf6', '#14b8a6', '#f97316', '#ef4444']
-  const maxForn = topFornecedores[0]?.valor ?? 1
-  const fornecedoresRadialData = topFornecedores.map((f) => ({
-    name: f.pessoa.length > 28 ? f.pessoa.slice(0, 26) + '…' : f.pessoa,
-    value: f.valor,
-    pct: Math.round((f.valor / maxForn) * 100),
-  }))
+  const fornecedoresRadialData = useMemo(() => {
+    const maxForn = topFornecedores[0]?.valor ?? 1
+    return topFornecedores.map((f) => ({
+      name: f.pessoa.length > 28 ? f.pessoa.slice(0, 26) + '…' : f.pessoa,
+      value: f.valor,
+      pct: Math.round((f.valor / maxForn) * 100),
+    }))
+  }, [topFornecedores])
 
   // ForecastChart data — filter to forecast year only, use stacked band
-  const forecastMapped = (forecast?.meses ?? [])
+  const forecastMapped = useMemo(() => (forecast?.meses ?? [])
     .filter((m) => m.mes.startsWith('2026'))
     .map((m) => {
       const minV = m.valor_min ?? null
@@ -649,17 +661,17 @@ export default function ExpensesPage() {
         base: minV,
         band: (minV != null && maxV != null) ? maxV - minV : null,
       }
-    })
+    }), [forecast])
 
   // YoY comparison chart (months that exist in both years)
-  const yoyChartData = (data?.by_origem_mensal ?? []).map((m) => {
+  const yoyChartData = useMemo(() => (data?.by_origem_mensal ?? []).map((m) => {
     const lyKey = m.mes.replace(String(year), String(year - 1))
     return {
       mes: shortMonth(m.mes),
       [String(year)]: m.contrato + m.eventual,
       [String(year - 1)]: data?.yoy?.[lyKey] ?? null,
     }
-  }).filter((d) => d[String(year - 1)] !== null)
+  }).filter((d) => d[String(year - 1)] !== null), [data, year])
 
   // Current month key for reference line
   const currentMonth = new Date().toISOString().slice(0, 7) // "2026-05"
