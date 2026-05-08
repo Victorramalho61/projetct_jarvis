@@ -47,7 +47,7 @@ def run(state: dict) -> dict:
                     risk="low",
                     auto_implementable=False,
                     affected_files=["docker-compose.yml"],
-                    source_findings=[stats],
+                    evidence=f"CPU: {stats.get('cpu_percent', 0):.1f}% | MEM: {mem_pct:.1f}% de {mem_limit_mb}MB",
                 )
                 findings.append({"type": "high_memory_container", "container": c["name"], "mem_pct": mem_pct})
 
