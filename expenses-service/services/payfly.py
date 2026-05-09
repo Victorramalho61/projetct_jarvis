@@ -104,17 +104,18 @@ _COMBINED_FILTER = f"({_PAYFLY_EMPRESA3} OR {_DEV_NAME_MATCH}) AND {_EXCLUSION}"
 
 _BY_SUPPLIER_QUERY = f"""
 SELECT
-    PES.NOME                                                              AS FORNECEDOR,
-    PES.CODIGO                                                            AS COD_FORNECEDOR,
-    SUM(PAR.VALOR)                                                        AS TOTAL,
-    COUNT(*)                                                              AS QTD,
-    MIN(PAR.DATAVENCIMENTO)                                               AS PRIMEIRA_DATA,
-    MAX(PAR.DATAVENCIMENTO)                                               AS ULTIMA_DATA
+    PES.NOME                   AS FORNECEDOR,
+    PES.CODIGO                 AS COD_FORNECEDOR,
+    SUM(PAR.VALOR)             AS TOTAL,
+    COUNT(*)                   AS QTD,
+    MIN(PAR.DATALIQUIDACAO)    AS PRIMEIRA_DATA,
+    MAX(PAR.DATALIQUIDACAO)    AS ULTIMA_DATA
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
 WHERE DOC.ABRANGENCIA <> 'R'
   AND DOC.ENTRADASAIDA IN ('I', 'E')
+  AND PAR.DATALIQUIDACAO IS NOT NULL
   AND {_COMBINED_FILTER}
   {{year_filter}}
 GROUP BY PES.NOME, PES.CODIGO
@@ -123,46 +124,48 @@ ORDER BY TOTAL DESC
 
 _SERIES_QUERY = f"""
 SELECT
-    LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7) AS COMPETENCIA,
-    SUM(PAR.VALOR)                                     AS TOTAL,
-    COUNT(*)                                           AS QTD
+    LEFT(CONVERT(VARCHAR, PAR.DATALIQUIDACAO, 120), 7) AS COMPETENCIA,
+    SUM(PAR.VALOR)                                      AS TOTAL,
+    COUNT(*)                                            AS QTD
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
 WHERE DOC.ABRANGENCIA <> 'R'
   AND DOC.ENTRADASAIDA IN ('I', 'E')
+  AND PAR.DATALIQUIDACAO IS NOT NULL
   AND {_COMBINED_FILTER}
   {{year_filter}}
-GROUP BY LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7)
+GROUP BY LEFT(CONVERT(VARCHAR, PAR.DATALIQUIDACAO, 120), 7)
 ORDER BY COMPETENCIA
 """
 
 _DETAIL_QUERY = f"""
 SELECT
-    PAR.HANDLE                                                               AS AP,
-    PES.NOME                                                                 AS FORNECEDOR,
+    PAR.HANDLE              AS AP,
+    PES.NOME                AS FORNECEDOR,
     DOC.HISTORICO,
     PAR.DATAVENCIMENTO,
     PAR.DATALIQUIDACAO,
     PAR.VALOR,
-    CASE WHEN PAR.DATALIQUIDACAO IS NOT NULL THEN 'pago' ELSE 'pendente' END AS STATUS_PAR,
-    ISNULL(FIL.NOME, '')                                                     AS FILIAL,
-    PAR.EMPRESA                                                              AS EMPRESA
+    'pago'                  AS STATUS_PAR,
+    ISNULL(FIL.NOME, '')    AS FILIAL,
+    PAR.EMPRESA             AS EMPRESA
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
 LEFT  JOIN FILIAIS        FIL WITH (NOLOCK) ON FIL.HANDLE = PAR.FILIAL
 WHERE DOC.ABRANGENCIA <> 'R'
   AND DOC.ENTRADASAIDA IN ('I', 'E')
+  AND PAR.DATALIQUIDACAO IS NOT NULL
   AND {_COMBINED_FILTER}
   {{year_filter}}
-ORDER BY PAR.DATAVENCIMENTO DESC
+ORDER BY PAR.DATALIQUIDACAO DESC
 """
 
 
 def _year_filter(year: int | None) -> str:
     if year:
-        return f"AND YEAR(PAR.DATAVENCIMENTO) = {int(year)}"
+        return f"AND YEAR(PAR.DATALIQUIDACAO) = {int(year)}"
     return ""
 
 
