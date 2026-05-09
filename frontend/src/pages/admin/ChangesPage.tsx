@@ -185,6 +185,8 @@ export default function ChangesPage() {
             {changes.map(c => {
               const sla = slaStatus(c.sla_deadline);
               const ctx = c.context ?? null;
+              const commitSha = typeof ctx?.commit_sha === 'string' ? ctx.commit_sha : null;
+              const ctxFiles = Array.isArray(ctx?.files) ? (ctx.files as string[]) : [];
               return (
                 <div key={c.id} className={`p-4 ${TYPE_STYLE[c.change_type] ?? ""}`}>
                   <div className="flex items-start justify-between gap-4">
@@ -204,8 +206,8 @@ export default function ChangesPage() {
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{c.title}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                         Solicitado por: {c.requested_by} — {fmt(c.created_at)}
-                        {ctx?.commit_sha && (
-                          <span className="ml-2 font-mono text-gray-400">SHA: {ctx.commit_sha.slice(0, 12)}</span>
+                        {commitSha && (
+                          <span className="ml-2 font-mono text-gray-400">SHA: {commitSha.slice(0, 12)}</span>
                         )}
                       </p>
                     </div>
@@ -249,10 +251,10 @@ export default function ChangesPage() {
                           <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2 whitespace-pre-wrap font-mono">{c.rollback_plan}</pre>
                         </div>
                       )}
-                      {ctx && ctx.files?.length > 0 && (
+                      {ctxFiles.length > 0 && (
                         <div>
                           <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Arquivos alterados:</p>
-                          <p className="text-xs text-gray-400 font-mono">{ctx.files.join(", ")}</p>
+                          <p className="text-xs text-gray-400 font-mono">{ctxFiles.join(", ")}</p>
                         </div>
                       )}
                       {c.approved_by && (
