@@ -14,8 +14,8 @@ from db import get_sql_connection
 
 logger = logging.getLogger(__name__)
 
-_investments_cache: TTLCache = TTLCache(maxsize=10, ttl=300)
-_detail_cache: TTLCache = TTLCache(maxsize=5, ttl=300)
+_investments_cache: TTLCache = TTLCache(maxsize=10, ttl=3600)  # 1h — Benner não muda com frequência
+_detail_cache: TTLCache = TTLCache(maxsize=5, ttl=3600)
 
 _PJ_COLLABORATORS = {
     "KARLA SANJULIO",
@@ -63,8 +63,8 @@ _DEV_SUPPLIERS = "UPPER(PES.NOME) LIKE '%HIPERLINK%' OR UPPER(PES.NOME) LIKE '%N
 # Infraestrutura cloud (Amazon/AWS como fornecedor ou no histórico)
 _INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON%' OR UPPER(PES.NOME) LIKE '%AWS%' OR UPPER(DOC.HISTORICO) LIKE '%AWS%'"
 
-# Exclusão de hotéis/hospedagem — não são investimentos em tecnologia
-_HOTEL_EXCLUSION = """NOT (
+# Exclusão de hotéis/hospedagem e lançamentos de relocação (RLOC)
+_EXCLUSION = """NOT (
     UPPER(PES.NOME) LIKE '%HOTEL%'
     OR UPPER(PES.NOME) LIKE '%POUSADA%'
     OR UPPER(PES.NOME) LIKE '%RESORT%'
@@ -74,6 +74,7 @@ _HOTEL_EXCLUSION = """NOT (
     OR UPPER(PES.NOME) LIKE '%HOSPEDAGEM%'
     OR UPPER(PES.NOME) LIKE '%APART HOTEL%'
     OR UPPER(PES.NOME) LIKE '%APARTHOTEL%'
+    OR UPPER(DOC.HISTORICO) LIKE '%RLOC%'
 )"""
 
 _PAYFLY_FILTER = f"""(
@@ -81,7 +82,7 @@ _PAYFLY_FILTER = f"""(
     OR {_DEV_SUPPLIERS}
     OR {_INFRA_SUPPLIERS}
 )
-AND {_HOTEL_EXCLUSION}"""
+AND {_EXCLUSION}"""
 
 
 # ── Queries ────────────────────────────────────────────────────────────────────

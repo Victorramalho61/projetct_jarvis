@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
@@ -13,6 +15,8 @@ current_trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
+_logger = logging.getLogger(__name__)
+
 from db import get_settings
 from limiter import limiter
 from routes.health import router as health_router
@@ -20,7 +24,32 @@ from routes.expenses import router as expenses_router
 from routes.governance import router as governance_router
 from routes.payfly import router as payfly_router
 
-app = FastAPI(title="Jarvis Expenses Service")
+
+async def _warm_payfly_cache() -> None:
+    """Pré-aquece o cache PayFly para os anos mais comuns. Executa em background na startup."""
+    from datetime import datetime
+    from services.payfly import fetch_payfly_investments, fetch_payfly_investments_detail
+    cur_year = datetime.now().year
+    for year in [cur_year, cur_year - 1, None]:
+        try:
+            await asyncio.to_thread(fetch_payfly_investments, year)
+            _logger.info("Cache PayFly investments pré-aquecido: year=%s", year)
+        except Exception as exc:
+            _logger.warning("Warm PayFly investments (year=%s): %s", year, exc)
+        try:
+            await asyncio.to_thread(fetch_payfly_investments_detail, year)
+            _logger.info("Cache PayFly detail pré-aquecido: year=%s", year)
+        except Exception as exc:
+            _logger.warning("Warm PayFly detail (year=%s): %s", year, exc)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    asyncio.create_task(_warm_payfly_cache())
+    yield
+
+
+app = FastAPI(title="Jarvis Expenses Service", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
