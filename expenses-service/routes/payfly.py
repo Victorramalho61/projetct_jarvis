@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from auth import require_role
 from db import get_supabase
 from limiter import limiter
-from services.payfly import fetch_payfly_investments, fetch_payfly_investments_detail
+from services.payfly import fetch_payfly_investments, fetch_payfly_investments_detail, fetch_payfly_comprometimentos
 
 router = APIRouter(prefix="/expenses/payfly", tags=["payfly"])
 logger = logging.getLogger(__name__)
@@ -43,6 +43,20 @@ async def get_investments_detail(
     except Exception as exc:
         logger.exception("Erro ao buscar detalhes PayFly: %s", exc)
         raise HTTPException(status_code=500, detail="Erro ao consultar detalhes PayFly no Benner.")
+
+
+@router.get("/investments/comprometimentos")
+@limiter.limit("10/minute")
+async def get_comprometimentos(
+    request: Request,
+    _: dict = Depends(require_role("admin")),
+):
+    """Parcelas pendentes de contratos PayFly (DATALIQUIDACAO IS NULL)."""
+    try:
+        return await asyncio.to_thread(fetch_payfly_comprometimentos)
+    except Exception as exc:
+        logger.exception("Erro ao buscar comprometimentos PayFly: %s", exc)
+        raise HTTPException(status_code=500, detail="Erro ao consultar comprometimentos PayFly no Benner.")
 
 
 @router.get("/media/posts")

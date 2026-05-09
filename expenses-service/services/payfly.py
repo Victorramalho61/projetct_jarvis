@@ -109,7 +109,10 @@ SELECT
     SUM(PAR.VALOR)             AS TOTAL,
     COUNT(*)                   AS QTD,
     MIN(PAR.DATALIQUIDACAO)    AS PRIMEIRA_DATA,
-    MAX(PAR.DATALIQUIDACAO)    AS ULTIMA_DATA
+    MAX(PAR.DATALIQUIDACAO)    AS ULTIMA_DATA,
+    MAX(CASE WHEN UPPER(DOC.HISTORICO) LIKE '%CONTRATO%'
+             OR   UPPER(DOC.HISTORICO) LIKE '%CSA/%'
+             THEN 1 ELSE 0 END) AS TEM_CONTRATO
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
@@ -120,6 +123,43 @@ WHERE DOC.ABRANGENCIA <> 'R'
   {{year_filter}}
 GROUP BY PES.NOME, PES.CODIGO
 ORDER BY TOTAL DESC
+"""
+
+# Comprometimentos: parcelas pendentes de contratos (DATALIQUIDACAO IS NULL)
+_COMPROMETIMENTOS_QUERY = f"""
+SELECT
+    PES.NOME                          AS FORNECEDOR,
+    SUM(PAR.VALOR)                    AS TOTAL_PENDENTE,
+    COUNT(*)                          AS QTD,
+    MIN(PAR.DATAVENCIMENTO)           AS PROXIMA_VENCIMENTO,
+    MAX(PAR.DATAVENCIMENTO)           AS ULTIMA_VENCIMENTO
+FROM FN_PARCELAS     PAR WITH (NOLOCK)
+INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+WHERE DOC.ABRANGENCIA <> 'R'
+  AND DOC.ENTRADASAIDA IN ('I', 'E')
+  AND PAR.DATALIQUIDACAO IS NULL
+  AND (UPPER(DOC.HISTORICO) LIKE '%CONTRATO%' OR UPPER(DOC.HISTORICO) LIKE '%CSA/%')
+  AND {_COMBINED_FILTER}
+GROUP BY PES.NOME
+ORDER BY TOTAL_PENDENTE DESC
+"""
+
+_COMPROMETIMENTOS_DETAIL_QUERY = f"""
+SELECT
+    PES.NOME              AS FORNECEDOR,
+    PAR.DATAVENCIMENTO,
+    PAR.VALOR,
+    LEFT(DOC.HISTORICO, 120) AS HISTORICO
+FROM FN_PARCELAS     PAR WITH (NOLOCK)
+INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+WHERE DOC.ABRANGENCIA <> 'R'
+  AND DOC.ENTRADASAIDA IN ('I', 'E')
+  AND PAR.DATALIQUIDACAO IS NULL
+  AND (UPPER(DOC.HISTORICO) LIKE '%CONTRATO%' OR UPPER(DOC.HISTORICO) LIKE '%CSA/%')
+  AND {_COMBINED_FILTER}
+ORDER BY PES.NOME, PAR.DATAVENCIMENTO
 """
 
 _SERIES_QUERY = f"""
@@ -189,10 +229,12 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
             nome = r.get("fornecedor") or ""
             nome_upper = nome.upper().strip()
             is_pj = any(nome_upper == c for c in _PJ_COLLABORATORS)
+            tipo = "Contrato" if int(r.get("tem_contrato") or 0) == 1 else "Eventual"
             fornecedores.append({
                 "fornecedor":      nome,
                 "cod_fornecedor":  str(r.get("cod_fornecedor") or ""),
                 "categoria":       _classify_categoria(nome),
+                "tipo":            tipo,
                 "total":           _to_float(r["total"]) or 0.0,
                 "qtd":             int(r["qtd"] or 0),
                 "primeira_data":   _iso_date(r.get("primeira_data")),
@@ -215,9 +257,16 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
         total = sum(f["total"] for f in fornecedores)
 
         categorias: dict[str, float] = {}
+        tipos: dict[str, float] = {}
         for f in fornecedores:
-            cat = f["categoria"]
-            categorias[cat] = categorias.get(cat, 0.0) + f["total"]
+            categorias[f["categoria"]] = categorias.get(f["categoria"], 0.0) + f["total"]
+            tipos[f["tipo"]] = tipos.get(f["tipo"], 0.0) + f["total"]
+
+        total_tipo = sum(tipos.values()) or 1
+        por_tipo = [
+            {"tipo": t, "total": round(v, 2), "pct": round(v / total_tipo * 100, 1)}
+            for t, v in sorted(tipos.items(), key=lambda x: -x[1])
+        ]
 
         result = {
             "fornecedores": fornecedores,
@@ -230,6 +279,7 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
                 {"categoria": cat, "total": round(val, 2)}
                 for cat, val in sorted(categorias.items(), key=lambda x: -x[1])
             ],
+            "por_tipo": por_tipo,
         }
         _investments_cache[cache_key] = result
         return result
@@ -267,5 +317,54 @@ def fetch_payfly_investments_detail(year: int | None = None) -> list[dict]:
             })
         _detail_cache[cache_key] = rows
         return rows
+    finally:
+        conn.close()
+
+
+_comprometimentos_cache: TTLCache = TTLCache(maxsize=5, ttl=3600)
+
+
+def fetch_payfly_comprometimentos() -> list[dict]:
+    """Parcelas pendentes de contratos — agrupadas por fornecedor com detalhes."""
+    if "comprometimentos" in _comprometimentos_cache:
+        return _comprometimentos_cache["comprometimentos"]
+
+    conn = get_sql_connection()
+    try:
+        cur = conn.cursor()
+
+        # Resumo por fornecedor
+        cur.execute(_COMPROMETIMENTOS_QUERY)
+        cols = [d[0].lower() for d in cur.description]
+        resumo: dict[str, dict] = {}
+        for row in cur.fetchall():
+            r = dict(zip(cols, row))
+            nome = r.get("fornecedor") or ""
+            resumo[nome] = {
+                "fornecedor":        nome,
+                "categoria":         _classify_categoria(nome),
+                "total_pendente":    _to_float(r["total_pendente"]) or 0.0,
+                "qtd":               int(r["qtd"] or 0),
+                "proxima_vencimento": _iso_date(r.get("proxima_vencimento")),
+                "ultima_vencimento":  _iso_date(r.get("ultima_vencimento")),
+                "parcelas":          [],
+            }
+
+        # Detalhe por parcela
+        cur.execute(_COMPROMETIMENTOS_DETAIL_QUERY)
+        cols2 = [d[0].lower() for d in cur.description]
+        for row in cur.fetchall():
+            r = dict(zip(cols2, row))
+            nome = r.get("fornecedor") or ""
+            if nome in resumo:
+                resumo[nome]["parcelas"].append({
+                    "datavencimento": _iso_date(r.get("datavencimento")),
+                    "valor":          _to_float(r["valor"]) or 0.0,
+                    "historico":      (r.get("historico") or "")[:120],
+                })
+
+        result = sorted(resumo.values(), key=lambda x: -x["total_pendente"])
+        _comprometimentos_cache["comprometimentos"] = result
+        return result
     finally:
         conn.close()

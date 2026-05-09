@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  Bar, BarChart, CartesianGrid, ResponsiveContainer,
-  Tooltip, XAxis, YAxis,
+  Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
+  ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
@@ -39,6 +39,7 @@ interface PayFlySupplier {
   fornecedor: string
   cod_fornecedor: string
   categoria: string
+  tipo: 'Contrato' | 'Eventual'
   total: number
   qtd: number
   primeira_data: string | null
@@ -57,6 +58,17 @@ interface InvestmentsResponse {
   serie_mensal: PayFlySeries[]
   totais: { total: number; qtd_fornecedores: number }
   por_categoria: { categoria: string; total: number }[]
+  por_tipo: { tipo: string; total: number; pct: number }[]
+}
+
+interface Comprometimento {
+  fornecedor: string
+  categoria: string
+  total_pendente: number
+  qtd: number
+  proxima_vencimento: string | null
+  ultima_vencimento: string | null
+  parcelas: { datavencimento: string | null; valor: number; historico: string }[]
 }
 
 interface PayFlyDetail {
@@ -166,6 +178,16 @@ const CATEGORIA_BADGE: Record<string, string> = {
   'Infraestrutura':  'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 }
 
+const TIPO_BADGE: Record<string, string> = {
+  'Contrato': 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  'Eventual': 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+}
+
+const TIPO_COLORS: Record<string, string> = {
+  'Contrato': '#6366f1',
+  'Eventual': '#e5e7eb',
+}
+
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
 function KpiCard({ label, value, sub, accent }: {
@@ -208,6 +230,8 @@ function InvestimentosTab({ token }: { token: string }) {
   const [year, setYear] = useState<string>('')
   const [data, setData] = useState<InvestmentsResponse | null>(null)
   const [detail, setDetail] = useState<PayFlyDetail[] | null>(null)
+  const [comprometimentos, setComprometimentos] = useState<Comprometimento[]>([])
+  const [expandedComp, setExpandedComp] = useState<string | null>(null)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -216,8 +240,12 @@ function InvestimentosTab({ token }: { token: string }) {
     setLoading(true); setError(null)
     try {
       const q = year ? `?year=${year}` : ''
-      const res = await apiFetch<InvestmentsResponse>(`/api/expenses/payfly/investments${q}`, { token })
+      const [res, comp] = await Promise.all([
+        apiFetch<InvestmentsResponse>(`/api/expenses/payfly/investments${q}`, { token }),
+        apiFetch<Comprometimento[]>('/api/expenses/payfly/investments/comprometimentos', { token }),
+      ])
       setData(res)
+      setComprometimentos(comp)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro ao carregar dados')
     } finally { setLoading(false) }
@@ -314,6 +342,55 @@ function InvestimentosTab({ token }: { token: string }) {
             </div>
           )}
 
+          {/* Donut: Contrato vs Eventual */}
+          {data.por_tipo.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Tipo de Gasto</h3>
+                <div className="flex items-center gap-6">
+                  <ResponsiveContainer width={120} height={120}>
+                    <PieChart>
+                      <Pie data={data.por_tipo} dataKey="total" cx="50%" cy="50%" innerRadius={32} outerRadius={52} paddingAngle={2}>
+                        {data.por_tipo.map(entry => (
+                          <Cell key={entry.tipo} fill={TIPO_COLORS[entry.tipo] ?? '#9ca3af'} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: number) => FMT_BRL(v)} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="space-y-2">
+                    {data.por_tipo.map(t => (
+                      <div key={t.tipo} className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-full shrink-0" style={{ background: TIPO_COLORS[t.tipo] ?? '#9ca3af' }} />
+                        <span className="text-xs text-gray-600 dark:text-gray-400">{t.tipo}</span>
+                        <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 tabular-nums ml-auto">{t.pct}%</span>
+                      </div>
+                    ))}
+                    {data.por_tipo.map(t => (
+                      <div key={`v-${t.tipo}`} className="text-xs text-gray-400 tabular-nums pl-5">{FMT_BRL(t.total)}</div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Comprometimentos por fornecedor */}
+              {comprometimentos.length > 0 && (
+                <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Parcelas Pendentes (Contratos)</h3>
+                  <ResponsiveContainer width="100%" height={120}>
+                    <BarChart data={comprometimentos} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
+                      <XAxis type="number" tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#9ca3af' }} axisLine={false} tickLine={false} />
+                      <YAxis type="category" dataKey="fornecedor" width={110} tick={{ fontSize: 9, fill: isDark ? '#6b7280' : '#9ca3af' }}
+                        tickFormatter={(v: string) => v.split(' ').slice(0, 2).join(' ')} axisLine={false} tickLine={false} />
+                      <Tooltip formatter={(v: number) => FMT_BRL(v)} labelFormatter={(l: string) => l} contentStyle={{ background: isDark ? '#111827' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: 8, fontSize: 11 }} />
+                      <Bar dataKey="total_pendente" fill="#6366f1" radius={[0, 4, 4, 0]} name="Pendente" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Gráfico mensal */}
           {chartData.length > 0 && (
             <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
@@ -377,13 +454,16 @@ function InvestimentosTab({ token }: { token: string }) {
                         }`}
                       >
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-medium text-gray-800 dark:text-gray-200">{f.fornecedor}</span>
                             {f.is_pj_collaborator && (
                               <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400">
                                 Colaborador PJ
                               </span>
                             )}
+                            <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${TIPO_BADGE[f.tipo] ?? 'bg-gray-100 text-gray-600'}`}>
+                              {f.tipo}
+                            </span>
                           </div>
                         </td>
                         <td className="px-4 py-3">
@@ -447,6 +527,58 @@ function InvestimentosTab({ token }: { token: string }) {
               </table>
             </div>
           </div>
+
+          {/* Comprometimentos detalhados */}
+          {comprometimentos.length > 0 && (
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 dark:border-gray-800">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Parcelas Pendentes por Contrato</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Contratos com parcelas ainda não liquidadas no Benner</p>
+              </div>
+              <div className="divide-y divide-gray-100 dark:divide-gray-800">
+                {comprometimentos.map(c => (
+                  <div key={c.fornecedor}>
+                    <div
+                      className="px-5 py-3 flex items-center justify-between gap-4 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                      onClick={() => setExpandedComp(expandedComp === c.fornecedor ? null : c.fornecedor)}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="font-medium text-sm text-gray-800 dark:text-gray-200 truncate">{c.fornecedor}</span>
+                        <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${CATEGORIA_BADGE[c.categoria] ?? 'bg-gray-100 text-gray-600'}`}>{c.categoria}</span>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">{FMT_BRL(c.total_pendente)}</p>
+                          <p className="text-xs text-gray-400">{c.qtd} parcela{c.qtd !== 1 ? 's' : ''} · até {FMT_DATE(c.ultima_vencimento)}</p>
+                        </div>
+                        <span className="text-gray-400 text-xs">{expandedComp === c.fornecedor ? '▲' : '▼'}</span>
+                      </div>
+                    </div>
+                    {expandedComp === c.fornecedor && (
+                      <div className="px-5 pb-3 bg-gray-50 dark:bg-gray-800/30">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-gray-400 uppercase tracking-wide">
+                              <th className="py-1.5 text-left font-medium">Vencimento</th>
+                              <th className="py-1.5 text-right font-medium">Valor</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                            {c.parcelas.map((p, i) => (
+                              <tr key={i} className="text-gray-600 dark:text-gray-400">
+                                <td className="py-1.5">{FMT_DATE(p.datavencimento)}</td>
+                                <td className="py-1.5 text-right font-mono tabular-nums">{FMT_BRL(p.valor)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
