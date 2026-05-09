@@ -50,19 +50,17 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **Endpoints**: `GET /api/expenses/dashboard?year=&filial=&tipo=` · `GET /api/expenses/forecast` · `GET /api/expenses/empresas` · `GET /api/expenses/comparativo?ano1=2025&ano2=2026`
 - **Forecast**: regressão linear + média móvel 3m, pure Python, janela Jul/2025 — gráfico corrigido para exibir corretamente tendência
 - **Detalhamento**: nova aba com análise de despesas eventuais e comparações KPIs ano corrente
-- **Cache**: integração com Supabase para cache de consultas pesadas, reduzindo carga no ERP
-- **Frontend**: `ExpensesPage.tsx` + `components/expenses/`
-
-## Módulo PayFly (monitoring-service)
-
-- **Monitoramento expandido**: cobertura aprimorada para mídia PayFly com novos indicadores e alertas.
-- **Autenticação corrigida**: `PayFlyPage` agora utiliza corretamente o token retornado por `useAuth()`, evitando logout acidental por token vazio.
-- **Tipagem**: subcomponentes do PayFly foram tipados para melhor segurança estática.
-- **Cache**: `TTLCache(ttl=300)` em `payfly.py` para consultas pesadas ao sistema PayFly.
+- **Cache**: integração com Supabase para dashboard e forecast
 
 ## Módulo Moneypenny (moneypenny-service:8004)
 
-- **OAuth Microsoft atualizado**: escopos `Chat.ReadBasic.All` e `Chat.ReadWrite.All` foram adicionados para suporte completo à API do Teams.
-- **Tratamento de erro 403**: agora é capturado e tratado adequadamente ao acessar recursos do Teams.
-- **Callback OAuth melhorado**: fluxo de autenticação aprimorado para maior confiabilidade.
-- **Remoções**: modo webhook do Teams foi descontinuado e removido, assim como a função não utilizada `handleAdminConsent` em `MoneypennyPage`.
+- **Autenticação Microsoft**: escopos atualizados para incluir `Chat.ReadBasic` e `Chat.ReadWrite` para suporte a mensagens em Teams
+- **Tratamento de erro**: resposta a erros 403 durante interações com Teams, com fallback e logging adequado
+- **OAuth callback**: rota de retorno do OAuth ajustada para maior confiabilidade
+- **Remoções**: modo webhook para Teams foi descontinuado e código correspondente removido
+- **Frontend**: componente `MoneypennyPage` teve função `handleAdminConsent` removida (não utilizada)
+
+## Módulo Monitoring (monitoring-service:8002)
+
+- **Monitoramento PayFly**: expandido para incluir métricas adicionais de mídia e qualidade de stream
+- **Grupo Freshservice**: correção na criação/identificação do grupo associado aos incidentes de monitoramento
