@@ -116,8 +116,16 @@ class FreshserviceClient:
     def list_agents(self, page: int = 1) -> list[dict]:
         return self._get("/agents", {"page": page, "per_page": PAGE_SIZE}).get("agents", [])
 
-    def list_groups(self) -> list[dict]:
-        return self._get("/groups", {"per_page": PAGE_SIZE}).get("groups", [])
+    def list_groups(self, workspace_id: int | None = None) -> list[dict]:
+        params: dict = {"per_page": PAGE_SIZE}
+        if workspace_id is not None:
+            params["workspace_id"] = workspace_id
+        try:
+            return self._get("/groups", params).get("groups", [])
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (403, 404):
+                return []
+            raise
 
     def list_companies(self, page: int = 1) -> list[dict]:
         try:
@@ -237,10 +245,15 @@ def _sync_metadata(db, client: FreshserviceClient) -> None:
             break
         page += 1
 
-    groups = client.list_groups()
-    if groups:
-        rows = [{"id": g["id"], "name": g.get("name", "")} for g in groups]
-        db.table("freshservice_groups").upsert(rows).execute()
+    # Sincroniza grupos de todos os workspaces ativos (PayFly e outros)
+    all_group_ids: set[int] = set()
+    for ws_id in [None, *_ACTIVE_WORKSPACE_IDS]:
+        ws_groups = client.list_groups(workspace_id=ws_id)
+        if ws_groups:
+            rows = [{"id": g["id"], "name": g.get("name", "")} for g in ws_groups if g["id"] not in all_group_ids]
+            if rows:
+                db.table("freshservice_groups").upsert(rows).execute()
+                all_group_ids.update(r["id"] for r in rows)
 
     page = 1
     while True:
