@@ -241,7 +241,6 @@ function InvestimentosTab({ token }: { token: string }) {
   const chartData = (data?.serie_mensal ?? []).map(s => ({
     name: s.competencia,
     Total: s.total,
-    Pago: s.total_pago,
   }))
 
   const YEARS = ['2025', '2026', '']
