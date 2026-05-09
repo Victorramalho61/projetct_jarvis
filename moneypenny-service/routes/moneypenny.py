@@ -37,6 +37,8 @@ class PrefsIn(BaseModel):
     active: bool
     channels: dict = {}
     teams_webhook_url: str = ""
+    teams_chat_id: str = ""
+    teams_mode: str = "webhook"
     whatsapp_phone: str = ""
 
 
@@ -137,6 +139,8 @@ def get_prefs(current_user: dict = Depends(get_current_user)):
             "active": True,
             "channels": DEFAULT_CHANNELS,
             "teams_webhook_url": "",
+            "teams_chat_id": "",
+            "teams_mode": "webhook",
             "whatsapp_phone": profile_phone,
         }
     row = result.data[0]
@@ -146,6 +150,8 @@ def get_prefs(current_user: dict = Depends(get_current_user)):
         "active": row.get("active", True),
         "channels": channels,
         "teams_webhook_url": row.get("teams_webhook_url") or "",
+        "teams_chat_id": row.get("teams_chat_id") or "",
+        "teams_mode": row.get("teams_mode") or "webhook",
         "whatsapp_phone": row.get("whatsapp_phone") or profile_phone,
     }
 
@@ -163,6 +169,8 @@ def save_prefs(body: PrefsIn, current_user: dict = Depends(get_current_user)):
             "active": body.active,
             "channels_config": body.channels,
             "teams_webhook_url": body.teams_webhook_url,
+            "teams_chat_id": body.teams_chat_id,
+            "teams_mode": body.teams_mode,
             "whatsapp_phone": body.whatsapp_phone,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         },
@@ -171,6 +179,64 @@ def save_prefs(body: PrefsIn, current_user: dict = Depends(get_current_user)):
     if body.whatsapp_phone:
         db.table("profiles").update({"whatsapp_phone": body.whatsapp_phone}).eq("id", user_id).execute()
     return {"ok": True}
+
+
+@router.get("/auth/microsoft/admin-consent-url")
+def get_admin_consent_url(current_user: dict = Depends(get_current_user)):
+    s = get_settings()
+    state = secrets.token_urlsafe(24)
+    url = (
+        f"https://login.microsoftonline.com/{s.microsoft_tenant_id}/adminconsent"
+        f"?client_id={s.microsoft_client_id}"
+        f"&redirect_uri={s.microsoft_redirect_uri}"
+        f"&state={state}"
+    )
+    return {"url": url}
+
+
+@router.post("/teams/init-chat")
+def init_teams_chat(current_user: dict = Depends(get_current_user)):
+    db = get_supabase()
+    user_id = _resolve_user_id(current_user)
+
+    account_result = (
+        db.table("connected_accounts")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("provider", "microsoft")
+        .execute()
+    )
+    if not account_result.data:
+        raise HTTPException(400, "Conta Microsoft não conectada")
+    account = account_result.data[0]
+
+    try:
+        access_token = get_access_token(account, db)
+        graph = GraphClient(access_token)
+        chat_id = graph.create_or_get_moneypenny_chat()
+    except Exception as exc:
+        msg = str(exc)
+        if "403" in msg or "Forbidden" in msg:
+            raise HTTPException(
+                403,
+                "Permissão Teams insuficiente. Acesse o Azure AD → App registrations → "
+                "API permissions e adicione: Chat.ReadBasic, Chat.ReadWrite, Chat.Create. "
+                "Após isso, reconecte a conta Microsoft no Moneypenny."
+            )
+        raise HTTPException(500, f"Erro ao criar chat Teams: {exc}")
+
+    db.table("notification_prefs").upsert(
+        {
+            "user_id": user_id,
+            "teams_chat_id": chat_id,
+            "teams_mode": "direct",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+        on_conflict="user_id",
+    ).execute()
+
+    log_event("info", "moneypenny", "Chat Teams Moneypenny inicializado", user_id=user_id, detail=f"chat_id: {chat_id}")
+    return {"ok": True, "chat_id": chat_id}
 
 
 async def _send_whatsapp_bg(phone: str, display_name: str, events: list[dict], user_id: str) -> None:
@@ -248,11 +314,19 @@ async def send_test_summary(
                 sent.append("email")
 
             elif ch_name == "teams":
-                webhook_url = prefs.get("teams_webhook_url") or ""
-                if not webhook_url:
-                    raise HTTPException(400, "URL do webhook do Teams não configurada.")
-                from services.summary import send_teams
-                await send_teams(webhook_url, display_name, emails, events)
+                teams_mode = prefs.get("teams_mode") or "webhook"
+                if teams_mode == "direct":
+                    chat_id = prefs.get("teams_chat_id") or ""
+                    if not chat_id:
+                        raise HTTPException(400, "Chat Teams não inicializado. Use 'Inicializar chat' primeiro.")
+                    from services.summary import send_teams_direct
+                    await send_teams_direct(graph, chat_id, display_name, emails, events)
+                else:
+                    webhook_url = prefs.get("teams_webhook_url") or ""
+                    if not webhook_url:
+                        raise HTTPException(400, "URL do webhook do Teams não configurada.")
+                    from services.summary import send_teams
+                    await send_teams(webhook_url, display_name, emails, events)
                 sent.append("teams")
 
             elif ch_name == "whatsapp":

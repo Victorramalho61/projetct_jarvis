@@ -10,6 +10,10 @@ _SCOPES = [
     "Mail.Read",
     "Calendars.Read",
     "Mail.Send",
+    "Chat.ReadBasic",
+    "Chat.ReadWrite",
+    "Chat.Create",
+    "ChatMessage.Send",
 ]
 
 
@@ -79,7 +83,34 @@ class GraphClient:
             return r.json() if r.content else None
 
     def get_me(self) -> dict:
-        return self._get("/me", params={"$select": "displayName,mail,userPrincipalName"})
+        return self._get("/me", params={"$select": "id,displayName,mail,userPrincipalName"})
+
+    def create_or_get_moneypenny_chat(self) -> str:
+        me = self.get_me()
+        my_id = me.get("id", "")
+        if not my_id:
+            raise ValueError("Não foi possível obter o ID do usuário Microsoft")
+
+        data = self._get("/me/chats", params={"$filter": "topic eq 'Moneypenny'", "$select": "id,topic"})
+        for chat in data.get("value", []):
+            if chat.get("topic") == "Moneypenny":
+                return chat["id"]
+
+        result = self._post("/chats", {
+            "chatType": "group",
+            "topic": "Moneypenny",
+            "members": [
+                {
+                    "@odata.type": "#microsoft.graph.aadUserConversationMember",
+                    "roles": ["owner"],
+                    "user@odata.bind": f"https://graph.microsoft.com/v1.0/users('{my_id}')",
+                }
+            ],
+        })
+        return result["id"]
+
+    def send_teams_chat_message(self, chat_id: str, content: str) -> None:
+        self._post(f"/chats/{chat_id}/messages", {"body": {"contentType": "html", "content": content}})
 
     _NOREPLY_PATTERNS = (
         "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",
