@@ -92,37 +92,6 @@ async def run_error_growth_check() -> None:
         else:
             logger.error("Growth check: falha ao criar issue — %s", resp.text)
 
-    if s.whatsapp_api_url:
-        lines = "\n".join(
-            f"• [{m}] {c_prev}→{c_now} erros (+{g:.0%})" for m, c_prev, c_now, g in growing
-        )
-        text = (
-            f"⚠️ *JARVIS — Crescimento acelerado de erros*\n\n"
-            f"{lines}\n\n"
-            f"Verifique o GitHub para detalhes."
-        )
-        db2 = get_supabase()
-        admins = (
-            db2.table("profiles")
-            .select("whatsapp_phone")
-            .eq("role", "admin")
-            .eq("active", True)
-            .neq("whatsapp_phone", "")
-            .execute()
-        )
-        async with httpx.AsyncClient(timeout=10) as client:
-            for admin in (admins.data or []):
-                phone = admin.get("whatsapp_phone")
-                if not phone:
-                    continue
-                try:
-                    await client.post(
-                        f"{s.whatsapp_api_url}/message/sendText/{s.whatsapp_instance}",
-                        headers={"apikey": s.whatsapp_api_key},
-                        json={"number": phone, "text": text},
-                    )
-                except Exception as exc:
-                    logger.warning("Growth check: falha ao enviar WhatsApp para %s: %s", phone, exc)
 
 
 async def run_log_monitor() -> None:
@@ -163,8 +132,6 @@ async def run_log_monitor() -> None:
     await _create_or_update_github_issue(s.github_token, recurring, logs)
 
     critical = [(m, msg, c) for m, msg, c in recurring if c >= _CRITICAL_THRESHOLD]
-    if critical and s.whatsapp_api_url:
-        await _send_whatsapp_alert(s, critical)
 
 
 async def _create_or_update_github_issue(

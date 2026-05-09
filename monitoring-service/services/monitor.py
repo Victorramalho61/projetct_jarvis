@@ -219,8 +219,6 @@ async def run_check(system: dict, checked_by: str = "scheduler") -> dict:
         ).eq("id", system["id"]).execute()
         if new_count >= 2:
             log_event("error", "monitoring", f"Sistema DOWN: {system['name']}", detail=result.detail)
-        if new_count == 3:
-            asyncio.create_task(_alert_system_down(system["name"], new_count, result.detail))
 
     elif result.status == "degraded":
         log_event("warning", "monitoring", f"Sistema DEGRADADO: {system['name']}", detail=result.detail)
