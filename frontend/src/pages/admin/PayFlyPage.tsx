@@ -38,6 +38,7 @@ type PayFlyTab = 'investimentos' | 'monitoramento' | 'governanca' | 'midia' | 'c
 interface PayFlySupplier {
   fornecedor: string
   cod_fornecedor: string
+  categoria: string
   total: number
   total_pago: number
   total_pendente: number
@@ -59,11 +60,13 @@ interface InvestmentsResponse {
   fornecedores: PayFlySupplier[]
   serie_mensal: PayFlySeries[]
   totais: { total: number; total_pago: number; total_pendente: number; qtd_fornecedores: number }
+  por_categoria: { categoria: string; total: number }[]
 }
 
 interface PayFlyDetail {
   ap: number | null
   fornecedor: string
+  categoria: string
   historico: string
   datavencimento: string | null
   dataliquidacao: string | null
@@ -158,6 +161,12 @@ const SENTIMENT_BADGE: Record<string, string> = {
   positivo: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
   negativo: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
   neutro:   'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+}
+
+const CATEGORIA_BADGE: Record<string, string> = {
+  'PayFly':        'bg-brand-soft text-brand-deep dark:bg-brand-green/10 dark:text-brand-mid',
+  'Desenvolvimento': 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+  'Infraestrutura':  'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -295,6 +304,27 @@ function InvestimentosTab({ token }: { token: string }) {
             <KpiCard label="Fornecedores" value={String(data.totais.qtd_fornecedores)} sub="com gastos PayFly" />
           </div>
 
+          {/* Breakdown por categoria */}
+          {data.por_categoria.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {data.por_categoria.map(c => (
+                <div
+                  key={c.categoria}
+                  className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 flex items-center justify-between gap-3"
+                >
+                  <div>
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${CATEGORIA_BADGE[c.categoria] ?? 'bg-gray-100 text-gray-600'}`}>
+                      {c.categoria}
+                    </span>
+                  </div>
+                  <p className="text-base font-bold text-gray-800 dark:text-gray-100 tabular-nums">
+                    {FMT_BRL(c.total)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Gráfico mensal */}
           {chartData.length > 0 && (
             <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
@@ -346,6 +376,7 @@ function InvestimentosTab({ token }: { token: string }) {
                 <thead>
                   <tr className="bg-gray-50 dark:bg-gray-800/50 text-xs text-gray-500 uppercase tracking-wide">
                     <th className="px-4 py-3 text-left font-medium">Fornecedor</th>
+                    <th className="px-4 py-3 text-left font-medium">Categoria</th>
                     <th className="px-4 py-3 text-right font-medium">Total</th>
                     <th className="px-4 py-3 text-right font-medium">Pago</th>
                     <th className="px-4 py-3 text-right font-medium">Pendente</th>
@@ -373,6 +404,11 @@ function InvestimentosTab({ token }: { token: string }) {
                             )}
                           </div>
                         </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${CATEGORIA_BADGE[f.categoria] ?? 'bg-gray-100 text-gray-600'}`}>
+                            {f.categoria}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
                           {FMT_BRL(f.total)}
                         </td>
@@ -391,7 +427,7 @@ function InvestimentosTab({ token }: { token: string }) {
                       </tr>
                       {selectedSupplier === f.fornecedor && (
                         <tr key={`${f.fornecedor}-detail`}>
-                          <td colSpan={6} className="p-0">
+                          <td colSpan={7} className="p-0">
                             <div className="bg-gray-50 dark:bg-gray-800/30 border-t border-gray-100 dark:border-gray-700 px-6 py-3">
                               {detailForSupplier.length === 0 ? (
                                 <p className="text-xs text-gray-400 py-2">Carregando documentos…</p>
