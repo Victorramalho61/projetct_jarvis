@@ -59,6 +59,8 @@ _AGENT_REGISTRY: dict[str, str] = {
     "evolution_agent":        "graph_engine.agents.evolution_agent",
     # PayFly
     "payfly_media_monitor":   "graph_engine.agents.payfly_media_monitor",
+    # Proposal analysis — triagem determinística de proposals pendentes
+    "proposal_analysis_agent": "graph_engine.agents.proposal_analysis_agent",
 }
 
 
@@ -75,7 +77,7 @@ def _load_agent_run_fn(module_path: str) -> Callable:
 _NO_LLM_ENHANCE = {
     "cto", "evolution_agent", "db_dba_agent", "log_scanner", "log_improver",
     "log_intelligence", "log_strategic_advisor", "proposal_supervisor",
-    "agent_health_supervisor",
+    "agent_health_supervisor", "proposal_analysis_agent",
 }
 
 

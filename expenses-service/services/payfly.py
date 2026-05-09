@@ -63,11 +63,25 @@ _DEV_SUPPLIERS = "UPPER(PES.NOME) LIKE '%HIPERLINK%' OR UPPER(PES.NOME) LIKE '%N
 # Infraestrutura cloud (Amazon/AWS como fornecedor ou no histórico)
 _INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON%' OR UPPER(PES.NOME) LIKE '%AWS%' OR UPPER(DOC.HISTORICO) LIKE '%AWS%'"
 
+# Exclusão de hotéis/hospedagem — não são investimentos em tecnologia
+_HOTEL_EXCLUSION = """NOT (
+    UPPER(PES.NOME) LIKE '%HOTEL%'
+    OR UPPER(PES.NOME) LIKE '%POUSADA%'
+    OR UPPER(PES.NOME) LIKE '%RESORT%'
+    OR UPPER(PES.NOME) LIKE '%HOSTEL%'
+    OR UPPER(PES.NOME) LIKE '% INN%'
+    OR UPPER(PES.NOME) LIKE '%SUITES%'
+    OR UPPER(PES.NOME) LIKE '%HOSPEDAGEM%'
+    OR UPPER(PES.NOME) LIKE '%APART HOTEL%'
+    OR UPPER(PES.NOME) LIKE '%APARTHOTEL%'
+)"""
+
 _PAYFLY_FILTER = f"""(
     UPPER(DOC.HISTORICO) LIKE '%PAYFLY%'
     OR {_DEV_SUPPLIERS}
     OR {_INFRA_SUPPLIERS}
-)"""
+)
+AND {_HOTEL_EXCLUSION}"""
 
 
 # ── Queries ────────────────────────────────────────────────────────────────────

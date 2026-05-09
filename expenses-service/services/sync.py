@@ -84,6 +84,9 @@ def get_last_updated() -> str | None:
 
 def get_cached_dashboard(year: int) -> dict | None:
     """Lê dashboard do cache Supabase. Retorna None se não encontrar ou cache inválido."""
+    year = int(year)
+    if not (2000 <= year <= 2100):
+        raise ValueError(f"year fora do intervalo válido: {year}")
     try:
         res = (
             get_supabase()
@@ -105,6 +108,9 @@ def get_cached_dashboard(year: int) -> dict | None:
 
 def get_cached_forecast(year: int) -> dict | None:
     """Lê forecast do cache Supabase. Retorna None se não encontrar."""
+    year = int(year)
+    if not (2000 <= year <= 2100):
+        raise ValueError(f"year fora do intervalo válido: {year}")
     try:
         res = (
             get_supabase()

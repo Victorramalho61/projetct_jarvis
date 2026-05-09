@@ -278,6 +278,26 @@ def run(state: dict) -> dict:
                     logger.error("db_dba_agent: falha ao executar SQL auto: %s", exc)
                     p["auto_applicable"] = False
 
+        problem_key = p.get("problem", "Melhoria de banco")[:50]
+        title = f"DBA: {problem_key}"
+
+        # Deduplicação: não criar proposal se já existe uma pendente com título similar
+        try:
+            existing = (
+                db.table("improvement_proposals")
+                .select("id")
+                .eq("source_agent", "db_dba_agent")
+                .in_("validation_status", ["pending", "pending_cto"])
+                .ilike("title", f"%{problem_key[:30]}%")
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                decisions.append(f"Proposal DBA já existe (skip): {title[:60]}")
+                continue
+        except Exception as exc:
+            logger.warning("db_dba_agent: erro ao verificar duplicata: %s", exc)
+
         try:
             insert_improvement_proposal(
                 source_agent="db_dba_agent",

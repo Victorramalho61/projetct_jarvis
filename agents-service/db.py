@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     postgres_direct_url: str = ""
     # Intervalos dos pipelines LangGraph (em minutos/horas)
     monitoring_interval_minutes: int = 15
-    security_interval_minutes: int = 30
+    security_interval_minutes: int = 60
     cicd_interval_minutes: int = 5
     dba_interval_hours: int = 4
     governance_cron_hour: int = 6

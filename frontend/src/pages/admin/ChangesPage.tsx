@@ -184,7 +184,7 @@ export default function ChangesPage() {
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {changes.map(c => {
               const sla = slaStatus(c.sla_deadline);
-              const ctx = (c as any).context as Record<string, any> | null;
+              const ctx = c.context ?? null;
               return (
                 <div key={c.id} className={`p-4 ${TYPE_STYLE[c.change_type] ?? ""}`}>
                   <div className="flex items-start justify-between gap-4">
@@ -243,10 +243,10 @@ export default function ChangesPage() {
                           <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2 whitespace-pre-wrap font-sans">{c.description}</pre>
                         </div>
                       )}
-                      {(c as any).rollback_plan && (
+                      {c.rollback_plan && (
                         <div>
                           <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Plano de rollback:</p>
-                          <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2 whitespace-pre-wrap font-mono">{(c as any).rollback_plan}</pre>
+                          <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2 whitespace-pre-wrap font-mono">{c.rollback_plan}</pre>
                         </div>
                       )}
                       {ctx && ctx.files?.length > 0 && (

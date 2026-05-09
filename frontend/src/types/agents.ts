@@ -70,7 +70,8 @@ export interface ChangeRequest {
   sla_deadline?: string;
   approved_by?: string;
   rejection_reason?: string;
-  context?: Record<string, unknown>;
+  context?: Record<string, unknown> | null;
+  rollback_plan?: string | null;
   created_at: string;
   updated_at: string;
 }
