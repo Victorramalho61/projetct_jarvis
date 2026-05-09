@@ -169,15 +169,6 @@ export default function MoneypennyPage() {
     }
   }
 
-  async function handleAdminConsent() {
-    try {
-      const data = await apiFetch<{ url: string }>("/api/moneypenny/auth/microsoft/admin-consent-url", { token });
-      window.open(data.url, "_blank");
-    } catch (e) {
-      showToast(e instanceof ApiError ? e.message : "Erro ao obter URL de consentimento.");
-    }
-  }
-
   function toggleChannel(ch: keyof Prefs["channels"]) {
     setPrefs((p) => ({
       ...p,
