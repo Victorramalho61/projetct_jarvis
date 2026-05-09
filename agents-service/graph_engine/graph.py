@@ -57,6 +57,8 @@ _AGENT_REGISTRY: dict[str, str] = {
     "quality_code_frontend":  "graph_engine.agents.quality_code_frontend",
     "opportunity_scout":      "graph_engine.agents.opportunity_scout",
     "evolution_agent":        "graph_engine.agents.evolution_agent",
+    # PayFly
+    "payfly_media_monitor":   "graph_engine.agents.payfly_media_monitor",
 }
 
 

@@ -33,6 +33,14 @@ class RejectIn(BaseModel):
     reason: str
 
 
+class ChangeCreateIn(BaseModel):
+    title: str
+    description: str = ""
+    change_type: str = "normal"
+    priority: str = "medium"
+    rollback_plan: str | None = None
+
+
 class MarkFailedIn(BaseModel):
     error: str
 
@@ -707,6 +715,44 @@ async def list_changes(
         if status:
             q = q.eq("status", status)
         return {"changes": q.execute().data}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/agents/changes")
+async def create_change(
+    body: ChangeCreateIn,
+    _user: dict = Depends(require_role("admin")),
+):
+    from datetime import timedelta
+    from graph_engine.tools.supabase_tools import insert_change_request
+    sla_hours = {"emergency": 4, "standard": 72}.get(body.change_type, 48)
+    sla_deadline = (datetime.now(timezone.utc) + timedelta(hours=sla_hours)).isoformat()
+    try:
+        cr = insert_change_request(
+            title=body.title,
+            description=body.description,
+            change_type=body.change_type,
+            priority=body.priority,
+            requested_by=_user.get("email") or _user.get("id", "admin"),
+            rollback_plan=body.rollback_plan,
+            sla_deadline=sla_deadline,
+        )
+        return {"ok": True, "change": cr}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/agents/changes/sync-commits")
+async def sync_changes_from_commits(_user: dict = Depends(require_role("admin"))):
+    """Força criação de RFCs para commits recentes que ainda não têm uma RFC."""
+    from datetime import datetime, timezone
+    from graph_engine.agents.change_mgmt import _auto_create_from_commits
+    now = datetime.now(timezone.utc)
+    decisions: list = []
+    try:
+        created = _auto_create_from_commits(now, decisions)
+        return {"ok": True, "rfcs_created": created, "decisions": decisions}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

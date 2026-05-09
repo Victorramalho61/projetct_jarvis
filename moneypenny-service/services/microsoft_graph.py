@@ -86,12 +86,13 @@ class GraphClient:
         return self._get("/me", params={"$select": "id,displayName,mail,userPrincipalName"})
 
     def create_or_get_moneypenny_chat(self) -> str:
+        """Retorna o chat_id do grupo 'Moneypenny'. Cria se não existir."""
         me = self.get_me()
         my_id = me.get("id", "")
         if not my_id:
             raise ValueError("Não foi possível obter o ID do usuário Microsoft")
 
-        data = self._get("/me/chats", params={"$filter": "topic eq 'Moneypenny'", "$select": "id,topic"})
+        data = self._get("/me/chats", params={"$select": "id,topic,chatType"})
         for chat in data.get("value", []):
             if chat.get("topic") == "Moneypenny":
                 return chat["id"]
@@ -109,8 +110,14 @@ class GraphClient:
         })
         return result["id"]
 
-    def send_teams_chat_message(self, chat_id: str, content: str) -> None:
-        self._post(f"/chats/{chat_id}/messages", {"body": {"contentType": "html", "content": content}})
+    async def send_teams_chat_message_async(self, chat_id: str, content: str) -> None:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.post(
+                f"{self.BASE}/chats/{chat_id}/messages",
+                headers=self._headers,
+                json={"body": {"contentType": "html", "content": content}},
+            )
+            r.raise_for_status()
 
     _NOREPLY_PATTERNS = (
         "noreply", "no-reply", "no_reply", "donotreply", "do-not-reply",

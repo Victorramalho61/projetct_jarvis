@@ -367,6 +367,51 @@ async def send_teams(webhook_url: str, display_name: str, emails: list[dict], ev
         resp.raise_for_status()
 
 
+def _build_teams_chat_html(display_name: str, emails: list[dict], events: list[dict]) -> str:
+    brt_now = datetime.now(_BRT)
+    today = brt_now.strftime("%d/%m/%Y")
+    eng_day = brt_now.strftime("%A")
+    weekday = _DAYS_PT.get(eng_day, eng_day)
+
+    html = f"<strong>☀️ Bom dia, {_esc(display_name)}!</strong> &nbsp;·&nbsp; {weekday}, {today}<br><br>"
+
+    html += "<strong>📅 Agenda de hoje</strong><ul>"
+    if events:
+        for e in events[:15]:
+            if e.get("isAllDay"):
+                time_str = "Dia todo"
+            else:
+                ts = _format_time(e.get("start", {}).get("dateTime", ""))
+                te = _format_time(e.get("end", {}).get("dateTime", ""))
+                time_str = f"{ts}&nbsp;–&nbsp;{te}"
+            subject = _esc(e.get("subject") or "(sem título)")
+            html += f"<li>{time_str} — {subject}</li>"
+    else:
+        html += "<li><em>Sem compromissos hoje.</em></li>"
+    html += "</ul>"
+
+    html += "<br><strong>📬 E-mails não lidos (ontem)</strong><ul>"
+    if emails:
+        for m in emails[:10]:
+            from_obj = (m.get("from") or {}).get("emailAddress") or {}
+            sender = _esc(from_obj.get("name") or from_obj.get("address", "?"))
+            subject = _esc(m.get("subject") or "(sem assunto)")
+            html += f"<li><strong>{sender}</strong> — {subject}</li>"
+        if len(emails) > 10:
+            html += f"<li><em>…e mais {len(emails) - 10} e-mail(s)</em></li>"
+    else:
+        html += "<li><em>Nenhum e-mail não lido.</em></li>"
+    html += "</ul>"
+
+    html += "<br><em>Moneypenny by Voetur Jarvis</em>"
+    return html
+
+
+async def send_teams_direct(graph: GraphClient, chat_id: str, display_name: str, emails: list[dict], events: list[dict]) -> None:
+    html = _build_teams_chat_html(display_name, emails, events)
+    await graph.send_teams_chat_message_async(chat_id, html)
+
+
 async def send_whatsapp(phone: str, display_name: str, emails: list[dict], events: list[dict]) -> None:
     s = get_settings()
     if not s.whatsapp_api_url or not s.whatsapp_instance:
@@ -393,7 +438,7 @@ async def run_daily_summaries() -> None:
 
     prefs_result = (
         db.table("notification_prefs")
-        .select("user_id,channels_config,teams_webhook_url,whatsapp_phone")
+        .select("user_id,channels_config,teams_webhook_url,teams_chat_id,teams_mode,whatsapp_phone")
         .eq("active", True)
         .eq("send_hour_utc", current_hour_utc)
         .execute()
@@ -464,11 +509,19 @@ async def run_daily_summaries() -> None:
                     )
 
                 elif ch_name == "teams":
-                    webhook_url = pref.get("teams_webhook_url") or ""
-                    if not webhook_url:
-                        logger.warning("Teams webhook não configurado para user %s", user_id)
-                        continue
-                    await send_teams(webhook_url, profile["display_name"], emails_out, events_out)
+                    teams_mode = pref.get("teams_mode") or "webhook"
+                    if teams_mode == "direct":
+                        chat_id = pref.get("teams_chat_id") or ""
+                        if not chat_id:
+                            logger.warning("Chat Teams direto não inicializado para user %s", user_id)
+                            continue
+                        await send_teams_direct(graph, chat_id, profile["display_name"], emails_out, events_out)
+                    else:
+                        webhook_url = pref.get("teams_webhook_url") or ""
+                        if not webhook_url:
+                            logger.warning("Teams webhook não configurado para user %s", user_id)
+                            continue
+                        await send_teams(webhook_url, profile["display_name"], emails_out, events_out)
 
                 elif ch_name == "whatsapp":
                     phone = pref.get("whatsapp_phone") or ""

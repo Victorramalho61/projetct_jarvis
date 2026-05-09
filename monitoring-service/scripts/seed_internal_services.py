@@ -81,7 +81,6 @@ def seed():
         db.table("monitored_systems").insert({
             **svc,
             "consecutive_down_count": 0,
-            "created_by": "seed_script",
         }).execute()
         print(f"[ok]   {svc['name']} registrado")
         inserted += 1

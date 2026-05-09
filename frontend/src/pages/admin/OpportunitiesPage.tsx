@@ -52,8 +52,8 @@ export default function OpportunitiesPage() {
       );
       setOpportunities(data.opportunities || []);
       setGeneratedAt(data.generated_at ?? null);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }

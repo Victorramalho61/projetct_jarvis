@@ -17,7 +17,8 @@ type Prefs = {
     teams: ChannelConfig;
     whatsapp: ChannelConfig;
   };
-  teams_webhook_url: string;
+  teams_chat_id: string;
+  teams_mode: "direct";
   whatsapp_phone: string;
 };
 
@@ -29,7 +30,8 @@ const DEFAULT_PREFS: Prefs = {
     teams:    { enabled: false, content: ["emails", "calendar"] },
     whatsapp: { enabled: false, content: ["calendar"] },
   },
-  teams_webhook_url: "",
+  teams_chat_id: "",
+  teams_mode: "direct",
   whatsapp_phone: "",
 };
 
@@ -57,6 +59,7 @@ export default function MoneypennyPage() {
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [initingChat, setInitingChat] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -105,7 +108,11 @@ export default function MoneypennyPage() {
   async function handleSavePrefs() {
     setSaving(true);
     try {
-      await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: prefs });
+      await apiFetch("/api/moneypenny/prefs", {
+        method: "PUT",
+        token,
+        json: { ...prefs, teams_mode: "direct", teams_webhook_url: "" },
+      });
       showToast("Preferências salvas.");
     } catch (e) {
       showToast(e instanceof ApiError ? e.message : "Erro ao salvar.");
@@ -118,7 +125,7 @@ export default function MoneypennyPage() {
     const newActive = !prefs.active;
     setToggling(true);
     try {
-      await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: { ...prefs, active: newActive } });
+      await apiFetch("/api/moneypenny/prefs", { method: "PUT", token, json: { ...prefs, active: newActive, teams_mode: "direct", teams_webhook_url: "" } });
       setPrefs((p) => ({ ...p, active: newActive }));
       showToast(newActive ? "Agendamento ativado." : "Agendamento desativado.");
     } catch (e) {
@@ -144,6 +151,30 @@ export default function MoneypennyPage() {
       showToast(e instanceof ApiError ? e.message : "Falha ao enviar.");
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function handleInitChat() {
+    setInitingChat(true);
+    try {
+      const result = await apiFetch<{ ok: boolean; chat_id: string }>(
+        "/api/moneypenny/teams/init-chat", { method: "POST", token }
+      );
+      setPrefs((p) => ({ ...p, teams_chat_id: result.chat_id, teams_mode: "direct" }));
+      showToast("Chat Teams Moneypenny inicializado!");
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Erro ao inicializar chat.");
+    } finally {
+      setInitingChat(false);
+    }
+  }
+
+  async function handleAdminConsent() {
+    try {
+      const data = await apiFetch<{ url: string }>("/api/moneypenny/auth/microsoft/admin-consent-url", { token });
+      window.open(data.url, "_blank");
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Erro ao obter URL de consentimento.");
     }
   }
 
@@ -237,15 +268,20 @@ export default function MoneypennyPage() {
             onToggle={() => toggleChannel("teams")}
           >
             {prefs.channels.teams?.enabled && (
-              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400">URL do Webhook</label>
-                <input
-                  type="url"
-                  value={prefs.teams_webhook_url}
-                  onChange={(e) => setPrefs((p) => ({ ...p, teams_webhook_url: e.target.value }))}
-                  className="mt-1 block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
-                  placeholder="https://..."
-                />
+              <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className={`text-xs ${prefs.teams_chat_id ? "text-green-600 dark:text-green-400" : "text-gray-500 dark:text-gray-400"}`}>
+                    {prefs.teams_chat_id ? "✓ Chat inicializado" : "Chat ainda não inicializado"}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleInitChat}
+                    disabled={initingChat || !account?.connected}
+                    className="rounded-lg bg-voetur-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-voetur-700 disabled:opacity-50 transition-colors"
+                  >
+                    {initingChat ? "Inicializando..." : prefs.teams_chat_id ? "Reinicializar" : "Inicializar chat"}
+                  </button>
+                </div>
               </div>
             )}
           </ChannelCard>

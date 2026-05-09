@@ -23,6 +23,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "agents",   label: "Agentes",   path: "/admin/agentes", icon: "cpu",    roles: ["admin"] },
   { id: "expenses",   label: "Gastos TI",   path: "/admin/gastos",      icon: "wallet", roles: ["admin"] },
   { id: "governance", label: "Governança",  path: "/admin/governanca",  icon: "shield", roles: ["admin"] },
+  { id: "payfly",     label: "PayFly",      path: "/admin/payfly",      icon: "zap",    roles: ["admin"] },
 ];
 
 export default function AppLayout() {
@@ -290,8 +291,7 @@ const filteredNav = visible.filter((i) =>
                         key={n.id}
                         className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
                         onClick={() => {
-                          if (n.type === "pending_user") navigate("/admin/acesso");
-                          else navigate("/admin/monitoramento");
+                          navigate(n.link ?? "/admin/monitoramento");
                           setNotifOpen(false);
                         }}
                       >
@@ -306,13 +306,27 @@ const filteredNav = visible.filter((i) =>
                 )}
               </div>
               {notifications.length > 0 && (
-                <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-2.5">
-                  <button
-                    onClick={() => { navigate("/admin/monitoramento"); setNotifOpen(false); }}
-                    className="text-xs text-brand-green hover:underline"
-                  >
-                    Ver monitoramento →
-                  </button>
+                <div className="border-t border-gray-100 dark:border-gray-800 px-4 py-2.5 flex flex-wrap gap-x-4 gap-y-1">
+                  {notifications.some((n) => n.type === "down" || n.type === "degraded") && (
+                    <button onClick={() => { navigate("/admin/monitoramento"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
+                      Ver monitoramento →
+                    </button>
+                  )}
+                  {notifications.some((n) => n.type === "agent_proposal") && (
+                    <button onClick={() => { navigate("/admin/proposals"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
+                      Ver proposals →
+                    </button>
+                  )}
+                  {notifications.some((n) => n.type === "cto_message") && (
+                    <button onClick={() => { navigate("/admin/cto-inbox"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
+                      Ver inbox CTO →
+                    </button>
+                  )}
+                  {notifications.some((n) => n.type === "pending_user") && (
+                    <button onClick={() => { navigate("/admin/acesso"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
+                      Ver acessos →
+                    </button>
+                  )}
                 </div>
               )}
             </div>

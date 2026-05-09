@@ -17,6 +17,11 @@ const STATUS_STYLE: Record<string, string> = {
   cancelled:   "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  pending: "Pendente", approved: "Aprovada", rejected: "Rejeitada",
+  implemented: "Implementada", cancelled: "Cancelada",
+};
+
 function fmt(iso?: string) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
@@ -32,15 +37,21 @@ function slaStatus(deadline?: string): { label: string; style: string } {
   return { label: fmt(deadline), style: "text-gray-400" };
 }
 
+const BLANK_FORM = { title: "", description: "", change_type: "normal", priority: "medium", rollback_plan: "" };
+
 export default function ChangesPage() {
   const { token } = useAuth();
   const [changes, setChanges] = useState<ChangeRequest[]>([]);
-  const [statusFilter, setStatusFilter] = useState("pending");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [rejectModal, setRejectModal] = useState<{ id: string } | null>(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [newModal, setNewModal] = useState(false);
+  const [form, setForm] = useState(BLANK_FORM);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -80,19 +91,43 @@ export default function ChangesPage() {
     } catch (e: any) { setError(e.message); }
   };
 
+  const syncCommits = async () => {
+    if (!token) return;
+    setSyncing(true);
+    setError("");
+    try {
+      const res = await apiFetch<{ rfcs_created: number }>("/api/agents/changes/sync-commits", { token, method: "POST", json: {} });
+      await load();
+      if (res.rfcs_created === 0) setError("Nenhum commit novo encontrado (todos já têm RFC ou GitHub não configurado).");
+    } catch (e: any) { setError(e.message); }
+    finally { setSyncing(false); }
+  };
+
+  const createManual = async () => {
+    if (!token || !form.title.trim()) return;
+    setSaving(true);
+    try {
+      await apiFetch("/api/agents/changes", { token, method: "POST", json: form });
+      setNewModal(false);
+      setForm(BLANK_FORM);
+      await load();
+    } catch (e: any) { setError(e.message); }
+    finally { setSaving(false); }
+  };
+
   const typeLabel: Record<string, string> = { emergency: "Emergência", normal: "Normal", standard: "Padrão" };
   const priorityLabel: Record<string, string> = { critical: "Crítica", high: "Alta", medium: "Média", low: "Baixa" };
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Gestão de Mudanças</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Change Requests ITIL — aprovação e acompanhamento de SLA
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-2 text-xs text-gray-500">
             <span className="px-2 py-0.5 rounded border-l-4 border-red-500 bg-red-50 dark:bg-red-900/20">Emergência</span>
             <span className="px-2 py-0.5 rounded border-l-4 border-blue-500 bg-blue-50 dark:bg-blue-900/20">Normal</span>
@@ -103,14 +138,27 @@ export default function ChangesPage() {
             onChange={e => setStatusFilter(e.target.value)}
             className="text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300"
           >
+            <option value="all">Todas</option>
             <option value="pending">Pendentes</option>
             <option value="approved">Aprovadas</option>
             <option value="rejected">Rejeitadas</option>
             <option value="implemented">Implementadas</option>
-            <option value="all">Todas</option>
           </select>
           <button onClick={load} className="text-sm px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300">
             Atualizar
+          </button>
+          <button
+            onClick={syncCommits}
+            disabled={syncing}
+            className="text-sm px-3 py-1.5 rounded-lg border border-indigo-300 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 disabled:opacity-50"
+          >
+            {syncing ? "Sincronizando..." : "↓ Sincronizar commits"}
+          </button>
+          <button
+            onClick={() => setNewModal(true)}
+            className="text-sm px-3 py-1.5 rounded-lg bg-brand-green text-white hover:bg-brand-deep transition-colors"
+          >
+            + Nova RFC
           </button>
         </div>
       </div>
@@ -125,11 +173,18 @@ export default function ChangesPage() {
         {loading ? (
           <div className="p-8 text-center text-sm text-gray-400">Carregando...</div>
         ) : changes.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-400">Nenhuma mudança encontrada</div>
+          <div className="p-8 text-center space-y-3">
+            <p className="text-sm text-gray-400">Nenhuma mudança encontrada.</p>
+            <p className="text-xs text-gray-400">
+              Use <strong>"↓ Sincronizar commits"</strong> para importar RFCs automaticamente dos commits do GitHub,
+              ou <strong>"+ Nova RFC"</strong> para criar manualmente.
+            </p>
+          </div>
         ) : (
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {changes.map(c => {
               const sla = slaStatus(c.sla_deadline);
+              const ctx = (c as any).context as Record<string, any> | null;
               return (
                 <div key={c.id} className={`p-4 ${TYPE_STYLE[c.change_type] ?? ""}`}>
                   <div className="flex items-start justify-between gap-4">
@@ -139,7 +194,7 @@ export default function ChangesPage() {
                           {typeLabel[c.change_type] ?? c.change_type}
                         </span>
                         <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[c.status]}`}>
-                          {c.status}
+                          {STATUS_LABEL[c.status] ?? c.status}
                         </span>
                         <span className="text-xs text-gray-400">
                           prioridade: {priorityLabel[c.priority] ?? c.priority}
@@ -149,6 +204,9 @@ export default function ChangesPage() {
                       <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{c.title}</p>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                         Solicitado por: {c.requested_by} — {fmt(c.created_at)}
+                        {ctx?.commit_sha && (
+                          <span className="ml-2 font-mono text-gray-400">SHA: {ctx.commit_sha.slice(0, 12)}</span>
+                        )}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
@@ -182,7 +240,19 @@ export default function ChangesPage() {
                       {c.description && (
                         <div>
                           <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Descrição:</p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2">{c.description}</p>
+                          <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2 whitespace-pre-wrap font-sans">{c.description}</pre>
+                        </div>
+                      )}
+                      {(c as any).rollback_plan && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Plano de rollback:</p>
+                          <pre className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/50 rounded p-2 whitespace-pre-wrap font-mono">{(c as any).rollback_plan}</pre>
+                        </div>
+                      )}
+                      {ctx && ctx.files?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Arquivos alterados:</p>
+                          <p className="text-xs text-gray-400 font-mono">{ctx.files.join(", ")}</p>
                         </div>
                       )}
                       {c.approved_by && (
@@ -200,6 +270,7 @@ export default function ChangesPage() {
         )}
       </div>
 
+      {/* Modal Rejeição */}
       {rejectModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-md mx-4">
@@ -217,6 +288,52 @@ export default function ChangesPage() {
               </button>
               <button onClick={reject} className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700">
                 Rejeitar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nova RFC */}
+      {newModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-xl p-6 w-full max-w-lg mx-4 space-y-4">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Nova RFC</h2>
+            <div>
+              <label className="form-label">Título *</label>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} className="form-input" placeholder="Descreva a mudança..." />
+            </div>
+            <div>
+              <label className="form-label">Descrição</label>
+              <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} className="form-input" placeholder="Detalhes, motivação, impacto..." />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="form-label">Tipo</label>
+                <select value={form.change_type} onChange={e => setForm(f => ({ ...f, change_type: e.target.value }))} className="form-input">
+                  <option value="standard">Padrão (rotina)</option>
+                  <option value="normal">Normal</option>
+                  <option value="emergency">Emergência</option>
+                </select>
+              </div>
+              <div>
+                <label className="form-label">Prioridade</label>
+                <select value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))} className="form-input">
+                  <option value="low">Baixa</option>
+                  <option value="medium">Média</option>
+                  <option value="high">Alta</option>
+                  <option value="critical">Crítica</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="form-label">Plano de rollback</label>
+              <input value={form.rollback_plan} onChange={e => setForm(f => ({ ...f, rollback_plan: e.target.value }))} className="form-input" placeholder="Como reverter se necessário..." />
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => { setNewModal(false); setForm(BLANK_FORM); }} className="btn-secondary text-sm">Cancelar</button>
+              <button onClick={createManual} disabled={saving || !form.title.trim()} className="btn-primary text-sm">
+                {saving ? "Criando..." : "Criar RFC"}
               </button>
             </div>
           </div>

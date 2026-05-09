@@ -103,6 +103,25 @@ def get_cached_dashboard(year: int) -> dict | None:
     return None
 
 
+def get_cached_forecast(year: int) -> dict | None:
+    """Lê forecast do cache Supabase. Retorna None se não encontrar."""
+    try:
+        res = (
+            get_supabase()
+            .table("expenses_cache")
+            .select("payload")
+            .eq("cache_key", f"forecast_{year}")
+            .eq("status", "success")
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            return res.data[0]["payload"]
+    except Exception:
+        logger.warning("Erro ao ler cache forecast_%d", year, exc_info=True)
+    return None
+
+
 def get_cached_governance_dashboard() -> dict | None:
     """Lê KPIs de governança do cache Supabase."""
     try:

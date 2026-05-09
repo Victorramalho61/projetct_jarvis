@@ -61,9 +61,32 @@ def get_microsoft_auth_url(current_user: dict = Depends(get_current_user)):
 
 @router.get("/auth/microsoft/callback")
 def microsoft_callback(
-    code: str = Query(...),
-    state: str = Query(...),
+    code: str = Query(None),
+    state: str = Query(None),
+    error: str = Query(None),
+    error_description: str = Query(None),
+    admin_consent: str = Query(None),
+    tenant: str = Query(None),
 ):
+    s = get_settings()
+    if admin_consent and admin_consent.lower() == "true":
+        logger.info("Admin consent concedido para tenant %s", tenant)
+        return RedirectResponse(
+            url=f"{s.frontend_url}/moneypenny?admin_consent=1",
+            status_code=302,
+        )
+    if error:
+        logger.warning("Microsoft OAuth error: %s — %s", error, error_description)
+        return RedirectResponse(
+            url=f"{s.frontend_url}/moneypenny?error={error}",
+            status_code=302,
+        )
+    if not code or not state:
+        return RedirectResponse(
+            url=f"{s.frontend_url}/moneypenny?error=invalid_callback",
+            status_code=302,
+        )
+
     _cleanup_states()
     user_id = _pending_states.pop(state, (None, 0))[0]
     if not user_id:
@@ -97,7 +120,6 @@ def microsoft_callback(
         on_conflict="user_id,provider",
     ).execute()
 
-    s = get_settings()
     return RedirectResponse(url=f"{s.frontend_url}/moneypenny?connected=1", status_code=302)
 
 
