@@ -1,9 +1,9 @@
 """
-PayFly — investimentos no Benner (Empresa = 03).
-Captura:
-  1) HISTORICO LIKE '%PAYFLY%'  → categoria 'PayFly'
-  2) Fornecedores de dev (Hiperlink, Next Squad) → categoria 'Desenvolvimento'
-  3) Infraestrutura cloud (Amazon / AWS) → categoria 'Infraestrutura'
+PayFly — investimentos no Benner.
+Captura três origens:
+  1) EMPRESA=3 + HISTORICO LIKE '%PAYFLY%'  → categoria 'PayFly'
+  2) Fornecedores de dev (Hiperlink/NextSquad) em QUALQUER empresa  → 'Desenvolvimento'
+  3) Infraestrutura cloud (AWS) na EMPRESA=3  → 'Infraestrutura'
 """
 import logging
 from datetime import date, datetime
@@ -14,7 +14,7 @@ from db import get_sql_connection
 
 logger = logging.getLogger(__name__)
 
-_investments_cache: TTLCache = TTLCache(maxsize=10, ttl=3600)  # 1h — Benner não muda com frequência
+_investments_cache: TTLCache = TTLCache(maxsize=10, ttl=3600)
 _detail_cache: TTLCache = TTLCache(maxsize=5, ttl=3600)
 
 _PJ_COLLABORATORS = {
@@ -23,9 +23,8 @@ _PJ_COLLABORATORS = {
     "MARCOS FELIPE CHAVES BITENCOURT",
 }
 
-# Mapeamento de categoria por padrão de nome de fornecedor
 _CATEGORIA_RULES = [
-    (["HIPERLINK", "NEXT SQUAD", "NEXTSQUAD", "NEXT_SQUAD"], "Desenvolvimento"),
+    (["HIPERLINK", "HIPER LINK", "NEXT SQUAD", "NEXTSQUAD"], "Desenvolvimento"),
     (["AMAZON WEB SERVICES", "AWS"], "Infraestrutura"),
 ]
 
@@ -55,17 +54,31 @@ def _classify_categoria(nome: str) -> str:
     return "PayFly"
 
 
-# ── SQL filter helpers ─────────────────────────────────────────────────────────
+# ── SQL building blocks ────────────────────────────────────────────────────────
 
-# Fornecedores de desenvolvimento (by supplier name)
-_DEV_SUPPLIERS = (
-    "UPPER(PES.NOME) LIKE '%HIPERLINK%' OR UPPER(PES.NOME) LIKE '%HIPER LINK%'"
-    " OR UPPER(PES.NOME) LIKE '%NEXT%SQUAD%' OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'"
-    " OR UPPER(PES.NOME) LIKE '%NEXT SQUAD%'"
-)
+# Fornecedores de dev — todos os padrões de nome, qualquer empresa
+_DEV_NAME_MATCH = """(
+    UPPER(PES.NOME) LIKE '%HIPERLINK%'
+    OR UPPER(PES.NOME) LIKE '%HIPER LINK%'
+    OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'
+    OR UPPER(PES.NOME) LIKE '%NEXT SQUAD%'
+    OR UPPER(PES.NOME) LIKE '%NEXT%SQUAD%'
+    OR UPPER(DOC.HISTORICO) LIKE '%NEXTSQUAD%'
+    OR UPPER(DOC.HISTORICO) LIKE '%NEXT SQUAD%'
+    OR UPPER(DOC.HISTORICO) LIKE '%HIPERLINK%'
+    OR UPPER(DOC.HISTORICO) LIKE '%HIPER LINK%'
+)"""
 
-# Infraestrutura cloud — apenas AWS (exclui Amazon Plaza, Amazon Service, Amazon Varejo, etc.)
-_INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%' OR UPPER(PES.NOME) LIKE '%AWS%' OR UPPER(DOC.HISTORICO) LIKE '%AWS%'"
+# Gastos PayFly/AWS — apenas empresa 3 (ledger PayFly)
+_PAYFLY_EMPRESA3 = """(
+    PAR.EMPRESA = 3
+    AND (
+        UPPER(DOC.HISTORICO) LIKE '%PAYFLY%'
+        OR UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%'
+        OR UPPER(PES.NOME) LIKE '%AWS%'
+        OR UPPER(DOC.HISTORICO) LIKE '%AWS%'
+    )
+)"""
 
 # Exclusão de hotéis/hospedagem e lançamentos de relocação (RLOC)
 _EXCLUSION = """NOT (
@@ -83,58 +96,48 @@ _EXCLUSION = """NOT (
     OR UPPER(DOC.HISTORICO) LIKE '%RLOC%'
 )"""
 
-_PAYFLY_FILTER = f"""(
-    UPPER(DOC.HISTORICO) LIKE '%PAYFLY%'
-    OR {_DEV_SUPPLIERS}
-    OR {_INFRA_SUPPLIERS}
-)
-AND {_EXCLUSION}"""
+# Filtro composto: (PayFly empresa3 OU dev fornecedores qualquer empresa) E NÃO exclusões
+_COMBINED_FILTER = f"({_PAYFLY_EMPRESA3} OR {_DEV_NAME_MATCH}) AND {_EXCLUSION}"
 
 
 # ── Queries ────────────────────────────────────────────────────────────────────
 
-_BY_SUPPLIER_QUERY = """
+_BY_SUPPLIER_QUERY = f"""
 SELECT
     PES.NOME                                                              AS FORNECEDOR,
     PES.CODIGO                                                            AS COD_FORNECEDOR,
     SUM(PAR.VALOR)                                                        AS TOTAL,
-    SUM(CASE WHEN PAR.DATALIQUIDACAO IS NOT NULL THEN PAR.VALOR ELSE 0 END) AS TOTAL_PAGO,
-    SUM(CASE WHEN PAR.DATALIQUIDACAO IS NULL     THEN PAR.VALOR ELSE 0 END) AS TOTAL_PENDENTE,
     COUNT(*)                                                              AS QTD,
-    COUNT(CASE WHEN PAR.DATALIQUIDACAO IS NOT NULL THEN 1 END)           AS QTD_PAGO,
     MIN(PAR.DATAVENCIMENTO)                                               AS PRIMEIRA_DATA,
     MAX(PAR.DATAVENCIMENTO)                                               AS ULTIMA_DATA
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
-WHERE PAR.EMPRESA = 3
-  AND DOC.ABRANGENCIA <> 'R'
+WHERE DOC.ABRANGENCIA <> 'R'
   AND DOC.ENTRADASAIDA IN ('I', 'E')
-  AND {payfly_filter}
+  AND {_COMBINED_FILTER}
   {{year_filter}}
 GROUP BY PES.NOME, PES.CODIGO
 ORDER BY TOTAL DESC
-""".format(payfly_filter=_PAYFLY_FILTER)
+"""
 
-_SERIES_QUERY = """
+_SERIES_QUERY = f"""
 SELECT
-    LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7)                     AS COMPETENCIA,
-    SUM(PAR.VALOR)                                                           AS TOTAL,
-    SUM(CASE WHEN PAR.DATALIQUIDACAO IS NOT NULL THEN PAR.VALOR ELSE 0 END) AS TOTAL_PAGO,
-    COUNT(*)                                                                 AS QTD
+    LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7) AS COMPETENCIA,
+    SUM(PAR.VALOR)                                     AS TOTAL,
+    COUNT(*)                                           AS QTD
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
-WHERE PAR.EMPRESA = 3
-  AND DOC.ABRANGENCIA <> 'R'
+WHERE DOC.ABRANGENCIA <> 'R'
   AND DOC.ENTRADASAIDA IN ('I', 'E')
-  AND {payfly_filter}
+  AND {_COMBINED_FILTER}
   {{year_filter}}
 GROUP BY LEFT(CONVERT(VARCHAR, PAR.DATAVENCIMENTO, 120), 7)
 ORDER BY COMPETENCIA
-""".format(payfly_filter=_PAYFLY_FILTER)
+"""
 
-_DETAIL_QUERY = """
+_DETAIL_QUERY = f"""
 SELECT
     PAR.HANDLE                                                               AS AP,
     PES.NOME                                                                 AS FORNECEDOR,
@@ -143,18 +146,18 @@ SELECT
     PAR.DATALIQUIDACAO,
     PAR.VALOR,
     CASE WHEN PAR.DATALIQUIDACAO IS NOT NULL THEN 'pago' ELSE 'pendente' END AS STATUS_PAR,
-    ISNULL(FIL.NOME, '')                                                     AS FILIAL
+    ISNULL(FIL.NOME, '')                                                     AS FILIAL,
+    PAR.EMPRESA                                                              AS EMPRESA
 FROM FN_PARCELAS     PAR WITH (NOLOCK)
 INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
 INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
 LEFT  JOIN FILIAIS        FIL WITH (NOLOCK) ON FIL.HANDLE = PAR.FILIAL
-WHERE PAR.EMPRESA = 3
-  AND DOC.ABRANGENCIA <> 'R'
+WHERE DOC.ABRANGENCIA <> 'R'
   AND DOC.ENTRADASAIDA IN ('I', 'E')
-  AND {payfly_filter}
+  AND {_COMBINED_FILTER}
   {{year_filter}}
 ORDER BY PAR.DATAVENCIMENTO DESC
-""".format(payfly_filter=_PAYFLY_FILTER)
+"""
 
 
 def _year_filter(year: int | None) -> str:
@@ -188,10 +191,7 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
                 "cod_fornecedor":  str(r.get("cod_fornecedor") or ""),
                 "categoria":       _classify_categoria(nome),
                 "total":           _to_float(r["total"]) or 0.0,
-                "total_pago":      _to_float(r["total_pago"]) or 0.0,
-                "total_pendente":  _to_float(r["total_pendente"]) or 0.0,
                 "qtd":             int(r["qtd"] or 0),
-                "qtd_pago":        int(r.get("qtd_pago") or 0),
                 "primeira_data":   _iso_date(r.get("primeira_data")),
                 "ultima_data":     _iso_date(r.get("ultima_data")),
                 "is_pj_collaborator": is_pj,
@@ -206,14 +206,11 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
             serie.append({
                 "competencia": str(r["competencia"]),
                 "total":       _to_float(r["total"]) or 0.0,
-                "total_pago":  _to_float(r["total_pago"]) or 0.0,
                 "qtd":         int(r["qtd"] or 0),
             })
 
         total = sum(f["total"] for f in fornecedores)
-        total_pago = sum(f["total_pago"] for f in fornecedores)
 
-        # Totais por categoria
         categorias: dict[str, float] = {}
         for f in fornecedores:
             cat = f["categoria"]
@@ -223,10 +220,8 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
             "fornecedores": fornecedores,
             "serie_mensal": serie,
             "totais": {
-                "total":             total,
-                "total_pago":        total_pago,
-                "total_pendente":    total - total_pago,
-                "qtd_fornecedores":  len(fornecedores),
+                "total":            total,
+                "qtd_fornecedores": len(fornecedores),
             },
             "por_categoria": [
                 {"categoria": cat, "total": round(val, 2)}
@@ -265,6 +260,7 @@ def fetch_payfly_investments_detail(year: int | None = None) -> list[dict]:
                 "valor":          _to_float(r["valor"]) or 0.0,
                 "status_par":     r.get("status_par") or "pendente",
                 "filial":         r.get("filial") or "",
+                "empresa":        str(r.get("empresa") or ""),
             })
         _detail_cache[cache_key] = rows
         return rows

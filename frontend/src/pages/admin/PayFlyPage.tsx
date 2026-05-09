@@ -40,10 +40,7 @@ interface PayFlySupplier {
   cod_fornecedor: string
   categoria: string
   total: number
-  total_pago: number
-  total_pendente: number
   qtd: number
-  qtd_pago: number
   primeira_data: string | null
   ultima_data: string | null
   is_pj_collaborator: boolean
@@ -52,14 +49,13 @@ interface PayFlySupplier {
 interface PayFlySeries {
   competencia: string
   total: number
-  total_pago: number
   qtd: number
 }
 
 interface InvestmentsResponse {
   fornecedores: PayFlySupplier[]
   serie_mensal: PayFlySeries[]
-  totais: { total: number; total_pago: number; total_pendente: number; qtd_fornecedores: number }
+  totais: { total: number; qtd_fornecedores: number }
   por_categoria: { categoria: string; total: number }[]
 }
 
@@ -73,6 +69,7 @@ interface PayFlyDetail {
   valor: number
   status_par: string
   filial: string
+  empresa: string
 }
 
 interface MediaPost {
@@ -247,7 +244,7 @@ function InvestimentosTab({ token }: { token: string }) {
     Pago: s.total_pago,
   }))
 
-  const YEARS = ['2024', '2025', '2026', '']
+  const YEARS = ['2025', '2026', '']
 
   return (
     <div className="space-y-6">
@@ -292,14 +289,8 @@ function InvestimentosTab({ token }: { token: string }) {
       {data && !loading && (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
             <KpiCard label="Total Investido" value={FMT_BRL(data.totais.total)} accent />
-            <KpiCard label="Total Pago" value={FMT_BRL(data.totais.total_pago)} />
-            <KpiCard
-              label="A Pagar"
-              value={FMT_BRL(data.totais.total_pendente)}
-              accent={data.totais.total_pendente > 0}
-            />
             <KpiCard label="Fornecedores" value={String(data.totais.qtd_fornecedores)} sub="com gastos PayFly" />
           </div>
 
@@ -372,8 +363,6 @@ function InvestimentosTab({ token }: { token: string }) {
                     <th className="px-4 py-3 text-left font-medium">Fornecedor</th>
                     <th className="px-4 py-3 text-left font-medium">Categoria</th>
                     <th className="px-4 py-3 text-right font-medium">Total</th>
-                    <th className="px-4 py-3 text-right font-medium">Pago</th>
-                    <th className="px-4 py-3 text-right font-medium">Pendente</th>
                     <th className="px-4 py-3 text-center font-medium">Docs</th>
                     <th className="px-4 py-3 text-left font-medium">Período</th>
                   </tr>
@@ -406,14 +395,6 @@ function InvestimentosTab({ token }: { token: string }) {
                         <td className="px-4 py-3 text-right font-mono tabular-nums text-gray-700 dark:text-gray-300">
                           {FMT_BRL(f.total)}
                         </td>
-                        <td className="px-4 py-3 text-right font-mono tabular-nums text-green-600 dark:text-green-400">
-                          {FMT_BRL(f.total_pago)}
-                        </td>
-                        <td className={`px-4 py-3 text-right font-mono tabular-nums ${
-                          f.total_pendente > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'
-                        }`}>
-                          {f.total_pendente > 0 ? FMT_BRL(f.total_pendente) : '—'}
-                        </td>
                         <td className="px-4 py-3 text-center text-gray-500">{f.qtd}</td>
                         <td className="px-4 py-3 text-xs text-gray-400">
                           {FMT_DATE(f.primeira_data)} → {FMT_DATE(f.ultima_data)}
@@ -421,7 +402,7 @@ function InvestimentosTab({ token }: { token: string }) {
                       </tr>
                       {selectedSupplier === f.fornecedor && (
                         <tr key={`${f.fornecedor}-detail`}>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={5} className="p-0">
                             <div className="bg-gray-50 dark:bg-gray-800/30 border-t border-gray-100 dark:border-gray-700 px-6 py-3">
                               {detailForSupplier.length === 0 ? (
                                 <p className="text-xs text-gray-400 py-2">Carregando documentos…</p>
@@ -853,7 +834,7 @@ function ChamadosTab({ token }: { token: string }) {
                       </tr>
                       {expanded.has(t.id) && (
                         <tr key={`${t.id}-detail`}>
-                          <td colSpan={7} className="p-0">
+                          <td colSpan={5} className="p-0">
                             <div className="bg-gray-50 dark:bg-gray-800/30 border-t border-gray-100 dark:border-gray-700 px-6 py-3 text-xs text-gray-600 dark:text-gray-400">
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                 <div><span className="font-medium">Prazo (SLA):</span> {FMT_DATETIME(t.due_by)}</div>
