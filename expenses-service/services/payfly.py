@@ -26,7 +26,7 @@ _PJ_COLLABORATORS = {
 # Mapeamento de categoria por padrão de nome de fornecedor
 _CATEGORIA_RULES = [
     (["HIPERLINK", "NEXT SQUAD", "NEXTSQUAD", "NEXT_SQUAD"], "Desenvolvimento"),
-    (["AMAZON", "AWS", "AMAZON WEB"], "Infraestrutura"),
+    (["AMAZON WEB SERVICES", "AWS"], "Infraestrutura"),
 ]
 
 
@@ -60,8 +60,8 @@ def _classify_categoria(nome: str) -> str:
 # Fornecedores de desenvolvimento (by supplier name)
 _DEV_SUPPLIERS = "UPPER(PES.NOME) LIKE '%HIPERLINK%' OR UPPER(PES.NOME) LIKE '%NEXT%SQUAD%' OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'"
 
-# Infraestrutura cloud (Amazon/AWS como fornecedor ou no histórico)
-_INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON%' OR UPPER(PES.NOME) LIKE '%AWS%' OR UPPER(DOC.HISTORICO) LIKE '%AWS%'"
+# Infraestrutura cloud — apenas AWS (exclui Amazon Plaza, Amazon Service, Amazon Varejo, etc.)
+_INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%' OR UPPER(PES.NOME) LIKE '%AWS%' OR UPPER(DOC.HISTORICO) LIKE '%AWS%'"
 
 # Exclusão de hotéis/hospedagem e lançamentos de relocação (RLOC)
 _EXCLUSION = """NOT (
