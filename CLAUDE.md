@@ -38,7 +38,7 @@ Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-servic
 
 - `app_logs.trace_id` — coluna adicionada ao schema; permite correlacionar logs entre serviços pelo mesmo `X-Trace-ID`
 - `run_error_growth_check()` em `monitoring-service/services/log_monitor.py` — roda a cada 6h, detecta módulos com crescimento ≥ 80% de erros e envia WhatsApp + abre GitHub issue
-- Alerta WhatsApp automático quando `consecutive_down_count == 3` em qualquer sistema monitorado
+- **Alerta WhatsApp automático desabilitado temporariamente** — estava gerando ruído excessivo; substituído por alertas internos até reavaliação
 - `/ready` padronizado em todos os 6 serviços: `{status, service, uptime_seconds, components: {...}}`
 - **Performance**: otimizações em todo o sistema para reduzir uso de recursos e corrigir bugs de bloqueio assíncrono.
 - **Indexação**: adicionado índice em `agent_messages(to_agent, status, created_at)` para melhorar performance de consultas.
@@ -50,17 +50,12 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **Endpoints**: `GET /api/expenses/dashboard?year=&filial=&tipo=` · `GET /api/expenses/forecast` · `GET /api/expenses/empresas` · `GET /api/expenses/comparativo?ano1=2025&ano2=2026`
 - **Forecast**: regressão linear + média móvel 3m, pure Python, janela Jul/2025 — gráfico corrigido para exibir corretamente tendência
 - **Detalhamento**: nova aba com análise de despesas eventuais e comparações KPIs ano corrente
-- **Cache**: integração com Supabase para dashboard e forecast
-
-## Módulo Moneypenny (moneypenny-service:8004)
-
-- **Autenticação Microsoft**: escopos atualizados para incluir `Chat.ReadBasic` e `Chat.ReadWrite` para suporte a mensagens em Teams
-- **Tratamento de erro**: resposta a erros 403 durante interações com Teams, com fallback e logging adequado
-- **OAuth callback**: rota de retorno do OAuth ajustada para maior confiabilidade
-- **Remoções**: modo webhook para Teams foi descontinuado e código correspondente removido
-- **Frontend**: componente `MoneypennyPage` teve função `handleAdminConsent` removida (não utilizada)
-
-## Módulo Monitoring (monitoring-service:8002)
-
-- **Monitoramento PayFly**: expandido para incluir métricas adicionais de mídia e qualidade de stream
-- **Grupo Freshservice**: correção na criação/identificação do grupo associado aos incidentes de monitoramento
+- **Cache**: integração com Supabase via `expenses_cache` para acelerar respostas
+- **PayFly**:
+  - Filtro ajustado para incluir apenas pagamentos **liquidados** (`DATALIQUIDACAO IS NOT NULL`)
+  - Separação entre despesas **contratuais** e **eventuais**
+  - Inclusão de **parcelas pendentes** no cálculo de previsão
+  - Filtros de fornecedores aprimorados, com exclusão automática de Amazon Plaza, Amazon Service e Amazon Varejo
+  - Otimização no carregamento e filtragem de dados para melhor desempenho
+  - Correção no gráfico de evolução e no valor padrão do ano nas consultas
+  - Remoção da restrição `empresa = 3` para fornecedores de desenvolvimento, permitindo maior flexibilidade em testes e ambientes não produtivos
