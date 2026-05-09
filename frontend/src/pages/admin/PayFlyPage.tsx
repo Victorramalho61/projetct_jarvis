@@ -208,7 +208,7 @@ function Placeholder({ title }: { title: string }) {
 function InvestimentosTab({ token }: { token: string }) {
   const { theme } = useTheme()
   const isDark = theme === 'dark'
-  const [year, setYear] = useState<string>(String(new Date().getFullYear()))
+  const [year, setYear] = useState<string>('')
   const [data, setData] = useState<InvestmentsResponse | null>(null)
   const [detail, setDetail] = useState<PayFlyDetail[] | null>(null)
   const [selectedSupplier, setSelectedSupplier] = useState<string | null>(null)
@@ -245,10 +245,9 @@ function InvestimentosTab({ token }: { token: string }) {
     name: s.competencia,
     Total: s.total,
     Pago: s.total_pago,
-    Pendente: s.total - s.total_pago,
   }))
 
-  const YEARS = ['2025', '2026', '']
+  const YEARS = ['2024', '2025', '2026', '']
 
   return (
     <div className="space-y-6">
@@ -354,14 +353,9 @@ function InvestimentosTab({ token }: { token: string }) {
                       fontSize: 12,
                     }}
                   />
-                  <Bar dataKey="Pago"     stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} />
-                  <Bar dataKey="Pendente" stackId="a" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Total" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
-              <div className="flex gap-4 mt-3 justify-center text-xs text-gray-500">
-                <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded-sm bg-emerald-500" /> Pago</span>
-                <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-2 rounded-sm bg-amber-400" /> Pendente</span>
-              </div>
             </div>
           )}
 

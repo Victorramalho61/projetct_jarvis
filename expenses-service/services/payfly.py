@@ -58,7 +58,11 @@ def _classify_categoria(nome: str) -> str:
 # ── SQL filter helpers ─────────────────────────────────────────────────────────
 
 # Fornecedores de desenvolvimento (by supplier name)
-_DEV_SUPPLIERS = "UPPER(PES.NOME) LIKE '%HIPERLINK%' OR UPPER(PES.NOME) LIKE '%NEXT%SQUAD%' OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'"
+_DEV_SUPPLIERS = (
+    "UPPER(PES.NOME) LIKE '%HIPERLINK%' OR UPPER(PES.NOME) LIKE '%HIPER LINK%'"
+    " OR UPPER(PES.NOME) LIKE '%NEXT%SQUAD%' OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'"
+    " OR UPPER(PES.NOME) LIKE '%NEXT SQUAD%'"
+)
 
 # Infraestrutura cloud — apenas AWS (exclui Amazon Plaza, Amazon Service, Amazon Varejo, etc.)
 _INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%' OR UPPER(PES.NOME) LIKE '%AWS%' OR UPPER(DOC.HISTORICO) LIKE '%AWS%'"
@@ -66,6 +70,7 @@ _INFRA_SUPPLIERS = "UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%' OR UPPER(PES.NO
 # Exclusão de hotéis/hospedagem e lançamentos de relocação (RLOC)
 _EXCLUSION = """NOT (
     UPPER(PES.NOME) LIKE '%HOTEL%'
+    OR UPPER(PES.NOME) LIKE '%HOTEIS%'
     OR UPPER(PES.NOME) LIKE '%POUSADA%'
     OR UPPER(PES.NOME) LIKE '%RESORT%'
     OR UPPER(PES.NOME) LIKE '%HOSTEL%'
@@ -74,6 +79,7 @@ _EXCLUSION = """NOT (
     OR UPPER(PES.NOME) LIKE '%HOSPEDAGEM%'
     OR UPPER(PES.NOME) LIKE '%APART HOTEL%'
     OR UPPER(PES.NOME) LIKE '%APARTHOTEL%'
+    OR UPPER(PES.NOME) LIKE '%ADMINISTRACAO DE HOT%'
     OR UPPER(DOC.HISTORICO) LIKE '%RLOC%'
 )"""
 
