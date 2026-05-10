@@ -49,10 +49,9 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **Filtro base**: `PAR.EMPRESA = 1` + `K_GESTOR = 23` (gestor de TI)
 - **Endpoints**: `GET /api/expenses/dashboard?year=&filial=&tipo=` · `GET /api/expenses/forecast` · `GET /api/expenses/empresas` · `GET /api/expenses/comparativo?ano1=2025&ano2=2026`
 - **Forecast**: regressão linear + média móvel 3m, pure Python, janela Jul/2025 — gráfico corrigido para exibir corretamente tendência
-- **Detalhamento**: nova aba com análise de despesas eventuais e comparações KPIs
+- **Detalhamento**: nova aba com análise de despesas eventuais e comparações
 - **PayFly**: 
-  - Filtro ajustado para considerar apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`)
-  - Separação entre despesas de contrato e eventuais
-  - Inclusão de parcelas pendentes no cálculo
-  - Removida restrição `empresa = 3` para fornecedores de desenvolvimento
-  - Campo `total_pago` removido de `PayFlySeries` — referências atualizadas ou removidas
+  - Filtrado apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`)
+  - Separação entre despesas de **contrato** e **eventuais**
+  - Incluído suporte a parcelas pendentes
+  - Removida referência ao campo `total_pago`, não mais presente na `PayFlySeries`
