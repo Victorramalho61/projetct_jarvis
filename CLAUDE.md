@@ -49,13 +49,10 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **Filtro base**: `PAR.EMPRESA = 1` + `K_GESTOR = 23` (gestor de TI)
 - **Endpoints**: `GET /api/expenses/dashboard?year=&filial=&tipo=` · `GET /api/expenses/forecast` · `GET /api/expenses/empresas` · `GET /api/expenses/comparativo?ano1=2025&ano2=2026`
 - **Forecast**: regressão linear + média móvel 3m, pure Python, janela Jul/2025 — gráfico corrigido para exibir corretamente tendência
-- **Detalhamento**: nova aba com análise de despesas eventuais e comparações KPIs ano corrente
-- **Cache**: integração com Supabase via `expenses_cache` para acelerar respostas
-- **PayFly**:
-  - Filtro ajustado para incluir apenas pagamentos **liquidados** (`DATALIQUIDACAO IS NOT NULL`)
-  - Separação entre despesas **contratuais** e **eventuais**
-  - Inclusão de **parcelas pendentes** no cálculo de previsão
-  - Filtros de fornecedores aprimorados, com exclusão automática de Amazon Plaza, Amazon Service e Amazon Varejo
-  - Otimização no carregamento e filtragem de dados para melhor desempenho
-  - Correção no gráfico de evolução e no valor padrão do ano nas consultas
-  - Remoção da restrição `empresa = 3` para fornecedores de desenvolvimento, permitindo maior flexibilidade em testes e ambientes não produtivos
+- **Detalhamento**: nova aba com análise de despesas eventuais e comparações KPIs
+- **PayFly**: 
+  - Filtro ajustado para considerar apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`)
+  - Separação entre despesas de contrato e eventuais
+  - Inclusão de parcelas pendentes
+  - Remoção da restrição `empresa = 3` para fornecedores de desenvolvimento
+  - Campo `total_pago` removido do modelo `PayFlySeries` — usar campos específicos por tipo de despesa
