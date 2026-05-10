@@ -51,7 +51,6 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **Forecast**: regressão linear + média móvel 3m, pure Python, janela Jul/2025 — gráfico corrigido para exibir corretamente tendência
 - **Detalhamento**: nova aba com análise de despesas eventuais e comparações
 - **PayFly**: 
-  - Filtrado apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`)
-  - Separação entre despesas de **contrato** e **eventuais**
-  - Incluído suporte a parcelas pendentes
-  - Removida referência ao campo `total_pago`, não mais presente na `PayFlySeries`
+  - Filtrado apenas pagamentos **liquidados** (`DATALIQUIDACAO IS NOT NULL`)
+  - Separação entre despesas **contratuais** e **eventuais**
+  - Incluído suporte a **parcelas pendentes** em contratos
