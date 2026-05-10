@@ -37,7 +37,7 @@ Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-servic
 ## Observabilidade
 
 - `app_logs.trace_id` — coluna adicionada ao schema; permite correlacionar logs entre serviços pelo mesmo `X-Trace-ID`
-- `run_error_growth_check()` em `monitoring-service/services/log_monitor.py` — roda a cada 6h, detecta módulos com crescimento ≥ 80% de erros e envia WhatsApp + abre GitHub issue
+- `run_error_growth_check()` em `monitoring-service/services/log_monitor.py` — roda a cada 6h, detecta módulos com crescimento ≥ 80% de erros e envia alerta interno + abre GitHub issue
 - **Alerta WhatsApp automático desabilitado temporariamente** — estava gerando ruído excessivo; substituído por alertas internos até reavaliação
 - `/ready` padronizado em todos os 6 serviços: `{status, service, uptime_seconds, components: {...}}`
 - **Performance**: otimizações em todo o sistema para reduzir uso de recursos e corrigir bugs de bloqueio assíncrono.
@@ -53,6 +53,6 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **PayFly**: 
   - Filtro ajustado para considerar apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`)
   - Separação entre despesas de contrato e eventuais
-  - Inclusão de parcelas pendentes
-  - Remoção da restrição `empresa = 3` para fornecedores de desenvolvimento
-  - Campo `total_pago` removido do modelo `PayFlySeries` — usar campos específicos por tipo de despesa
+  - Inclusão de parcelas pendentes no cálculo
+  - Removida restrição `empresa = 3` para fornecedores de desenvolvimento
+  - Campo `total_pago` removido de `PayFlySeries` — referências atualizadas ou removidas
