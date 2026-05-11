@@ -22,7 +22,7 @@ const TABS: { id: Tab; label: string }[] = [
 export default function AgentsDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const notifications = useNotifications();
+  const { notifications } = useNotifications();
 
   const getTabFromSearch = (): Tab => {
     const p = new URLSearchParams(location.search).get("tab");

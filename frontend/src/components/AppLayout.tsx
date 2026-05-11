@@ -20,7 +20,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "logs",       label: "Logs",             path: "/admin/logs",           icon: "file",     roles: ["admin"] },
   { id: "monitoring",    label: "Monitoramento",    path: "/admin/monitoramento",  icon: "chart",      roles: ["admin"] },
   { id: "freshservice",  label: "Freshservice",     path: "/freshservice",         icon: "briefcase",  roles: ["admin"] },
-  { id: "agents",   label: "Agentes",   path: "/admin/agentes", icon: "cpu",    roles: ["admin"] },
+  { id: "agents",   label: "Agentes (desligado)",   path: "/admin/agentes", icon: "cpu",    roles: ["admin"] },
   { id: "expenses",   label: "Gastos TI",   path: "/admin/gastos",      icon: "wallet", roles: ["admin"] },
   { id: "governance", label: "Governança",  path: "/admin/governanca",  icon: "shield", roles: ["admin"] },
   { id: "payfly",     label: "PayFly",      path: "/admin/payfly",      icon: "zap",    roles: ["admin"] },
@@ -30,7 +30,7 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
-  const notifications = useNotifications();
+  const { notifications, dismiss, clearAll } = useNotifications();
 
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -267,11 +267,21 @@ const filteredNav = visible.filter((i) =>
           {notifOpen && (
             <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-pop z-50 overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alertas</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">Alertas</span>
+                  {notifications.length > 0 && (
+                    <span className="rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400">
+                      {notifications.length}
+                    </span>
+                  )}
+                </div>
                 {notifications.length > 0 && (
-                  <span className="rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400">
-                    {notifications.length}
-                  </span>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); clearAll(); }}
+                    className="text-[11px] text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  >
+                    Limpar todos
+                  </button>
                 )}
               </div>
               <div className="max-h-80 overflow-y-auto">
@@ -289,17 +299,26 @@ const filteredNav = visible.filter((i) =>
                     {notifications.map((n) => (
                       <div
                         key={n.id}
-                        className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors cursor-pointer"
-                        onClick={() => {
-                          navigate(n.link ?? "/admin/monitoramento");
-                          setNotifOpen(false);
-                        }}
+                        className="group flex items-start gap-3 px-4 py-3 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                       >
                         <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${notifTypeStyle[n.type] ?? "bg-gray-400"} ${n.type === "down" ? "animate-pulse" : ""}`} />
-                        <div className="min-w-0">
+                        <div
+                          className="min-w-0 flex-1 cursor-pointer"
+                          onClick={() => {
+                            navigate(n.link ?? "/admin/monitoramento");
+                            setNotifOpen(false);
+                          }}
+                        >
                           <p className="text-sm font-medium text-gray-900 dark:text-gray-100">{n.title}</p>
                           <p className="mt-0.5 text-xs text-gray-500 dark:text-gray-400 truncate">{n.body}</p>
                         </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); dismiss(n.id); }}
+                          title="Dispensar"
+                          className="mt-0.5 shrink-0 h-5 w-5 grid place-items-center rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition-all"
+                        >
+                          <Icon name="x" size={11} />
+                        </button>
                       </div>
                     ))}
                   </div>

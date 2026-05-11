@@ -9,8 +9,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-_KEYWORDS_NEWS   = ["payfly", "PayFly Brasil", "PayFly pagamento", "PayFly fintech app"]
-_KEYWORDS_REDDIT = ["PayFly", "PayFly Brasil", "PayFly pagamento"]
+_KEYWORDS_NEWS   = ["payfly", "PayFly Brasil", "PayFly viagens", "PayFly viagens corporativas"]
+_KEYWORDS_REDDIT = ["PayFly", "PayFly Brasil", "PayFly viagens"]
 
 
 def run(state: dict) -> dict:

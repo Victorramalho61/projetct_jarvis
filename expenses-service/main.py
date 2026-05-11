@@ -45,8 +45,11 @@ async def _warm_payfly_cache() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from services.media_scheduler import start as _media_start, stop as _media_stop
     asyncio.create_task(_warm_payfly_cache())
+    _media_start()
     yield
+    _media_stop()
 
 
 app = FastAPI(title="Jarvis Expenses Service", lifespan=lifespan)

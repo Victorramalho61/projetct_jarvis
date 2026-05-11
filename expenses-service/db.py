@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     sql_server_user: str = ""
     sql_server_password: str = ""
     sql_server_driver: str = "ODBC Driver 17 for SQL Server"
+    # LLM para classificação de mídia
+    google_api_key: str = ""
+    groq_api_key: str = ""
+    # Webhook de crise (opcional)
+    crisis_webhook_url: str = ""
 
     model_config = {"env_file": ".env"}
 

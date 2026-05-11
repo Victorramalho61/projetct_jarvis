@@ -29,9 +29,14 @@ _NEGATIVE_KW = {
     "denuncia", "prejuízo", "prejuizo", "erro", "bug", "vazamento", "crash",
     "instabilidade", "indisponível", "indisponivel", "bloqueio", "suspensão",
     "suspensao", "encerramento", "falência", "falencia", "processo", "irregularidade",
-    "descaso", "lentidão", "lentidao", "queda", "pane", "reclamação", "não funciona",
-    "nao funciona", "ruim", "péssimo", "pessimo", "horrível", "horrivel", "pirataria",
-    "scam", "roubando", "cobrança indevida", "cobranca indevida",
+    "descaso", "lentidão", "lentidao", "queda", "pane", "não funciona",
+    "nao funciona", "ruim", "péssimo", "pessimo", "horrível", "horrivel",
+    "scam", "cobrança indevida", "cobranca indevida",
+    # viagens corporativas
+    "atraso", "cancelamento", "cancelado", "cancelou", "reembolso", "reembolsar",
+    "extravio", "bagagem perdida", "overbooking", "não embarcou", "nao embarcou",
+    "voo cancelado", "hotel não confirmado", "hotel nao confirmado", "reserva falhou",
+    "reserva cancelada", "suporte não responde", "suporte nao responde",
 }
 
 _POSITIVE_KW = {
@@ -41,6 +46,10 @@ _POSITIVE_KW = {
     "solução", "solucao", "melhoria", "avanço", "avanco", "novo recurso",
     "novo produto", "certificação", "certificacao", "ótimo", "otimo", "excelente",
     "recomendo", "adorei", "funciona", "aprovado", "seguro",
+    # viagens corporativas
+    "reserva confirmada", "check-in", "embarque", "viagem tranquila",
+    "economia em viagens", "gestão de viagens", "política de viagens",
+    "reembolso aprovado", "corporativo", "plataforma de viagens",
 }
 
 _HEADERS = {

@@ -57,7 +57,7 @@ interface InvestmentsResponse {
   fornecedores: PayFlySupplier[]
   serie_mensal: PayFlySeries[]
   totais: { total: number; qtd_fornecedores: number }
-  por_categoria: { categoria: string; total: number }[]
+  por_categoria: { categoria: string; total: number; pct: number }[]
   por_tipo: { tipo: string; total: number; pct: number }[]
 }
 
@@ -93,7 +93,9 @@ interface MediaPost {
   source: string | null
   published_at: string | null
   sentiment: 'positivo' | 'negativo' | 'neutro'
+  sentiment_label: 'muito_positivo' | 'positivo' | 'neutro' | 'negativo' | 'muito_negativo'
   sentiment_score: number | null
+  category: string
 }
 
 interface MediaMetrics {
@@ -103,6 +105,28 @@ interface MediaMetrics {
   positive_count: number
   negative_count: number
   neutral_count: number
+}
+
+interface DailyMetric {
+  date: string
+  posts_count: number
+  positive_count: number
+  negative_count: number
+  neutral_count: number
+}
+
+interface CrisisStatus {
+  status: 'ok' | 'warning' | 'critical'
+  neg_24h: number
+  avg_daily_neg: number
+  ratio: number
+  recent_negative: { title: string; platform: string; published_at: string }[]
+}
+
+interface CategoryBreakdown {
+  category: string
+  count: number
+  pct: number
 }
 
 interface FreshDashboard {
@@ -173,9 +197,19 @@ const SENTIMENT_BADGE: Record<string, string> = {
 }
 
 const CATEGORIA_BADGE: Record<string, string> = {
-  'PayFly':        'bg-brand-soft text-brand-deep dark:bg-brand-green/10 dark:text-brand-mid',
+  'PayFly':          'bg-brand-soft text-brand-deep dark:bg-brand-green/10 dark:text-brand-mid',
   'Desenvolvimento': 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
   'Infraestrutura':  'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  'Marketing':       'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+  'Sustentação':     'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+}
+
+const CATEGORIA_COLOR: Record<string, string> = {
+  'Desenvolvimento': '#6366f1',
+  'Sustentação':     '#14b8a6',
+  'Infraestrutura':  '#f59e0b',
+  'Marketing':       '#ec4899',
+  'PayFly':          '#10b981',
 }
 
 const TIPO_BADGE: Record<string, string> = {
@@ -186,6 +220,40 @@ const TIPO_BADGE: Record<string, string> = {
 const TIPO_COLORS: Record<string, string> = {
   'Contrato': '#6366f1',
   'Eventual': '#e5e7eb',
+}
+
+const MEDIA_CATEGORY_BADGE: Record<string, string> = {
+  'Crise':      'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  'Jurídico':   'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  'Reclamação': 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  'Elogio':     'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  'Imprensa':   'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  'Neutro':     'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+}
+
+const MEDIA_CATEGORY_COLOR: Record<string, string> = {
+  'Crise':      '#ef4444',
+  'Jurídico':   '#a855f7',
+  'Reclamação': '#f97316',
+  'Elogio':     '#22c55e',
+  'Imprensa':   '#3b82f6',
+  'Neutro':     '#9ca3af',
+}
+
+const SENTIMENT_LABEL_BADGE: Record<string, string> = {
+  muito_positivo: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  positivo:       'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+  neutro:         'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
+  negativo:       'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  muito_negativo: 'bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-300',
+}
+
+const SENTIMENT_LABEL_TEXT: Record<string, string> = {
+  muito_positivo: 'Muito positivo',
+  positivo:       'Positivo',
+  neutro:         'Neutro',
+  negativo:       'Negativo',
+  muito_negativo: 'Muito negativo',
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -316,41 +384,54 @@ function InvestimentosTab({ token }: { token: string }) {
       {data && !loading && (
         <>
           {/* KPIs */}
-          <div className="grid grid-cols-2 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <KpiCard label="Total Investido" value={FMT_BRL(data.totais.total)} accent />
-            <KpiCard label="Fornecedores" value={String(data.totais.qtd_fornecedores)} sub="com gastos PayFly" />
+            <KpiCard
+              label="Em Contratos"
+              value={FMT_BRL(data.por_tipo.find(t => t.tipo === 'Contrato')?.total ?? 0)}
+              sub={`${data.por_tipo.find(t => t.tipo === 'Contrato')?.pct ?? 0}% do total investido`}
+            />
+            <KpiCard label="Fornecedores" value={String(data.totais.qtd_fornecedores)} sub="com gastos registrados" />
           </div>
 
-          {/* Breakdown por categoria */}
-          {data.por_categoria.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {data.por_categoria.map(c => (
-                <div
-                  key={c.categoria}
-                  className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 flex items-center justify-between gap-3"
-                >
-                  <div>
-                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${CATEGORIA_BADGE[c.categoria] ?? 'bg-gray-100 text-gray-600'}`}>
-                      {c.categoria}
-                    </span>
-                  </div>
-                  <p className="text-base font-bold text-gray-800 dark:text-gray-100 tabular-nums">
-                    {FMT_BRL(c.total)}
-                  </p>
+          {/* Alocação por categoria + Tipo de Gasto */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Barras de categoria */}
+            {data.por_categoria.length > 0 && (
+              <div className="lg:col-span-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Alocação por Categoria</h3>
+                <div className="space-y-4">
+                  {data.por_categoria.map(c => (
+                    <div key={c.categoria}>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${CATEGORIA_BADGE[c.categoria] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {c.categoria}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <span className="text-sm font-bold text-gray-800 dark:text-gray-100 tabular-nums">{FMT_BRL(c.total)}</span>
+                          <span className="text-xs text-gray-400 w-9 text-right tabular-nums">{c.pct}%</span>
+                        </div>
+                      </div>
+                      <div className="h-2 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${c.pct}%`, background: CATEGORIA_COLOR[c.categoria] ?? '#10b981' }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          )}
+              </div>
+            )}
 
-          {/* Donut: Contrato vs Eventual */}
-          {data.por_tipo.length > 0 && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+            {/* Donut: Contrato vs Eventual */}
+            {data.por_tipo.length > 0 && (
+              <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 flex flex-col">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Tipo de Gasto</h3>
-                <div className="flex items-center gap-6">
-                  <ResponsiveContainer width={120} height={120}>
+                <div className="flex flex-col items-center gap-4 flex-1 justify-center">
+                  <ResponsiveContainer width={140} height={140}>
                     <PieChart>
-                      <Pie data={data.por_tipo} dataKey="total" cx="50%" cy="50%" innerRadius={32} outerRadius={52} paddingAngle={2}>
+                      <Pie data={data.por_tipo} dataKey="total" cx="50%" cy="50%" innerRadius={38} outerRadius={60} paddingAngle={2}>
                         {data.por_tipo.map(entry => (
                           <Cell key={entry.tipo} fill={TIPO_COLORS[entry.tipo] ?? '#9ca3af'} />
                         ))}
@@ -358,68 +439,33 @@ function InvestimentosTab({ token }: { token: string }) {
                       <Tooltip formatter={(v: number) => FMT_BRL(v)} />
                     </PieChart>
                   </ResponsiveContainer>
-                  <div className="space-y-2">
+                  <div className="w-full space-y-2">
                     {data.por_tipo.map(t => (
                       <div key={t.tipo} className="flex items-center gap-2">
                         <span className="w-3 h-3 rounded-full shrink-0" style={{ background: TIPO_COLORS[t.tipo] ?? '#9ca3af' }} />
-                        <span className="text-xs text-gray-600 dark:text-gray-400">{t.tipo}</span>
-                        <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 tabular-nums ml-auto">{t.pct}%</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400 flex-1">{t.tipo}</span>
+                        <span className="text-xs font-semibold text-gray-800 dark:text-gray-100 tabular-nums">{t.pct}%</span>
                       </div>
                     ))}
                     {data.por_tipo.map(t => (
-                      <div key={`v-${t.tipo}`} className="text-xs text-gray-400 tabular-nums pl-5">{FMT_BRL(t.total)}</div>
+                      <p key={`v-${t.tipo}`} className="text-xs text-gray-400 tabular-nums pl-5">{FMT_BRL(t.total)}</p>
                     ))}
                   </div>
                 </div>
               </div>
+            )}
+          </div>
 
-              {/* Comprometimentos por fornecedor */}
-              {comprometimentos.length > 0 && (
-                <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Parcelas Pendentes (Contratos)</h3>
-                  <ResponsiveContainer width="100%" height={120}>
-                    <BarChart data={comprometimentos} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
-                      <XAxis type="number" tickFormatter={FMT_COMPACT} tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#9ca3af' }} axisLine={false} tickLine={false} />
-                      <YAxis type="category" dataKey="fornecedor" width={110} tick={{ fontSize: 9, fill: isDark ? '#6b7280' : '#9ca3af' }}
-                        tickFormatter={(v: string) => v.split(' ').slice(0, 2).join(' ')} axisLine={false} tickLine={false} />
-                      <Tooltip formatter={(v: number) => FMT_BRL(v)} labelFormatter={(l: string) => l} contentStyle={{ background: isDark ? '#111827' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: 8, fontSize: 11 }} />
-                      <Bar dataKey="total_pendente" fill="#6366f1" radius={[0, 4, 4, 0]} name="Pendente" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Gráfico mensal */}
+          {/* Evolução Mensal */}
           {chartData.length > 0 && (
             <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Evolução Mensal</h3>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={chartData} margin={{ top: 0, right: 8, left: 0, bottom: 0 }} barGap={2}>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData} margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#1f2937' : '#f3f4f6'} />
-                  <XAxis
-                    dataKey="name"
-                    tick={{ fontSize: 11, fill: isDark ? '#6b7280' : '#9ca3af' }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
-                  <YAxis
-                    tickFormatter={FMT_COMPACT}
-                    tick={{ fontSize: 11, fill: isDark ? '#6b7280' : '#9ca3af' }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={70}
-                  />
-                  <Tooltip
-                    formatter={(v: number, name: string) => [FMT_BRL(v), name]}
-                    contentStyle={{
-                      background: isDark ? '#111827' : '#fff',
-                      border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`,
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
-                  />
+                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: isDark ? '#6b7280' : '#9ca3af' }} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={FMT_COMPACT} tick={{ fontSize: 11, fill: isDark ? '#6b7280' : '#9ca3af' }} axisLine={false} tickLine={false} width={70} />
+                  <Tooltip formatter={(v: number, name: string) => [FMT_BRL(v), name]} contentStyle={{ background: isDark ? '#111827' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: 8, fontSize: 12 }} />
                   <Bar dataKey="Total" fill="#10b981" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -588,73 +634,134 @@ function InvestimentosTab({ token }: { token: string }) {
 // ── Mídia Tab ──────────────────────────────────────────────────────────────────
 
 function MidiaTab({ token }: { token: string }) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
+
   const [posts, setPosts] = useState<MediaPost[]>([])
+  const [daily, setDaily] = useState<DailyMetric[]>([])
+  const [categories, setCategories] = useState<CategoryBreakdown[]>([])
+  const [crisis, setCrisis] = useState<CrisisStatus | null>(null)
   const [metrics, setMetrics] = useState<MediaMetrics[]>([])
   const [sentimentFilter, setSentimentFilter] = useState<string>('')
+  const [categoryFilter, setCategoryFilter] = useState<string>('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const [p, m] = await Promise.all([
-        apiFetch<MediaPost[]>('/api/expenses/payfly/media/posts', { token }),
+      const [p, d, cats, cr, m] = await Promise.all([
+        apiFetch<MediaPost[]>('/api/expenses/payfly/media/posts?limit=200', { token }),
+        apiFetch<DailyMetric[]>('/api/expenses/payfly/media/daily-metrics?days=30', { token }),
+        apiFetch<CategoryBreakdown[]>('/api/expenses/payfly/media/categories', { token }),
+        apiFetch<CrisisStatus>('/api/expenses/payfly/media/crisis', { token }),
         apiFetch<MediaMetrics[]>('/api/expenses/payfly/media/metrics', { token }),
       ])
       setPosts(p)
+      setDaily(d)
+      setCategories(cats)
+      setCrisis(cr)
       setMetrics(m)
     } catch {
       setPosts([])
-      setMetrics([])
     } finally { setLoading(false) }
   }, [token])
 
   useEffect(() => { load() }, [load])
 
-  const filtered = sentimentFilter
-    ? posts.filter(p => p.sentiment === sentimentFilter)
-    : posts
+  // Filtros locais (a API já deduplicou por título)
+  const filtered = posts.filter(p => {
+    if (sentimentFilter && p.sentiment_label !== sentimentFilter && p.sentiment !== sentimentFilter) return false
+    if (categoryFilter && p.category !== categoryFilter) return false
+    return true
+  })
 
-  // Current month metrics
+  // KPIs do mês atual a partir dos dados mensais
   const now = new Date()
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const prevMonth = now.getMonth() === 0
     ? `${now.getFullYear() - 1}-12`
     : `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`
+  const sumMetrics = (month: string) => {
+    const rows = metrics.filter(m => m.ref_month === month)
+    return rows.reduce((acc, r) => ({
+      posts_count:    acc.posts_count    + r.posts_count,
+      positive_count: acc.positive_count + r.positive_count,
+      negative_count: acc.negative_count + r.negative_count,
+      neutral_count:  acc.neutral_count  + r.neutral_count,
+    }), { posts_count: 0, positive_count: 0, negative_count: 0, neutral_count: 0 })
+  }
+  const cur  = sumMetrics(thisMonth)
+  const prev = sumMetrics(prevMonth)
 
-  const getMetrics = (month: string) =>
-    metrics.find(m => m.ref_month === month && m.platform === 'google_news') ??
-    { posts_count: 0, positive_count: 0, negative_count: 0, neutral_count: 0 }
+  const crisisCls = {
+    ok:       'border-green-200 bg-green-50 dark:border-green-800/40 dark:bg-green-900/10',
+    warning:  'border-amber-200 bg-amber-50 dark:border-amber-800/40 dark:bg-amber-900/10',
+    critical: 'border-red-200 bg-red-50 dark:border-red-800/40 dark:bg-red-900/10',
+  }
+  const crisisTextCls = {
+    ok:       'text-green-700 dark:text-green-400',
+    warning:  'text-amber-700 dark:text-amber-400',
+    critical: 'text-red-700 dark:text-red-400',
+  }
+  const crisisLabel = { ok: 'Estável', warning: 'Atenção', critical: 'Crise' }
 
-  const cur = getMetrics(thisMonth)
-  const prev = getMetrics(prevMonth)
+  const dailyChartData = daily.map(d => ({
+    name: d.date.slice(5),
+    Positivos: d.positive_count,
+    Negativos: d.negative_count,
+    Neutros:   d.neutral_count,
+  }))
 
   function toggleExpanded(id: string) {
-    setExpanded(s => {
-      const n = new Set(s)
-      n.has(id) ? n.delete(id) : n.add(id)
-      return n
-    })
+    setExpanded(s => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
+
+  const MEDIA_SENTIMENTS = [
+    { value: '',               label: 'Todos' },
+    { value: 'muito_positivo', label: 'Muito positivo' },
+    { value: 'positivo',       label: 'Positivo' },
+    { value: 'neutro',         label: 'Neutro' },
+    { value: 'negativo',       label: 'Negativo' },
+    { value: 'muito_negativo', label: 'Muito negativo' },
+  ]
+
+  const MEDIA_CATEGORIES = ['', 'Reclamação', 'Elogio', 'Imprensa', 'Crise', 'Jurídico', 'Neutro']
 
   return (
     <div className="space-y-6">
-      {/* Dashboard cards */}
+
+      {/* Badge de crise */}
+      {crisis && (
+        <div className={`rounded-xl border p-4 flex items-center gap-4 ${crisisCls[crisis.status]}`}>
+          <div className="flex-1">
+            <p className={`text-sm font-semibold ${crisisTextCls[crisis.status]}`}>
+              Reputação — {crisisLabel[crisis.status]}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+              {crisis.neg_24h} menção(ões) negativa(s) nas últimas 24h
+              {crisis.avg_daily_neg > 0 && ` · média diária: ${crisis.avg_daily_neg}`}
+              {crisis.ratio > 0 && ` · ${crisis.ratio}× acima da média`}
+            </p>
+          </div>
+          <span className={`shrink-0 text-xs font-bold uppercase tracking-widest ${crisisTextCls[crisis.status]}`}>
+            {crisis.status === 'ok' ? '●' : crisis.status === 'warning' ? '▲' : '⚠'} {crisisLabel[crisis.status]}
+          </span>
+        </div>
+      )}
+
+      {/* KPIs do mês */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[
-          { label: 'Total Posts (mês)', cur: cur.posts_count, prev: prev.posts_count },
-          { label: 'Positivos', cur: cur.positive_count, prev: prev.positive_count, accent: 'green' },
-          { label: 'Negativos', cur: cur.negative_count, prev: prev.negative_count, accent: 'red' },
-          { label: 'Neutros', cur: cur.neutral_count, prev: prev.neutral_count },
-        ].map(({ label, cur: c, prev: p, accent }) => (
+          { label: 'Publicações (mês)', c: cur.posts_count,    p: prev.posts_count,    accent: '' },
+          { label: 'Positivas',         c: cur.positive_count, p: prev.positive_count, accent: 'green' },
+          { label: 'Negativas',         c: cur.negative_count, p: prev.negative_count, accent: 'red' },
+          { label: 'Neutras',           c: cur.neutral_count,  p: prev.neutral_count,  accent: '' },
+        ].map(({ label, c, p, accent }) => (
           <div key={label} className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
             <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{label}</p>
             <div className="mt-1 flex items-end gap-2">
-              <p className={`text-2xl font-bold ${
-                accent === 'green' ? 'text-green-600 dark:text-green-400' :
-                accent === 'red'   ? 'text-red-600 dark:text-red-400'    :
-                'text-gray-900 dark:text-gray-100'
-              }`}>{c}</p>
+              <p className={`text-2xl font-bold ${accent === 'green' ? 'text-green-600 dark:text-green-400' : accent === 'red' ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'}`}>{c}</p>
               <TrendArrow value={c - p} />
             </div>
             <p className="mt-0.5 text-xs text-gray-400">mês anterior: {p}</p>
@@ -662,22 +769,83 @@ function MidiaTab({ token }: { token: string }) {
         ))}
       </div>
 
-      {/* Filtro de sentimento */}
-      <div className="flex items-center gap-2">
-        {['', 'positivo', 'negativo', 'neutro'].map(s => (
-          <button
-            key={s || 'todos'}
-            onClick={() => setSentimentFilter(s)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              sentimentFilter === s
-                ? 'bg-brand-green text-white'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
-            }`}
-          >
-            {s ? s.charAt(0).toUpperCase() + s.slice(1) : 'Todos'}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-gray-400">{filtered.length} publicações</span>
+      {/* Breakdown por categoria + Tendência diária */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {categories.length > 0 && (
+          <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Por Categoria</h3>
+            <div className="space-y-3">
+              {categories.map(c => (
+                <div key={c.category}>
+                  <div className="flex items-center justify-between mb-1">
+                    <button
+                      onClick={() => setCategoryFilter(categoryFilter === c.category ? '' : c.category)}
+                      className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold transition-opacity ${MEDIA_CATEGORY_BADGE[c.category] ?? 'bg-gray-100 text-gray-600'} ${categoryFilter && categoryFilter !== c.category ? 'opacity-40' : ''}`}
+                    >
+                      {c.category}
+                    </button>
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className="tabular-nums font-medium">{c.count}</span>
+                      <span className="text-gray-400 tabular-nums w-8 text-right">{c.pct}%</span>
+                    </div>
+                  </div>
+                  <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${c.pct}%`, background: MEDIA_CATEGORY_COLOR[c.category] ?? '#9ca3af' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            {categoryFilter && (
+              <button onClick={() => setCategoryFilter('')} className="mt-3 text-xs text-brand-green hover:underline">
+                Limpar filtro de categoria
+              </button>
+            )}
+          </div>
+        )}
+
+        {dailyChartData.length > 0 && (
+          <div className="lg:col-span-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Tendência Diária — 30 dias</h3>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={dailyChartData} margin={{ top: 0, right: 4, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#1f2937' : '#f3f4f6'} />
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#9ca3af' }} axisLine={false} tickLine={false} interval={4} />
+                <YAxis tick={{ fontSize: 10, fill: isDark ? '#6b7280' : '#9ca3af' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: isDark ? '#111827' : '#fff', border: `1px solid ${isDark ? '#374151' : '#e5e7eb'}`, borderRadius: 8, fontSize: 11 }} />
+                <Bar dataKey="Positivos" stackId="a" fill="#22c55e" />
+                <Bar dataKey="Neutros"   stackId="a" fill="#9ca3af" />
+                <Bar dataKey="Negativos" stackId="a" fill="#ef4444" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex gap-1.5 flex-wrap">
+          {MEDIA_SENTIMENTS.map(s => (
+            <button
+              key={s.value || 'todos-sent'}
+              onClick={() => setSentimentFilter(s.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${sentimentFilter === s.value ? 'bg-brand-green text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1.5 flex-wrap ml-auto">
+          {MEDIA_CATEGORIES.map(c => (
+            <button
+              key={c || 'todos-cat'}
+              onClick={() => setCategoryFilter(c)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${categoryFilter === c ? 'bg-brand-green text-white' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+            >
+              {c || 'Todas categorias'}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-gray-400 w-full text-right">{filtered.length} publicações</span>
       </div>
 
       {loading && (
@@ -689,67 +857,73 @@ function MidiaTab({ token }: { token: string }) {
       {!loading && filtered.length === 0 && (
         <div className="text-center py-12 text-sm text-gray-400">
           <p>Nenhuma publicação encontrada.</p>
-          <p className="mt-1 text-xs">O agente de monitoramento busca dados periodicamente via Google News RSS.</p>
+          {(sentimentFilter || categoryFilter) && (
+            <button onClick={() => { setSentimentFilter(''); setCategoryFilter('') }} className="mt-2 text-xs text-brand-green hover:underline">
+              Limpar filtros
+            </button>
+          )}
         </div>
       )}
 
       {/* Lista de posts */}
-      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
-        <div className="divide-y divide-gray-100 dark:divide-gray-800">
-          {filtered.map(post => (
-            <div key={post.id} className="p-4">
-              <div className="flex items-start gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <a
-                      href={post.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm font-medium text-gray-800 dark:text-gray-200 hover:text-brand-green dark:hover:text-brand-mid truncate max-w-xl"
-                    >
-                      {post.title}
-                    </a>
-                    <span className={`shrink-0 inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${SENTIMENT_BADGE[post.sentiment]}`}>
-                      {post.sentiment}
-                    </span>
+      {filtered.length > 0 && (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 overflow-hidden">
+          <div className="divide-y divide-gray-100 dark:divide-gray-800">
+            {filtered.map(post => (
+              <div key={post.id} className="p-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <a
+                        href={post.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm font-medium text-gray-800 dark:text-gray-200 hover:text-brand-green dark:hover:text-brand-mid line-clamp-2"
+                      >
+                        {post.title}
+                      </a>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${MEDIA_CATEGORY_BADGE[post.category] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {post.category}
+                      </span>
+                      <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${SENTIMENT_LABEL_BADGE[post.sentiment_label] ?? SENTIMENT_BADGE[post.sentiment]}`}>
+                        {SENTIMENT_LABEL_TEXT[post.sentiment_label] ?? post.sentiment}
+                      </span>
+                      {post.source && <span className="text-xs text-gray-400">{post.source}</span>}
+                      <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
+                      <span className="text-xs text-gray-400">{FMT_DATETIME(post.published_at)}</span>
+                      <span className="text-xs text-gray-300 dark:text-gray-600">·</span>
+                      <span className="text-xs text-gray-400 uppercase tracking-wide">{post.platform.replace(/_/g, ' ')}</span>
+                    </div>
+                    {post.snippet && (
+                      <button onClick={() => toggleExpanded(post.id)} className="mt-1 text-xs text-brand-green hover:underline">
+                        {expanded.has(post.id) ? 'Ocultar ▲' : 'Ver prévia ▼'}
+                      </button>
+                    )}
+                    {expanded.has(post.id) && post.snippet && (
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
+                        {post.snippet}
+                      </p>
+                    )}
                   </div>
-                  <div className="mt-0.5 flex items-center gap-3 text-xs text-gray-400">
-                    {post.source && <span>{post.source}</span>}
-                    <span>·</span>
-                    <span>{FMT_DATETIME(post.published_at)}</span>
-                    <span>·</span>
-                    <span className="uppercase tracking-wide">{post.platform.replace('_', ' ')}</span>
-                  </div>
-                  {post.snippet && (
-                    <button
-                      onClick={() => toggleExpanded(post.id)}
-                      className="mt-1 text-xs text-brand-green hover:underline"
-                    >
-                      {expanded.has(post.id) ? 'Ocultar prévia ▲' : 'Ver prévia ▼'}
-                    </button>
-                  )}
-                  {expanded.has(post.id) && post.snippet && (
-                    <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-3">
-                      {post.snippet}
-                    </p>
-                  )}
+                  <a
+                    href={post.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 h-8 w-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+                    title="Abrir matéria"
+                  >
+                    <svg className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                    </svg>
+                  </a>
                 </div>
-                <a
-                  href={post.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="shrink-0 h-8 w-8 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-                  title="Abrir matéria"
-                >
-                  <svg className="h-3.5 w-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </a>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

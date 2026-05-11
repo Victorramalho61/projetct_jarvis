@@ -22,6 +22,7 @@ type NotificationSummary = {
 export function useNotifications() {
   const { token, user } = useAuth();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetch = useCallback(async () => {
@@ -107,5 +108,15 @@ export function useNotifications() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [fetch]);
 
-  return notifications;
+  const dismiss = useCallback((id: string) => {
+    setDismissedIds((prev) => new Set([...prev, id]));
+  }, []);
+
+  const clearAll = useCallback(() => {
+    setDismissedIds((prev) => new Set([...prev, ...notifications.map((n) => n.id)]));
+  }, [notifications]);
+
+  const visible = notifications.filter((n) => !dismissedIds.has(n.id));
+
+  return { notifications: visible, dismiss, clearAll };
 }

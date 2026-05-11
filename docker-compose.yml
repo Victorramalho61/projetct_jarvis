@@ -403,7 +403,8 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: jarvis-ollama
-    restart: unless-stopped
+    restart: "no"
+    profiles: ["agents"]
     logging: *logging
     # Limite mínimo funcional para llama3.2:1b (~1.1B params):
     #   - 2 GB RAM garante carregamento do modelo + contexto de inferência
@@ -433,7 +434,8 @@ services:
   agents-service:
     build:
       context: ./agents-service
-    restart: unless-stopped
+    restart: "no"
+    profiles: ["agents"]
     logging: *logging
     mem_limit: 2g
     mem_reservation: 512m
@@ -513,6 +515,9 @@ services:
       SQL_SERVER_DB: ${SQL_SERVER_DB:-}
       SQL_SERVER_USER: ${SQL_SERVER_USER:-}
       SQL_SERVER_PASSWORD: ${SQL_SERVER_PASSWORD:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      CRISIS_WEBHOOK_URL: ${CRISIS_WEBHOOK_URL:-}
     networks:
       - app_net
     healthcheck:
