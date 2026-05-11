@@ -168,8 +168,8 @@ async def _fetch_reclame_aqui() -> list[dict]:
 async def fetch_all() -> list[dict]:
     """Busca todas as fontes em paralelo e deduplica por URL."""
     tasks = [
-        *[_fetch_rss(p, u, keyword_filter=False) for p, u in _AGGREGATED],
-        *[_fetch_rss(p, u, keyword_filter=True)  for p, u in _DIRECT],
+        *[_fetch_rss(p, u, keyword_filter=True) for p, u in _AGGREGATED],
+        *[_fetch_rss(p, u, keyword_filter=True) for p, u in _DIRECT],
     ]
     results = await asyncio.gather(*tasks, return_exceptions=True)
     seen_urls: set[str] = set()
