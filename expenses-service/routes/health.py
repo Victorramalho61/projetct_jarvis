@@ -31,7 +31,11 @@ def ready():
     try:
         s = get_settings()
         import httpx
-        r = httpx.get(f"{s.supabase_url}/rest/v1/", timeout=3)
+        r = httpx.get(
+            f"{s.supabase_url}/rest/v1/",
+            headers={"apikey": s.supabase_key},
+            timeout=3,
+        )
         latency = round((_time.monotonic() - t0) * 1000)
         components["database"] = {"status": "ok" if r.status_code < 500 else "degraded", "latency_ms": latency}
     except Exception:

@@ -586,29 +586,30 @@ async def proposals_metrics(
 ):
     db = get_supabase()
     try:
-        def _count(status: str) -> int:
-            return db.table("improvement_proposals").select("id", count="exact").eq("validation_status", status).execute().count or 0
-
-        pending       = _count("pending") + _count("pending_cto")
-        approved      = _count("approved")
-        in_progress   = _count("auto_implementing")
-        applied       = _count("applied")
-        rejected      = _count("rejected")
-        failed        = _count("implementation_failed")
-        total_decided = approved + in_progress + applied + rejected + failed
-        execution_rate = round(100 * applied / max(approved + in_progress + applied + failed, 1), 1)
-        failure_rate   = round(100 * failed  / max(approved + in_progress + applied + failed, 1), 1)
-        return {
-            "pending": pending,
-            "approved_waiting": approved,
-            "in_progress": in_progress,
-            "applied_success": applied,
-            "rejected": rejected,
-            "implementation_failed": failed,
-            "total_decided": total_decided,
-            "execution_rate_pct": execution_rate,
-            "failure_rate_pct": failure_rate,
-        }
+        def _compute():
+            def _count(status: str) -> int:
+                return db.table("improvement_proposals").select("id", count="exact").eq("validation_status", status).execute().count or 0
+            pending       = _count("pending") + _count("pending_cto")
+            approved      = _count("approved")
+            in_progress   = _count("auto_implementing")
+            applied       = _count("applied")
+            rejected      = _count("rejected")
+            failed        = _count("implementation_failed")
+            total_decided = approved + in_progress + applied + rejected + failed
+            execution_rate = round(100 * applied / max(approved + in_progress + applied + failed, 1), 1)
+            failure_rate   = round(100 * failed  / max(approved + in_progress + applied + failed, 1), 1)
+            return {
+                "pending": pending,
+                "approved_waiting": approved,
+                "in_progress": in_progress,
+                "applied_success": applied,
+                "rejected": rejected,
+                "implementation_failed": failed,
+                "total_decided": total_decided,
+                "execution_rate_pct": execution_rate,
+                "failure_rate_pct": failure_rate,
+            }
+        return await asyncio.get_event_loop().run_in_executor(None, _compute)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -622,12 +623,15 @@ async def list_proposals(
 ):
     db = get_supabase()
     try:
-        q = db.table("improvement_proposals").select("*").order("created_at", desc=True).limit(limit)
-        if status:
-            q = q.eq("validation_status", status)
-        if agent:
-            q = q.eq("source_agent", agent)
-        return {"proposals": q.execute().data}
+        def _fetch():
+            q = db.table("improvement_proposals").select("*").order("created_at", desc=True).limit(limit)
+            if status:
+                q = q.eq("validation_status", status)
+            if agent:
+                q = q.eq("source_agent", agent)
+            return q.execute().data
+        proposals = await asyncio.get_event_loop().run_in_executor(None, _fetch)
+        return {"proposals": proposals}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 

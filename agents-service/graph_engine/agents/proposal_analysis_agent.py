@@ -31,8 +31,8 @@ def run(state: dict) -> dict:
             db = get_supabase()
             result = (
                 db.table("improvement_proposals")
-                .select("id,title,description,priority,status")
-                .in_("status", ["pending", "pending_cto"])
+                .select("id,title,description,priority,validation_status")
+                .in_("validation_status", ["pending", "pending_cto"])
                 .limit(100)
                 .execute()
             )

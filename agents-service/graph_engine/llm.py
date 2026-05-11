@@ -361,6 +361,11 @@ class LLMRouter:
 # Instância global — compartilhada entre todos os agentes
 _router = LLMRouter()
 
+# Limita chamadas LLM simultâneas em todo o sistema (threads incluídas).
+# Evita 429 de rate-limit e reduz pressão no DB/Kong durante pipelines pesados.
+# acquire com timeout=90s: agentes falham rápido se não conseguirem slot.
+_LLM_SEMAPHORE = threading.Semaphore(4)
+
 
 # ── API pública ────────────────────────────────────────────────────────────────
 
@@ -461,8 +466,13 @@ def invoke_with_fallback(messages: list, timeout_s: int = _LLM_TIMEOUT_S) -> Any
     O router reordena os LLMs pelo score atual (latência + falhas).
     Se um acumula fila (timeout), o próximo assume automaticamente.
     """
-    llms = get_all_llms()
-    return _router.invoke(llms, messages, timeout_s=timeout_s)
+    if not _LLM_SEMAPHORE.acquire(timeout=90):
+        raise RuntimeError("LLM concurrency limit: timeout aguardando slot (90s)")
+    try:
+        llms = get_all_llms()
+        return _router.invoke(llms, messages, timeout_s=timeout_s)
+    finally:
+        _LLM_SEMAPHORE.release()
 
 
 def get_router_status() -> list[dict]:

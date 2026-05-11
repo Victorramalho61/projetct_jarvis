@@ -25,8 +25,16 @@ _PJ_COLLABORATORS = {
 
 _CATEGORIA_RULES = [
     (["HIPERLINK", "HIPER LINK", "NEXT SQUAD", "NEXTSQUAD"], "Desenvolvimento"),
+    (["PROPRIEDADE INDUSTRIAL"], "Desenvolvimento"),
     (["AMAZON WEB SERVICES", "AWS"], "Infraestrutura"),
+    (["BRINDES", "IMPRESSOS", "GRAFIC", "PROD GRAF", "MLABS"], "Marketing"),
+    (["NUSBE", "VOLUS"], "Sustentação"),
 ]
+
+# Overrides por nome exato (uppercase) — para casos que não têm keyword no nome
+_SUPPLIER_OVERRIDES: dict[str, str] = {
+    "SAMARA APARECIDA ARAUJO DE SOUZA": "Marketing",
+}
 
 
 def _to_float(v: Any) -> float | None:
@@ -47,7 +55,9 @@ def _iso_date(v: Any) -> str | None:
 
 
 def _classify_categoria(nome: str) -> str:
-    upper = (nome or "").upper()
+    upper = (nome or "").upper().strip()
+    if upper in _SUPPLIER_OVERRIDES:
+        return _SUPPLIER_OVERRIDES[upper]
     for patterns, cat in _CATEGORIA_RULES:
         if any(p in upper for p in patterns):
             return cat
@@ -81,6 +91,7 @@ _PAYFLY_EMPRESA3 = """(
 )"""
 
 # Exclusão de hotéis/hospedagem e lançamentos de relocação (RLOC)
+# ISNULL no HISTORICO: quando NULL, LIKE retornaria NULL → NOT NULL = NULL → registro excluído indevidamente
 _EXCLUSION = """NOT (
     UPPER(PES.NOME) LIKE '%HOTEL%'
     OR UPPER(PES.NOME) LIKE '%HOTEIS%'
@@ -93,7 +104,7 @@ _EXCLUSION = """NOT (
     OR UPPER(PES.NOME) LIKE '%APART HOTEL%'
     OR UPPER(PES.NOME) LIKE '%APARTHOTEL%'
     OR UPPER(PES.NOME) LIKE '%ADMINISTRACAO DE HOT%'
-    OR UPPER(DOC.HISTORICO) LIKE '%RLOC%'
+    OR ISNULL(UPPER(DOC.HISTORICO), '') LIKE '%RLOC%'
 )"""
 
 # Filtro composto: (PayFly empresa3 OU dev fornecedores qualquer empresa) E NÃO exclusões
@@ -229,11 +240,14 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
             nome = r.get("fornecedor") or ""
             nome_upper = nome.upper().strip()
             is_pj = any(nome_upper == c for c in _PJ_COLLABORATORS)
-            tipo = "Contrato" if int(r.get("tem_contrato") or 0) == 1 else "Eventual"
+            categoria = _classify_categoria(nome)
+            # Dev suppliers arrive via contract appointments (HISTORICO=NULL), so TEM_CONTRATO=0 even though they are contracts
+            is_dev = categoria == "Desenvolvimento"
+            tipo = "Contrato" if (int(r.get("tem_contrato") or 0) == 1 or is_dev) else "Eventual"
             fornecedores.append({
                 "fornecedor":      nome,
                 "cod_fornecedor":  str(r.get("cod_fornecedor") or ""),
-                "categoria":       _classify_categoria(nome),
+                "categoria":       categoria,
                 "tipo":            tipo,
                 "total":           _to_float(r["total"]) or 0.0,
                 "qtd":             int(r["qtd"] or 0),
@@ -268,6 +282,7 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
             for t, v in sorted(tipos.items(), key=lambda x: -x[1])
         ]
 
+        total_cat = sum(categorias.values()) or 1
         result = {
             "fornecedores": fornecedores,
             "serie_mensal": serie,
@@ -276,7 +291,7 @@ def fetch_payfly_investments(year: int | None = None) -> dict:
                 "qtd_fornecedores": len(fornecedores),
             },
             "por_categoria": [
-                {"categoria": cat, "total": round(val, 2)}
+                {"categoria": cat, "total": round(val, 2), "pct": round(val / total_cat * 100, 1)}
                 for cat, val in sorted(categorias.items(), key=lambda x: -x[1])
             ],
             "por_tipo": por_tipo,
@@ -368,3 +383,157 @@ def fetch_payfly_comprometimentos() -> list[dict]:
         return result
     finally:
         conn.close()
+
+
+def fetch_payfly_supplier_debug(search: str) -> list[dict]:
+    """Busca bruta de fornecedores no Benner sem filtros PayFly — diagnóstico."""
+    conn = get_sql_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+                PES.NOME          AS nome,
+                PES.CODIGO        AS codigo,
+                PAR.EMPRESA       AS empresa,
+                DOC.ENTRADASAIDA  AS entradasaida,
+                DOC.ABRANGENCIA   AS abrangencia,
+                COUNT(*)          AS total_parcelas,
+                SUM(CASE WHEN PAR.DATALIQUIDACAO IS NOT NULL THEN 1 ELSE 0 END) AS liquidadas,
+                SUM(CASE WHEN PAR.DATALIQUIDACAO IS NULL     THEN 1 ELSE 0 END) AS pendentes,
+                SUM(PAR.VALOR)    AS valor_total
+            FROM FN_PARCELAS     PAR WITH (NOLOCK)
+            INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+            INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+            WHERE UPPER(PES.NOME) LIKE ?
+            GROUP BY PES.NOME, PES.CODIGO, PAR.EMPRESA, DOC.ENTRADASAIDA, DOC.ABRANGENCIA
+            ORDER BY SUM(PAR.VALOR) DESC
+            """,
+            (f"%{search.upper()}%",),
+        )
+        cols = [d[0].lower() for d in cur.description]
+        rows = []
+        for row in cur.fetchall():
+            r = dict(zip(cols, row))
+            r["valor_total"] = _to_float(r.get("valor_total"))
+            rows.append(r)
+        return rows
+    finally:
+        conn.close()
+
+
+def fetch_dev_contracts_debug() -> dict:
+    """
+    Diagnóstico completo para localizar pagamentos de Hiperlink/NextSquad via
+    apontamentos de contrato no Benner.
+
+    Retorna três conjuntos:
+      - parcelas_diretas: registros via FN_PARCELAS/FN_DOCUMENTOS sem filtros
+      - via_recebimento: registros via CP_RECEBIMENTOFISICO → contrato
+      - amostras_historico: amostras de HISTORICO para ajudar na identificação
+    """
+    conn = get_sql_connection()
+    try:
+        cur = conn.cursor()
+        results: dict = {}
+
+        # ── 1. Busca direta em FN_PARCELAS sem NENHUM filtro ──────────────────
+        cur.execute("""
+            SELECT TOP 100
+                PES.NOME                        AS fornecedor,
+                PAR.EMPRESA                     AS empresa,
+                DOC.ENTRADASAIDA                AS entradasaida,
+                DOC.ABRANGENCIA                 AS abrangencia,
+                PAR.DATALIQUIDACAO,
+                PAR.DATAVENCIMENTO,
+                PAR.VALOR,
+                LEFT(DOC.HISTORICO, 100)        AS historico,
+                DOC.DOCUMENTODIGITADO           AS doc_digitado
+            FROM FN_PARCELAS     PAR WITH (NOLOCK)
+            INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+            INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+            WHERE UPPER(PES.NOME) LIKE '%HIPERLINK%'
+               OR UPPER(PES.NOME) LIKE '%HIPER LINK%'
+               OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'
+               OR UPPER(PES.NOME) LIKE '%NEXT SQUAD%'
+            ORDER BY PAR.DATALIQUIDACAO DESC
+        """)
+        cols = [d[0].lower() for d in cur.description]
+        results["parcelas_diretas"] = [
+            {c: (_iso_date(v) if "data" in c else (_to_float(v) if c == "valor" else v))
+             for c, v in zip(cols, row)}
+            for row in cur.fetchall()
+        ]
+
+        # ── 2. Via CP_RECEBIMENTOFISICO → contratos ───────────────────────────
+        # Tenta encontrar documentos ligados a recebimentos físicos de contratos
+        # onde o fornecedor é Hiperlink/NextSquad
+        try:
+            cur.execute("""
+                SELECT TOP 100
+                    PES.NOME                        AS fornecedor_doc,
+                    PAR.EMPRESA                     AS empresa,
+                    DOC.ENTRADASAIDA                AS entradasaida,
+                    DOC.ABRANGENCIA                 AS abrangencia,
+                    PAR.DATALIQUIDACAO,
+                    PAR.DATAVENCIMENTO,
+                    PAR.VALOR,
+                    LEFT(DOC.HISTORICO, 100)        AS historico,
+                    DOC.DOCUMENTODIGITADO           AS doc_digitado
+                FROM FN_PARCELAS         PAR WITH (NOLOCK)
+                INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+                INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+                INNER JOIN CP_RECEBIMENTOFISICO RF WITH (NOLOCK)
+                       ON RF.RECEBIMENTOFISICOPAI = DOC.RECEBIMENTOFISICO
+                WHERE RF.CONTRATO IS NOT NULL
+                  AND (UPPER(PES.NOME) LIKE '%HIPERLINK%'
+                    OR UPPER(PES.NOME) LIKE '%HIPER LINK%'
+                    OR UPPER(PES.NOME) LIKE '%NEXTSQUAD%'
+                    OR UPPER(PES.NOME) LIKE '%NEXT SQUAD%')
+                ORDER BY PAR.DATALIQUIDACAO DESC
+            """)
+            cols2 = [d[0].lower() for d in cur.description]
+            results["via_recebimento"] = [
+                {c: (_iso_date(v) if "data" in c else (_to_float(v) if c == "valor" else v))
+                 for c, v in zip(cols2, row)}
+                for row in cur.fetchall()
+            ]
+        except Exception as e:
+            results["via_recebimento"] = {"erro": str(e)}
+
+        # ── 3. Busca por HISTORICO contendo esses nomes ───────────────────────
+        cur.execute("""
+            SELECT TOP 50
+                PES.NOME                        AS fornecedor,
+                PAR.EMPRESA                     AS empresa,
+                DOC.ENTRADASAIDA                AS entradasaida,
+                DOC.ABRANGENCIA                 AS abrangencia,
+                PAR.DATALIQUIDACAO,
+                PAR.VALOR,
+                LEFT(DOC.HISTORICO, 150)        AS historico
+            FROM FN_PARCELAS     PAR WITH (NOLOCK)
+            INNER JOIN FN_DOCUMENTOS DOC WITH (NOLOCK) ON DOC.HANDLE = PAR.DOCUMENTO
+            INNER JOIN GN_PESSOAS    PES WITH (NOLOCK) ON PES.HANDLE = DOC.PESSOA
+            WHERE UPPER(DOC.HISTORICO) LIKE '%HIPERLINK%'
+               OR UPPER(DOC.HISTORICO) LIKE '%HIPER LINK%'
+               OR UPPER(DOC.HISTORICO) LIKE '%NEXTSQUAD%'
+               OR UPPER(DOC.HISTORICO) LIKE '%NEXT SQUAD%'
+            ORDER BY PAR.DATALIQUIDACAO DESC
+        """)
+        cols3 = [d[0].lower() for d in cur.description]
+        results["via_historico"] = [
+            {c: (_iso_date(v) if "data" in c else (_to_float(v) if c == "valor" else v))
+             for c, v in zip(cols3, row)}
+            for row in cur.fetchall()
+        ]
+
+        return results
+    finally:
+        conn.close()
+
+
+def invalidate_investments_cache() -> None:
+    """Limpa todos os caches de investimentos."""
+    _investments_cache.clear()
+    _detail_cache.clear()
+    _comprometimentos_cache.clear()
