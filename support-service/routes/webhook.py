@@ -65,7 +65,7 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     await client.post(
                         url,
-                        json={"number": send_to, "text": reply},
+                        json={"number": send_to, "text": reply, "linkPreview": False},
                         headers={"apikey": s.whatsapp_api_key},
                     )
             except httpx.ReadTimeout:

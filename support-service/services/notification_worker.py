@@ -69,7 +69,7 @@ def process_freshservice_event(payload: dict) -> None:
             with httpx.Client(timeout=timeout) as client:
                 r = client.post(
                     url,
-                    json={"number": phone, "text": text},
+                    json={"number": phone, "text": text, "linkPreview": False},
                     headers={"apikey": s.whatsapp_api_key},
                 )
                 r.raise_for_status()
