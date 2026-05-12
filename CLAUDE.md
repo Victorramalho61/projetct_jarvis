@@ -48,14 +48,15 @@ Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-servic
 
 Bot de suporte via WhatsApp que gerencia onboarding de usuários e abertura/acompanhamento de chamados no Freshservice.
 
-- **FSM**: 12 estados em `services/conversation.py`; estado + contexto persistidos em `support_conversations.state` + `.context` (JSONB)
-- **Onboarding**: busca requester por e-mail no Freshservice → confirma dados → coleta manualmente se não encontrado
+- **FSM**: 13 estados em `services/conversation.py`; estado + contexto persistidos em `support_conversations.state` + `.context` (JSONB)
+- **Onboarding**: busca e-mail em `/requesters` e fallback `/agents` (com resolução de `location_id`/`department_ids`); coleta `empresa` obrigatória antes do catálogo
 - **Catálogo**: 5 departamentos (TI→ws2, Financeiro→ws5, RH→ws6, Operações→ws13, Suprimentos→ws18) com subcategorias
-- **Tickets**: cria via `POST /api/v2/tickets`; persiste phone↔ticket_id em `support_tickets`
-- **Notificações**: webhook Freshservice `POST /api/support/webhook/freshservice?secret=…` → `notification_worker.py` (idempotente via UNIQUE `(freshservice_ticket_id, event_type)`)
-- **Schema**: `schema_support.sql` na raiz — rodar no Supabase antes do primeiro deploy
-- **Instância WhatsApp**: variável `SUPPORT_WHATSAPP_INSTANCE` (default `voetur-support`) — separada da instância do moneypenny
+- **Tickets**: cria via `POST /api/v2/tickets`; usa `requester_id` para agents (email é ignorado silenciosamente pela API); `custom_fields.empresa` obrigatório neste Freshservice; sem `category`/`sub_category` (valores do catálogo não batem com os do Freshservice)
+- **Notificações**: `POST /api/support/webhooks/freshservice?secret=…` → `notification_worker.py` (idempotente via UNIQUE `(freshservice_ticket_id, event_type)`)
+- **Schema**: `schema_support.sql` na raiz — rodar no Supabase antes do primeiro deploy; `support_users` tem coluna `empresa`
+- **Instância WhatsApp**: `SUPPORT_WHATSAPP_INSTANCE` (default `voetur-support`); JID completo (`@lid`/`@s.whatsapp.net`) passado no sendText; `linkPreview: false` em todos os envios
 - **Rotas admin**: `GET /api/support/conversations|tickets|users` — requer role `admin` ou `support`
+- **URL de suporte**: `https://suporte.voetur.com.br/` — aparece nas mensagens de erro de ticket
 
 ## Módulo Gastos TI (expenses-service:8006)
 
