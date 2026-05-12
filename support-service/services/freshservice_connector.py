@@ -121,20 +121,19 @@ class FreshserviceConnector:
         description: str,
         email: str,
         workspace_id: int,
-        category: str,
-        subcategory: str,
+        empresa: str = "",
     ) -> dict:
-        body = {
+        body: dict = {
             "subject": subject,
             "description": description,
             "email": email,
             "workspace_id": workspace_id,
-            "category": category,
-            "sub_category": subcategory,
             "source": 1,
             "status": 2,
             "priority": 2,
         }
+        if empresa:
+            body["custom_fields"] = {"empresa": empresa}
         return self._post("/tickets", body)
 
     def get_tickets_by_requester(self, email: str, workspace_id: int | None = None) -> list[dict]:

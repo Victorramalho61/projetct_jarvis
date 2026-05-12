@@ -70,6 +70,18 @@ CATALOG: dict[str, dict] = {
 
 _EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
 
+EMPRESAS = {
+    "1": "VTC OPERADORA LOGÍSTICA (Matriz)",
+    "2": "VOETUR TURISMO (Matriz)",
+    "3": "VIP CARGAS BRASÍLIA (Matriz)",
+    "4": "VIP SERVICE CLUB MARINA (Matriz)",
+    "5": "VIP CARGAS RIO (MATRIZ)",
+}
+EMPRESA_MSG = (
+    "🏢 Qual é a sua empresa?\n\n"
+    + "\n".join(f"{k} - {v}" for k, v in EMPRESAS.items())
+)
+
 WELCOME = (
     "👋 Olá! Sou o *VoeIA*, seu assistente de suporte da Voetur.\n\n"
     "Para começar, por favor me informe seu *e-mail corporativo*:"
@@ -175,7 +187,6 @@ class ConversationFSM:
     def _handle_onboarding_confirm_fs(self, phone, text, ctx, user, db):
         requester = ctx.get("fs_requester", {})
         if text == "1":
-            # Profile confirmed from FS
             location = requester.get("location_name") or ""
             if not location:
                 return (
@@ -183,15 +194,13 @@ class ConversationFSM:
                     "onboarding_ask_location_fs",
                     ctx,
                 )
-            # Save user and go to catalog
             self._upsert_user(db, phone, {
                 "email": requester.get("primary_email", ""),
                 "name": requester.get("name", ""),
                 "freshservice_requester_id": requester.get("id"),
                 "location": location,
-                "profile_complete": True,
             })
-            return CATALOG_MSG, "selecting_catalog", {}
+            return EMPRESA_MSG, "onboarding_empresa", {}
         else:
             return (
                 "Sem problemas! Vamos preencher manualmente.\n\nQual é o seu *nome completo*?",
@@ -206,8 +215,14 @@ class ConversationFSM:
             "name": requester.get("name", ""),
             "freshservice_requester_id": requester.get("id"),
             "location": text.strip(),
-            "profile_complete": True,
         })
+        return EMPRESA_MSG, "onboarding_empresa", {}
+
+    def _handle_onboarding_empresa(self, phone, text, ctx, user, db):
+        if text not in EMPRESAS:
+            return (EMPRESA_MSG + "\n\nDigite o número da sua empresa (1–5).", "onboarding_empresa", ctx)
+        empresa = EMPRESAS[text]
+        self._upsert_user(db, phone, {"empresa": empresa, "profile_complete": True})
         return CATALOG_MSG, "selecting_catalog", {}
 
     def _handle_onboarding_name(self, phone, text, ctx, user, db):
@@ -249,9 +264,8 @@ class ConversationFSM:
                 "name": ctx.get("name", ""),
                 "company": ctx.get("company", ""),
                 "location": ctx.get("location", ""),
-                "profile_complete": True,
             })
-            return CATALOG_MSG, "selecting_catalog", {}
+            return EMPRESA_MSG, "onboarding_empresa", {}
         return (
             "Sem problemas! Vamos recomeçar.\n\nQual é o seu *nome completo*?",
             "onboarding_name",
@@ -325,12 +339,10 @@ class ConversationFSM:
         user_row = db.table("support_users").select("*").eq("phone", phone).execute()
         u = user_row.data[0] if user_row.data else {}
         email = u.get("email", "")
+        empresa = u.get("empresa", "")
         workspace_id = ctx.get("workspace_id", 2)
-        dept = CATALOG.get(ctx.get("catalog_key", ""), {})
-        category = dept.get("category", "Suporte")
-        subcategory = ctx.get("subcategory", "Outros")
         description = ctx.get("description", "")
-        subject = ctx.get("subject", subcategory)
+        subject = ctx.get("subject", ctx.get("subcategory", "Solicitação"))
 
         try:
             result = self._fs.create_ticket(
@@ -338,8 +350,7 @@ class ConversationFSM:
                 description=description,
                 email=email,
                 workspace_id=workspace_id,
-                category=category,
-                subcategory=subcategory,
+                empresa=empresa,
             )
             ticket = result.get("ticket", {})
             ticket_id = ticket.get("id")
@@ -359,7 +370,10 @@ class ConversationFSM:
                 reply = "⚠️ Chamado criado, mas não consegui obter o número. Nossa equipe entrará em contato."
         except Exception as exc:
             logger.error("create_ticket error for %s: %s", phone, exc)
-            reply = "❌ Erro ao abrir chamado. Tente novamente ou contate o suporte diretamente."
+            reply = (
+                "❌ Erro ao abrir chamado. Tente novamente ou acesse o portal:\n"
+                "https://suporte.voetur.com.br/"
+            )
 
         return reply, "idle", {}
 
