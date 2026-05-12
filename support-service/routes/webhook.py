@@ -37,7 +37,10 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
         if "@g.us" in remote_jid:
             return JSONResponse({"ok": True})
 
+        # Use only the numeric part as DB key; keep full JID for sending
+        # (@lid contacts need the full JID, @s.whatsapp.net works with number only)
         phone = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
+        send_to = remote_jid  # pass full JID to Evolution API
         if not phone:
             return JSONResponse({"ok": True})
 
@@ -62,7 +65,7 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     await client.post(
                         url,
-                        json={"number": phone, "text": reply},
+                        json={"number": send_to, "text": reply},
                         headers={"apikey": s.whatsapp_api_key},
                     )
             except httpx.ReadTimeout:
