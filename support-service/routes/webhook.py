@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 _fsm = ConversationFSM()
 
 
-@router.post("/webhook/whatsapp")
+@router.post("/webhooks/whatsapp")
 async def whatsapp_webhook(request: Request) -> JSONResponse:
     try:
         payload = await request.json()
@@ -76,7 +76,7 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
     return JSONResponse({"ok": True})
 
 
-@router.post("/webhook/freshservice")
+@router.post("/webhooks/freshservice")
 async def freshservice_webhook(
     request: Request,
     secret: str = Query(default=""),
