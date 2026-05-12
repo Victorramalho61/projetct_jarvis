@@ -122,16 +122,21 @@ class FreshserviceConnector:
         email: str,
         workspace_id: int,
         empresa: str = "",
+        requester_id: int | None = None,
     ) -> dict:
         body: dict = {
             "subject": subject,
             "description": description,
-            "email": email,
             "workspace_id": workspace_id,
             "source": 1,
             "status": 2,
             "priority": 2,
         }
+        # Agents must use requester_id; requesters use email
+        if requester_id:
+            body["requester_id"] = requester_id
+        else:
+            body["email"] = email
         if empresa:
             body["custom_fields"] = {"empresa": empresa}
         return self._post("/tickets", body)

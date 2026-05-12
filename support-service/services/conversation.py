@@ -340,6 +340,7 @@ class ConversationFSM:
         u = user_row.data[0] if user_row.data else {}
         email = u.get("email", "")
         empresa = u.get("empresa", "")
+        requester_id = u.get("freshservice_requester_id")
         workspace_id = ctx.get("workspace_id", 2)
         description = ctx.get("description", "")
         subject = ctx.get("subject", ctx.get("subcategory", "Solicitação"))
@@ -351,6 +352,7 @@ class ConversationFSM:
                 email=email,
                 workspace_id=workspace_id,
                 empresa=empresa,
+                requester_id=requester_id,
             )
             ticket = result.get("ticket", {})
             ticket_id = ticket.get("id")
