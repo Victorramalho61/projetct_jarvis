@@ -2,7 +2,7 @@
 
 ## Arquitetura
 
-6 microsserviços FastAPI (Python 3.11) + React frontend + Supabase self-hosted, orquestrados via Docker Compose. Kong roteia `/api/*` para cada serviço.
+7 microsserviços FastAPI (Python 3.11) + React frontend + Supabase self-hosted, orquestrados via Docker Compose. Kong roteia `/api/*` para cada serviço.
 
 ```
 nginx:443 → Kong:8000 → core-service:8001        (/api/auth, /api/users, /api/admin, /api/health)
@@ -11,13 +11,14 @@ nginx:443 → Kong:8000 → core-service:8001        (/api/auth, /api/users, /ap
                       → moneypenny-service:8004   (/api/moneypenny/*)
                       → agents-service:8005       (/api/agents/*)
                       → expenses-service:8006     (/api/expenses/*, /api/expenses/governance/*)
+                      → support-service:8007      (/api/support/*)
 ```
 
 Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-service` via HTTP interno com JWT (com `exp` de 5 min) gerado em `agent_runner.py`. Header `X-Trace-ID` é propagado em todas as chamadas.
 
 ## Regras importantes
 
-- **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas nos 6.
+- **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas nos 7.
 - **app_logger.py** aceita `trace_id` opcional — sempre passar quando disponível via `current_trace_id.get()` do `main.py`.
 - **Autenticação**: rotas admin usam `Depends(require_role("admin"))`, nunca `get_current_user` diretamente em rotas protegidas.
 - **Deploy**: `deploy.sh` na raiz → `docker compose up -d --build`. CI/CD via GitHub Actions (self-hosted runner no servidor).
@@ -39,9 +40,22 @@ Inter-serviço: `agents-service` chama `freshservice-service` e `expenses-servic
 - `app_logs.trace_id` — coluna adicionada ao schema; permite correlacionar logs entre serviços pelo mesmo `X-Trace-ID`
 - `run_error_growth_check()` em `monitoring-service/services/log_monitor.py` — roda a cada 6h, detecta módulos com crescimento ≥ 80% de erros e envia alerta interno + abre GitHub issue
 - **Alerta WhatsApp automático desabilitado temporariamente** — estava gerando ruído excessivo; substituído por alertas internos até reavaliação
-- `/ready` padronizado em todos os 6 serviços: `{status, service, uptime_seconds, components: {...}}`
+- `/ready` padronizado em todos os 7 serviços: `{status, service, uptime_seconds, components: {...}}`
 - **Performance**: otimizações em todo o sistema para reduzir uso de recursos e corrigir bugs de bloqueio assíncrono.
 - **Indexação**: adicionado índice em `agent_messages(to_agent, status, created_at)` para melhorar performance de consultas.
+
+## VoeIA — Central de Demandas WhatsApp (support-service:8007)
+
+Bot de suporte via WhatsApp que gerencia onboarding de usuários e abertura/acompanhamento de chamados no Freshservice.
+
+- **FSM**: 12 estados em `services/conversation.py`; estado + contexto persistidos em `support_conversations.state` + `.context` (JSONB)
+- **Onboarding**: busca requester por e-mail no Freshservice → confirma dados → coleta manualmente se não encontrado
+- **Catálogo**: 5 departamentos (TI→ws2, Financeiro→ws5, RH→ws6, Operações→ws13, Suprimentos→ws18) com subcategorias
+- **Tickets**: cria via `POST /api/v2/tickets`; persiste phone↔ticket_id em `support_tickets`
+- **Notificações**: webhook Freshservice `POST /api/support/webhook/freshservice?secret=…` → `notification_worker.py` (idempotente via UNIQUE `(freshservice_ticket_id, event_type)`)
+- **Schema**: `schema_support.sql` na raiz — rodar no Supabase antes do primeiro deploy
+- **Instância WhatsApp**: variável `SUPPORT_WHATSAPP_INSTANCE` (default `voetur-support`) — separada da instância do moneypenny
+- **Rotas admin**: `GET /api/support/conversations|tickets|users` — requer role `admin` ou `support`
 
 ## Módulo Gastos TI (expenses-service:8006)
 
