@@ -64,21 +64,55 @@ class FreshserviceConnector:
         return {}
 
     def search_requester_by_email(self, email: str) -> dict | None:
+        """Busca por e-mail em requesters e, como fallback, em agents."""
         try:
             data = self._get("/requesters", {"query": f"\"primary_email:'{email}'\"", "per_page": 1})
             requesters = data.get("requesters", [])
-            if not requesters:
-                return None
-            r = requesters[0]
-            return {
-                "id": r.get("id"),
-                "name": r.get("first_name", "") + (" " + r.get("last_name", "") if r.get("last_name") else ""),
-                "primary_email": r.get("primary_email", ""),
-                "location_name": r.get("location_name"),
-                "department_names": r.get("department_names", []),
-            }
+            if requesters:
+                r = requesters[0]
+                return {
+                    "id": r.get("id"),
+                    "name": (r.get("first_name", "") + " " + (r.get("last_name") or "")).strip(),
+                    "primary_email": r.get("primary_email", ""),
+                    "location_name": r.get("location_name"),
+                    "department_names": r.get("department_names", []),
+                }
         except Exception as exc:
             logger.error("search_requester_by_email error: %s", exc)
+            return None
+
+        # Fallback: agents (admins/support staff also open tickets)
+        try:
+            data = self._get("/agents", {"query": f"\"email:'{email}'\"", "per_page": 1})
+            agents = data.get("agents", [])
+            if not agents:
+                return None
+            a = agents[0]
+            location_name = self._resolve_location(a.get("location_id"))
+            dept_names = [self._resolve_department(d) for d in (a.get("department_ids") or [])]
+            return {
+                "id": a.get("id"),
+                "name": (a.get("first_name", "") + " " + (a.get("last_name") or "")).strip(),
+                "primary_email": a.get("email", ""),
+                "location_name": location_name,
+                "department_names": [d for d in dept_names if d],
+            }
+        except Exception as exc:
+            logger.error("search_agent_by_email error: %s", exc)
+            return None
+
+    def _resolve_location(self, location_id: int | None) -> str | None:
+        if not location_id:
+            return None
+        try:
+            return self._get(f"/locations/{location_id}").get("location", {}).get("name")
+        except Exception:
+            return None
+
+    def _resolve_department(self, dept_id: int) -> str | None:
+        try:
+            return self._get(f"/departments/{dept_id}").get("department", {}).get("name")
+        except Exception:
             return None
 
     def create_ticket(
