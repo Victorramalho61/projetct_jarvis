@@ -554,11 +554,11 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8007/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8007/health', timeout=4)\""]
       interval: 300s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 30s
 
   monitor-agent:
     build:
