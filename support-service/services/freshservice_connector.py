@@ -76,6 +76,8 @@ class FreshserviceConnector:
                     "primary_email": r.get("primary_email", ""),
                     "location_name": r.get("location_name"),
                     "department_names": r.get("department_names", []),
+                    "company_id": r.get("company_id"),
+                    "company_name": self._resolve_company(r.get("company_id")),
                 }
         except Exception as exc:
             logger.error("search_requester_by_email error: %s", exc)
@@ -96,6 +98,8 @@ class FreshserviceConnector:
                 "primary_email": a.get("email", ""),
                 "location_name": location_name,
                 "department_names": [d for d in dept_names if d],
+                "company_id": None,
+                "company_name": None,
             }
         except Exception as exc:
             logger.error("search_agent_by_email error: %s", exc)
@@ -112,6 +116,14 @@ class FreshserviceConnector:
     def _resolve_department(self, dept_id: int) -> str | None:
         try:
             return self._get(f"/departments/{dept_id}").get("department", {}).get("name")
+        except Exception:
+            return None
+
+    def _resolve_company(self, company_id: int | None) -> str | None:
+        if not company_id:
+            return None
+        try:
+            return self._get(f"/companies/{company_id}").get("company", {}).get("name")
         except Exception:
             return None
 

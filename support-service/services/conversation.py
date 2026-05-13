@@ -82,6 +82,27 @@ EMPRESA_MSG = (
     + "\n".join(f"{k} - {v}" for k, v in EMPRESAS.items())
 )
 
+# Mapeamento do nome da empresa no Freshservice (company.name) para a chave local
+_FS_COMPANY_TO_EMPRESA_KEY: dict[str, str] = {
+    "vtc operadora logística": "1",
+    "vtc operadora logistica": "1",
+    "voetur turismo": "2",
+    "vip cargas brasília": "3",
+    "vip cargas brasilia": "3",
+    "vip service club marina": "4",
+    "vip cargas rio": "5",
+}
+
+
+def _match_empresa_key(company_name: str | None) -> str | None:
+    if not company_name:
+        return None
+    return _FS_COMPANY_TO_EMPRESA_KEY.get(company_name.lower().strip())
+
+
+def _is_back(text: str) -> bool:
+    return text.strip().lower() in {"voltar", "0", "menu", "início", "inicio"}
+
 WELCOME = (
     "👋 Olá! Sou o *VoeIA*, seu assistente de suporte da Voetur.\n\n"
     "Para começar, por favor me informe seu *e-mail corporativo*:"
@@ -163,19 +184,24 @@ class ConversationFSM:
             name = requester.get("name", "").strip()
             location = requester.get("location_name") or ""
             depts = ", ".join(requester.get("department_names") or []) or "—"
+            empresa_key = _match_empresa_key(requester.get("company_name"))
+            empresa_name = EMPRESAS.get(empresa_key, "") if empresa_key else ""
+            empresa_line = f"*Empresa:* {empresa_name}\n" if empresa_name else ""
             msg = (
                 f"✅ Encontrei seu cadastro:\n\n"
                 f"*Nome:* {name}\n"
                 f"*E-mail:* {requester['primary_email']}\n"
                 f"*Filial:* {location or '(não informada)'}\n"
-                f"*Departamento(s):* {depts}\n\n"
-                f"Esses dados estão corretos?\n"
+                f"*Departamento(s):* {depts}\n"
+                f"{empresa_line}"
+                f"\nEsses dados estão corretos?\n"
                 f"1 - ✅ Sim\n"
                 f"2 - ❌ Não, quero corrigir"
             )
             return msg, "onboarding_confirm_fs", {
                 "email": text,
                 "fs_requester": requester,
+                "empresa_key": empresa_key,
             }
         else:
             return (
@@ -194,13 +220,21 @@ class ConversationFSM:
                     "onboarding_ask_location_fs",
                     ctx,
                 )
-            self._upsert_user(db, phone, {
+            empresa_key = ctx.get("empresa_key")
+            upsert_data = {
                 "email": requester.get("primary_email", ""),
                 "name": requester.get("name", ""),
                 "freshservice_requester_id": requester.get("id"),
                 "location": location,
-            })
-            return EMPRESA_MSG, "onboarding_empresa", {}
+            }
+            if empresa_key:
+                upsert_data["empresa"] = EMPRESAS[empresa_key]
+                upsert_data["profile_complete"] = True
+                self._upsert_user(db, phone, upsert_data)
+                return CATALOG_MSG, "selecting_catalog", {}
+            else:
+                self._upsert_user(db, phone, upsert_data)
+                return EMPRESA_MSG, "onboarding_empresa", {}
         else:
             return (
                 "Sem problemas! Vamos preencher manualmente.\n\nQual é o seu *nome completo*?",
@@ -210,13 +244,21 @@ class ConversationFSM:
 
     def _handle_onboarding_ask_location_fs(self, phone, text, ctx, user, db):
         requester = ctx.get("fs_requester", {})
-        self._upsert_user(db, phone, {
+        empresa_key = ctx.get("empresa_key")
+        upsert_data = {
             "email": requester.get("primary_email", ""),
             "name": requester.get("name", ""),
             "freshservice_requester_id": requester.get("id"),
             "location": text.strip(),
-        })
-        return EMPRESA_MSG, "onboarding_empresa", {}
+        }
+        if empresa_key:
+            upsert_data["empresa"] = EMPRESAS[empresa_key]
+            upsert_data["profile_complete"] = True
+            self._upsert_user(db, phone, upsert_data)
+            return CATALOG_MSG, "selecting_catalog", {}
+        else:
+            self._upsert_user(db, phone, upsert_data)
+            return EMPRESA_MSG, "onboarding_empresa", {}
 
     def _handle_onboarding_empresa(self, phone, text, ctx, user, db):
         if text not in EMPRESAS:
@@ -281,17 +323,19 @@ class ConversationFSM:
             )
         dept = CATALOG[text]
         subs = "\n".join(f"{k} - {v}" for k, v in dept["subcategories"].items())
-        msg = f"*{dept['label']}* — Selecione a subcategoria:\n\n{subs}"
+        msg = f"*{dept['label']}* — Selecione a subcategoria:\n\n{subs}\n\n0 - ↩️ Voltar"
         return msg, "selecting_subcategory", {"catalog_key": text, "workspace_id": dept["workspace_id"]}
 
     def _handle_selecting_subcategory(self, phone, text, ctx, user, db):
+        if _is_back(text):
+            return CATALOG_MSG, "selecting_catalog", {}
         catalog_key = ctx.get("catalog_key", "")
         dept = CATALOG.get(catalog_key, {})
         subcategories = dept.get("subcategories", {})
         if text not in subcategories:
             subs = "\n".join(f"{k} - {v}" for k, v in subcategories.items())
             return (
-                f"Opção inválida. Escolha:\n\n{subs}",
+                f"Opção inválida. Escolha:\n\n{subs}\n\n0 - ↩️ Voltar",
                 "selecting_subcategory",
                 ctx,
             )
@@ -299,28 +343,33 @@ class ConversationFSM:
         msg = (
             f"O que você deseja fazer?\n\n"
             f"1 - 📝 Abrir novo chamado\n"
-            f"2 - 🔍 Consultar chamados em aberto"
+            f"2 - 🔍 Consultar chamados em aberto\n"
+            f"0 - ↩️ Voltar"
         )
         return msg, "selecting_action", {**ctx, "subcategory": subcategory}
 
     def _handle_selecting_action(self, phone, text, ctx, user, db):
+        if _is_back(text):
+            return CATALOG_MSG, "selecting_catalog", {}
         if text == "1":
             return (
-                "Descreva sua solicitação com detalhes:",
+                "Descreva sua solicitação com detalhes:\n\n_(Digite 0 para voltar ao menu)_",
                 "collecting_description",
                 ctx,
             )
         elif text == "2":
             return self._list_open_tickets(phone, ctx, user, db)
         return (
-            "Opção inválida. Digite:\n1 - Abrir novo chamado\n2 - Consultar chamados em aberto",
+            "Opção inválida. Digite:\n1 - Abrir novo chamado\n2 - Consultar chamados em aberto\n0 - ↩️ Voltar",
             "selecting_action",
             ctx,
         )
 
     def _handle_collecting_description(self, phone, text, ctx, user, db):
+        if _is_back(text):
+            return CATALOG_MSG, "selecting_catalog", {}
         if len(text) < 5:
-            return ("Descrição muito curta. Por favor, detalhe melhor sua solicitação.", "collecting_description", ctx)
+            return ("Descrição muito curta. Por favor, detalhe melhor sua solicitação.\n\n_(Digite 0 para voltar ao menu)_", "collecting_description", ctx)
         dept = CATALOG.get(ctx.get("catalog_key", ""), {})
         subject = f"[{dept.get('category', 'Suporte')}] {ctx.get('subcategory', 'Solicitação')}"
         msg = (
@@ -328,11 +377,14 @@ class ConversationFSM:
             f"*Assunto:* {subject}\n"
             f"*Descrição:* {text[:200]}{'...' if len(text) > 200 else ''}\n\n"
             f"1 - ✅ Confirmar\n"
-            f"2 - ❌ Cancelar"
+            f"2 - ❌ Cancelar\n"
+            f"0 - ↩️ Voltar ao menu"
         )
         return msg, "confirming_ticket", {**ctx, "description": text, "subject": subject}
 
     def _handle_confirming_ticket(self, phone, text, ctx, user, db):
+        if _is_back(text):
+            return CATALOG_MSG, "selecting_catalog", {}
         if text != "1":
             return ("Chamado cancelado. " + CATALOG_MSG, "selecting_catalog", {})
 

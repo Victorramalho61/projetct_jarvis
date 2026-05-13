@@ -123,6 +123,92 @@ Tabelas: `support_users` (+ coluna `empresa`), `support_conversations`, `support
 
 ---
 
+## VoeIA — Changelog
+
+### 2026-05-13 — Fix deduplicação webhook + health check Docker
+
+**Problema:** A Evolution API entrega o mesmo evento webhook duas vezes; sem deduplicação o bot processava e respondia em duplicata. O health check do container travava indefinidamente (uvicorn sem timeout→Docker matava com ExitCode -1).
+
+**Arquivos:** `support-service/routes/webhook.py`, `docker-compose.yml`
+
+- `webhook.py`: adicionado `_is_duplicate(msg_id)` — cache `OrderedDict` com TTL de 60s e limite de 1000 entradas; retorna 200 imediatamente para mensagens já vistas
+- `docker-compose.yml`: `urlopen` no health check recebe `timeout=4`; `start_period` aumentado de 10s para 30s
+
+---
+
+### 2026-05-13 — Missão 1: Auto-detecção de empresa via Freshservice
+
+**Problema:** Após encontrar o usuário no Freshservice e confirmar os dados, o bot ainda pedia para escolher manualmente entre as 5 empresas — passo redundante.
+
+**Arquivos:** `support-service/services/freshservice_connector.py`, `support-service/services/conversation.py`
+
+- `freshservice_connector.py`: `search_requester_by_email()` agora extrai `company_id` e resolve o nome via `GET /companies/{id}` (novo método `_resolve_company()`); retorna campo `company_name`
+- `conversation.py`: adicionado `_FS_COMPANY_TO_EMPRESA_KEY` (mapeamento nome FS → chave 1–5) e `_match_empresa_key()`; quando Freshservice retorna empresa reconhecida, o campo `empresa` é salvo automaticamente e o passo `onboarding_empresa` é pulado
+
+**Fallback:** Se `company_id` for nulo ou o nome não bater com nenhuma chave → fluxo original (usuário escolhe manualmente).
+
+**Mapeamento atual:**
+
+| Nome no Freshservice | Empresa local |
+|---|---|
+| `voetur turismo` | VOETUR TURISMO (Matriz) |
+| `vtc operadora logística` | VTC OPERADORA LOGÍSTICA (Matriz) |
+| `vip cargas brasília` | VIP CARGAS BRASÍLIA (Matriz) |
+| `vip service club marina` | VIP SERVICE CLUB MARINA (Matriz) |
+| `vip cargas rio` | VIP CARGAS RIO (MATRIZ) |
+
+Para adicionar/corrigir: editar `_FS_COMPANY_TO_EMPRESA_KEY` em `conversation.py`.
+
+---
+
+### 2026-05-13 — Missão 2: Navegação "voltar" nas fases de abertura de chamado
+
+**Problema:** Usuário sem poder voltar ao menu de departamentos após avançar nas etapas — precisava recomeçar a conversa.
+
+**Arquivo:** `support-service/services/conversation.py`
+
+Adicionada função `_is_back(text)` que reconhece: `0`, `voltar`, `menu`, `início`, `inicio`.
+
+Nos estados abaixo, digitar qualquer dessas palavras retorna imediatamente ao menu de departamentos (`selecting_catalog`) sem resetar o cadastro do usuário:
+
+| Estado | Trigger de volta |
+|---|---|
+| `selecting_subcategory` | `0` / `voltar` |
+| `selecting_action` | `0` / `voltar` |
+| `collecting_description` | `0` / `voltar` |
+| `confirming_ticket` | `0` / `voltar` |
+
+Mensagens atualizadas para exibir a opção `0 - ↩️ Voltar` visualmente.
+
+---
+
+### 2026-05-13 — Missão 3: Docker auto-start no boot do Windows Server
+
+**Problema:** Após reinicialização do servidor, os containers não subiam automaticamente — `setup-autostart.ps1` nunca havia sido executado.
+
+**Solução:** Executar como Administrador:
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+E:\claudecode\claudecode\setup-autostart.ps1
+```
+
+Isso registra a task `Jarvis-Docker-Startup` no Task Scheduler do Windows com:
+- Trigger: `AtStartup`
+- Principal: `NT AUTHORITY\SYSTEM` (Highest)
+- Ação: executa `E:\claudecode\claudecode\jarvis-startup.bat`
+
+O script `jarvis-startup.bat`: inicia Docker Desktop → aguarda até 120s → `docker compose up -d` → aplica memory limits.
+
+**Verificação:**
+```powershell
+Get-ScheduledTask -TaskName "Jarvis-Docker-Startup"
+# State: Ready
+```
+
+**Log de execução:** `C:\Windows\Temp\jarvis-startup.log`
+
+---
+
 ## Módulo Gastos TI — expenses-service:8006
 
 Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorporativo`).
