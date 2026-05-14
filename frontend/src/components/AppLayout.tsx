@@ -37,10 +37,12 @@ export default function AppLayout() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
   const notifRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const userDropdownRef = useRef<HTMLDivElement>(null);
 
   const MODULES_BY_NAV_ID: Record<string, string> = {
     desempenho: "desempenho",
@@ -72,6 +74,7 @@ export default function AppLayout() {
     function onClickOutside(e: MouseEvent) {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
       if (searchRef.current && !searchRef.current.contains(e.target as Node)) setSearchOpen(false);
+      if (userDropdownRef.current && !userDropdownRef.current.contains(e.target as Node)) setUserDropdownOpen(false);
     }
     document.addEventListener("mousedown", onClickOutside);
     return () => document.removeEventListener("mousedown", onClickOutside);
@@ -88,6 +91,7 @@ export default function AppLayout() {
       if (e.key === "Escape") {
         setSearchOpen(false);
         setNotifOpen(false);
+        setUserDropdownOpen(false);
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -377,33 +381,94 @@ const filteredNav = visible.filter((i) =>
         </div>
 
         {/* Usuário */}
-        <div className="hidden sm:flex items-center gap-3 pl-3 border-l border-white/10">
-          <div className="text-right leading-tight">
-            <div className="text-[13px] font-semibold">{user?.display_name}</div>
-            <div className="mt-0.5 flex items-center justify-end">
-              <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
-                user?.role === "admin"
-                  ? "bg-brand-deep text-white"
-                  : "bg-transparent border border-white/30 text-white"
-              }`}>
-                {({
-                  admin: "Admin",
-                  user: "Colaborador",
-                  rh: "RH",
-                  gestor: "Gestor",
-                  coordenador: "Coordenador",
-                  supervisor: "Supervisor",
-                  colaborador: "Colaborador",
-                } as Record<string, string>)[user?.role ?? "user"] ?? user?.role}
-              </span>
-            </div>
-          </div>
-          <Link
-            to="/perfil"
-            className="h-9 w-9 rounded-full bg-brand-green grid place-items-center text-white font-semibold text-sm hover:bg-brand-deep transition-colors"
+        <div className="relative hidden sm:flex items-center gap-3 pl-3 border-l border-white/10" ref={userDropdownRef}>
+          <button
+            onClick={() => setUserDropdownOpen((v) => !v)}
+            className="flex items-center gap-3 rounded-lg px-2 py-1 hover:bg-white/10 transition-colors"
           >
-            {initials}
-          </Link>
+            <div className="text-right leading-tight">
+              <div className="text-[13px] font-semibold">{user?.display_name}</div>
+              <div className="mt-0.5 flex items-center justify-end gap-1">
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                  user?.role === "admin"
+                    ? "bg-brand-deep text-white"
+                    : "bg-transparent border border-white/30 text-white"
+                }`}>
+                  {({
+                    admin: "Admin",
+                    user: "Colaborador",
+                    rh: "RH",
+                    gestor: "Gestor",
+                    coordenador: "Coordenador",
+                    supervisor: "Supervisor",
+                    colaborador: "Colaborador",
+                  } as Record<string, string>)[user?.role ?? "user"] ?? user?.role}
+                </span>
+                <svg className={`w-3 h-3 text-white/60 transition-transform ${userDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </div>
+            </div>
+            <div className="h-9 w-9 rounded-full bg-brand-green grid place-items-center text-white font-semibold text-sm">
+              {initials}
+            </div>
+          </button>
+
+          {userDropdownOpen && (
+            <div className="absolute right-0 top-full mt-2 w-72 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-pop z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800">
+                <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{user?.display_name}</p>
+                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">{user?.email}</p>
+              </div>
+
+              <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-800">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-2">Meus acessos</p>
+                <div className="space-y-1.5">
+                  {visible.filter((i) => i.id !== "home").map((item) => {
+                    const isAdmin = user?.role === "admin";
+                    return (
+                      <div
+                        key={item.id}
+                        className="flex items-center justify-between gap-2 cursor-pointer group"
+                        onClick={() => { navigate(item.path); setUserDropdownOpen(false); }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-gray-400 dark:text-gray-500 shrink-0">
+                            <Icon name={item.icon} size={14} />
+                          </span>
+                          <span className="text-sm text-gray-700 dark:text-gray-300 group-hover:text-brand-deep dark:group-hover:text-brand-mid truncate transition-colors">
+                            {item.label}
+                          </span>
+                        </div>
+                        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                          isAdmin
+                            ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
+                            : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                        }`}>
+                          {isAdmin ? "Administrador" : "Padrão"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="px-4 py-2.5 flex items-center justify-between">
+                <button
+                  onClick={() => { navigate("/perfil"); setUserDropdownOpen(false); }}
+                  className="text-xs text-brand-green hover:underline"
+                >
+                  Meu perfil →
+                </button>
+                <button
+                  onClick={() => { logout(); setUserDropdownOpen(false); }}
+                  className="text-xs text-red-500 hover:underline"
+                >
+                  Sair
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Sair */}
