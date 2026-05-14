@@ -19,8 +19,6 @@ type Goal = {
   owner_id?: string;
 };
 
-type GoalAck = { goal_id: string; employee_id: string };
-
 type Review = {
   id: string;
   cycle_id: string;
@@ -506,8 +504,6 @@ function CyclesTab({ token }: { token: string | null }) {
       setOpening(null);
     }
   }
-
-  const cycleStatusLabels: Record<string, string> = { draft: "Rascunho", open: "Aberto", evaluation: "Avaliação", calibration: "Calibração", closed: "Fechado" };
 
   return (
     <div className="p-6">
