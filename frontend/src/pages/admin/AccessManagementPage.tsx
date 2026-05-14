@@ -3,6 +3,109 @@ import { useAuth } from "../../context/AuthContext";
 import { apiFetch, ApiError } from "../../lib/api";
 import { useToast } from "../../hooks/useToast";
 
+const ALL_MODULES = [
+  { id: "desempenho",   label: "Gestão de Desempenho" },
+  { id: "moneypenny",  label: "Moneypenny" },
+  { id: "monitoramento", label: "Monitoramento" },
+  { id: "freshservice", label: "Freshservice" },
+  { id: "agentes",     label: "Agentes" },
+  { id: "gastos_ti",   label: "Gastos TI" },
+  { id: "governanca",  label: "Governança" },
+  { id: "payfly",      label: "PayFly" },
+];
+
+const PERF_ROLES = new Set(["rh", "gestor", "coordenador", "supervisor", "colaborador"]);
+
+function ModulesPanel({
+  token,
+  username,
+  role,
+}: {
+  token: string | null;
+  username: string;
+  role: string;
+}) {
+  const { toast, showToast } = useToast();
+  const [selected, setSelected] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    apiFetch<{ allowed_modules: string[] }>(`/api/users/${username}/modules`, { token })
+      .then((d) => setSelected(d.allowed_modules))
+      .catch(() => showToast("Erro ao carregar módulos."))
+      .finally(() => setLoading(false));
+  }, [username, token]);
+
+  function toggle(id: string) {
+    setSelected((prev) => prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await apiFetch(`/api/users/${username}/modules`, {
+        method: "PATCH",
+        token,
+        json: { allowed_modules: selected },
+      });
+      showToast("Módulos atualizados.");
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Erro ao salvar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return <div className="mt-4 text-sm text-gray-400 dark:text-gray-500">Carregando módulos...</div>;
+
+  const isPerf = PERF_ROLES.has(role);
+
+  return (
+    <div className="mt-4 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
+      <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+        Módulos permitidos
+        <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(vazio = acesso total pelo perfil)</span>
+      </p>
+      <div className="space-y-2">
+        {ALL_MODULES.map((mod) => {
+          const forced = isPerf && mod.id === "desempenho";
+          const checked = forced || selected.includes(mod.id);
+          return (
+            <label
+              key={mod.id}
+              className={`flex items-center gap-3 cursor-pointer ${forced ? "opacity-60 cursor-not-allowed" : ""}`}
+            >
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={forced}
+                onChange={() => !forced && toggle(mod.id)}
+                className="rounded border-gray-300 dark:border-gray-600 text-voetur-600 focus:ring-voetur-500"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">{mod.label}</span>
+              {forced && <span className="text-xs text-gray-400 dark:text-gray-500">(obrigatório)</span>}
+            </label>
+          );
+        })}
+      </div>
+      <button
+        onClick={handleSave}
+        disabled={saving}
+        className="mt-4 rounded-lg bg-voetur-600 px-5 py-2 text-sm font-semibold text-white hover:bg-voetur-700 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-voetur-500 focus:ring-offset-2"
+      >
+        {saving ? "Salvando..." : "Salvar módulos"}
+      </button>
+    </div>
+  );
+}
+
 type Profile = {
   id: string;
   username: string;
@@ -307,6 +410,11 @@ export default function AccessManagementPage() {
             token={token}
             username={selectedUsername}
             isSelf={selectedUsername === currentUser?.username}
+          />
+          <ModulesPanel
+            token={token}
+            username={selectedUsername}
+            role={selectedProfile.role}
           />
         </div>
       )}

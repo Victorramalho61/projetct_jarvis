@@ -40,6 +40,7 @@ class UserInfo(BaseModel):
     email: str
     role: str
     active: bool
+    allowed_modules: list[str] = []
 
 
 class LoginResponse(BaseModel):
@@ -89,6 +90,7 @@ async def login(request: Request, body: LoginRequest) -> LoginResponse:
         "email": profile["email"],
         "role": profile["role"],
         "active": profile["active"],
+        "allowed_modules": profile.get("allowed_modules") or [],
     }
     log_event("info", "auth", f"Login: {profile['username']}", user_id=profile["id"])
     return LoginResponse(access_token=create_access_token(payload), user=UserInfo(**payload))

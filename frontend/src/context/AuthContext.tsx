@@ -9,6 +9,7 @@ export type User = {
   email: string;
   role: Role;
   active: boolean;
+  allowed_modules?: string[];
 };
 
 type AuthContextType = {

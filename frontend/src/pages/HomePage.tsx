@@ -1,4 +1,7 @@
 import { useAuth } from "../context/AuthContext";
+import PerformanceWidget from "../components/PerformanceWidget";
+
+const PERFORMANCE_ROLES = ["rh", "gestor", "coordenador", "supervisor", "colaborador"];
 
 export default function HomePage() {
   const { user } = useAuth();
@@ -22,6 +25,12 @@ export default function HomePage() {
           <p className="mt-1 font-semibold text-gray-900 dark:text-gray-100 capitalize">{user?.role}</p>
         </div>
       </div>
+
+      {user && PERFORMANCE_ROLES.includes(user.role) && (
+        <div className="mt-6 max-w-sm">
+          <PerformanceWidget />
+        </div>
+      )}
     </div>
   );
 }

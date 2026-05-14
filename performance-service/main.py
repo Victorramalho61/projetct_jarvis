@@ -26,6 +26,7 @@ from routes.competencies import router as competencies_router
 from routes.evidences import router as evidences_router
 from routes.kpis import router as kpis_router
 from routes.admin import router as admin_router
+from routes.notifications import router as notifications_router
 
 
 @asynccontextmanager
@@ -74,3 +75,4 @@ app.include_router(competencies_router)
 app.include_router(evidences_router)
 app.include_router(kpis_router)
 app.include_router(admin_router)
+app.include_router(notifications_router)

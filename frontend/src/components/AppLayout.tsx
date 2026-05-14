@@ -16,8 +16,8 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { id: "home",        label: "Início",          path: "/",                     icon: "home",      roles: ["admin", "user", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
   { id: "moneypenny", label: "Moneypenny",       path: "/moneypenny",           icon: "sparkle",   roles: ["admin", "user"] },
-  { id: "desempenho", label: "Desempenho",        path: "/desempenho",           icon: "chart",     roles: ["admin", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
-  { id: "access",     label: "Gestão de Acesso",  path: "/admin/acesso",         icon: "users",     roles: ["admin", "user", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
+  { id: "desempenho", label: "Gestão de Desempenho", path: "/desempenho",         icon: "chart",     roles: ["admin", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
+  { id: "access",     label: "Gestão de Acesso",  path: "/admin/acesso",         icon: "users",     roles: ["admin", "user"] },
   { id: "logs",       label: "Logs",              path: "/admin/logs",           icon: "file",      roles: ["admin"] },
   { id: "monitoring",   label: "Monitoramento",   path: "/admin/monitoramento",  icon: "chart",     roles: ["admin"] },
   { id: "freshservice", label: "Freshservice",    path: "/freshservice",         icon: "briefcase", roles: ["admin"] },
@@ -42,7 +42,24 @@ export default function AppLayout() {
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const visible = NAV_ITEMS.filter((i) => user && i.roles.includes(user.role));
+  const MODULES_BY_NAV_ID: Record<string, string> = {
+    desempenho: "desempenho",
+    moneypenny: "moneypenny",
+    monitoring: "monitoramento",
+    freshservice: "freshservice",
+    agents: "agentes",
+    expenses: "gastos_ti",
+    governance: "governanca",
+    payfly: "payfly",
+  };
+
+  const visible = NAV_ITEMS.filter((i) => {
+    if (!user || !i.roles.includes(user.role)) return false;
+    const modules = user.allowed_modules;
+    if (!modules || modules.length === 0) return true;
+    const mod = MODULES_BY_NAV_ID[i.id];
+    return !mod || modules.includes(mod);
+  });
 
   const initials = user?.display_name
     ?.split(" ")
@@ -89,12 +106,13 @@ const filteredNav = visible.filter((i) =>
   }
 
   const notifTypeStyle: Record<string, string> = {
-    down:           "bg-red-500",
-    degraded:       "bg-amber-500",
-    pending_user:   "bg-blue-500",
-    agent_proposal: "bg-orange-500",
-    cto_message:    "bg-indigo-500",
-    critical_event: "bg-red-600",
+    down:                "bg-red-500",
+    degraded:            "bg-amber-500",
+    pending_user:        "bg-blue-500",
+    agent_proposal:      "bg-orange-500",
+    cto_message:         "bg-indigo-500",
+    critical_event:      "bg-red-600",
+    performance_pending: "bg-violet-500",
   };
 
   // Badges movidos para AgentsDashboard (tabs internas)
@@ -345,6 +363,11 @@ const filteredNav = visible.filter((i) =>
                   {notifications.some((n) => n.type === "pending_user") && (
                     <button onClick={() => { navigate("/admin/acesso"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
                       Ver acessos →
+                    </button>
+                  )}
+                  {notifications.some((n) => n.type === "performance_pending") && (
+                    <button onClick={() => { navigate("/desempenho"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
+                      Ver desempenho →
                     </button>
                   )}
                 </div>

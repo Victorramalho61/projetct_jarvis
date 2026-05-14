@@ -107,6 +107,35 @@ async def update_active(
     return result.data[0]
 
 
+class UpdateModulesRequest(BaseModel):
+    allowed_modules: list[str]
+
+
+@router.get("/{username}/modules")
+async def get_user_modules(
+    username: str,
+    _: Annotated[dict, Depends(require_role("admin"))],
+) -> dict:
+    db = get_supabase()
+    result = db.table("profiles").select("allowed_modules").eq("username", username).execute()
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    return {"allowed_modules": result.data[0].get("allowed_modules") or []}
+
+
+@router.patch("/{username}/modules")
+async def update_user_modules(
+    username: str,
+    body: UpdateModulesRequest,
+    _: Annotated[dict, Depends(require_role("admin"))],
+) -> dict:
+    db = get_supabase()
+    result = db.table("profiles").update({"allowed_modules": body.allowed_modules}).eq("username", username).execute()
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    return {"allowed_modules": result.data[0].get("allowed_modules") or []}
+
+
 @router.delete("/{username}")
 async def delete_user(
     username: str,

@@ -4,7 +4,7 @@ import { apiFetch } from "../lib/api";
 
 export type Notification = {
   id: string;
-  type: "down" | "degraded" | "pending_user" | "agent_proposal" | "cto_message" | "critical_event";
+  type: "down" | "degraded" | "pending_user" | "agent_proposal" | "cto_message" | "critical_event" | "performance_pending";
   title: string;
   body: string;
   link?: string;
@@ -18,6 +18,8 @@ type NotificationSummary = {
   unread_inbox: number;
   critical_findings: number;
 };
+
+const PERFORMANCE_ROLES: string[] = ["rh", "gestor", "coordenador", "supervisor", "colaborador"];
 
 export function useNotifications() {
   const { token, user } = useAuth();
@@ -94,6 +96,26 @@ export function useNotifications() {
           body: "Eventos críticos não processados no orquestrador",
           link: "/admin/orquestrador",
         });
+      }
+
+      if (user && PERFORMANCE_ROLES.includes(user.role)) {
+        try {
+          const perfSummary = await apiFetch<{ total_pending: number }>(
+            "/api/performance/notifications/summary", { token }
+          );
+          if (perfSummary.total_pending > 0) {
+            const n = perfSummary.total_pending;
+            next.push({
+              id: "performance-pending",
+              type: "performance_pending",
+              title: `${n} pendência${n > 1 ? "s" : ""} em Desempenho`,
+              body: "Metas ou avaliações aguardando sua ação",
+              link: "/desempenho",
+            });
+          }
+        } catch {
+          /* silencioso */
+        }
       }
 
       setNotifications(next);
