@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import re
 from datetime import datetime, timezone
 
@@ -6,6 +6,19 @@ from db import get_supabase
 from services.freshservice_connector import FreshserviceConnector
 
 logger = logging.getLogger(__name__)
+
+TIMEOUT_SECONDS = 600  # 10 min de inatividade dispara prompt de retomada
+
+ONBOARDING_STATES = frozenset({
+    "onboarding_email",
+    "onboarding_confirm_fs",
+    "onboarding_ask_location_fs",
+    "onboarding_name",
+    "onboarding_company",
+    "onboarding_location",
+    "onboarding_final_confirm",
+    "onboarding_empresa",
+})
 
 CATALOG: dict[str, dict] = {
     "1": {
@@ -82,7 +95,6 @@ EMPRESA_MSG = (
     + "\n".join(f"{k} - {v}" for k, v in EMPRESAS.items())
 )
 
-# Mapeamento do nome da empresa no Freshservice (company.name) para a chave local
 _FS_COMPANY_TO_EMPRESA_KEY: dict[str, str] = {
     "vtc operadora logística": "1",
     "vtc operadora logistica": "1",
@@ -91,6 +103,13 @@ _FS_COMPANY_TO_EMPRESA_KEY: dict[str, str] = {
     "vip cargas brasilia": "3",
     "vip service club marina": "4",
     "vip cargas rio": "5",
+}
+
+_TICKET_STATUS_MAP = {
+    2: "Aberto 🟡",
+    3: "Pendente ⏳",
+    4: "Resolvido ✅",
+    5: "Fechado 🔒",
 }
 
 
@@ -102,6 +121,7 @@ def _match_empresa_key(company_name: str | None) -> str | None:
 
 def _is_back(text: str) -> bool:
     return text.strip().lower() in {"voltar", "0", "menu", "início", "inicio"}
+
 
 WELCOME = (
     "👋 Olá! Sou o *VoeIA*, seu assistente de suporte da Voetur.\n\n"
@@ -116,15 +136,22 @@ CATALOG_MSG = (
     "4 - ✈️ Operações\n"
     "5 - 📦 Suprimentos"
 )
+RESUME_MSG = (
+    "Sua conversa anterior ficou pausada por inatividade. 😴\n\n"
+    "Deseja continuar de onde parou?\n"
+    "*1* — Sim, continuar\n"
+    "*2* — Não, recomeçar do início"
+)
 
 
 class ConversationFSM:
     def __init__(self) -> None:
         self._fs = FreshserviceConnector()
 
-    def process(self, phone: str, text: str) -> str:
+    def process(self, phone: str, text: str, jid: str = "") -> str:
         db = get_supabase()
         text = text.strip()
+        now_iso = datetime.now(timezone.utc).isoformat()
 
         # Load or create conversation
         is_new = False
@@ -133,21 +160,22 @@ class ConversationFSM:
             conv = conv_res.data[0]
         else:
             is_new = True
-            db.table("support_conversations").insert(
-                {"phone": phone, "state": "onboarding_email", "context": {}}
-            ).execute()
+            db.table("support_conversations").insert({
+                "phone": phone,
+                "state": "onboarding_email",
+                "context": {},
+                "last_activity": now_iso,
+                "session_status": "active",
+                "session_jid": jid,
+            }).execute()
             conv_res2 = db.table("support_conversations").select("*").eq("phone", phone).execute()
             conv = conv_res2.data[0]
 
-        # If user has complete profile and is in idle, jump straight to catalog
+        # Load user profile
         user_res = db.table("support_users").select("*").eq("phone", phone).execute()
         user = user_res.data[0] if user_res.data else None
 
-        if user and user.get("profile_complete") and conv["state"] == "idle":
-            conv["state"] = "selecting_catalog"
-            self._save_conv(db, conv, {"state": "selecting_catalog"})
-
-        # New phone number: send welcome regardless of message content
+        # New contact: send welcome
         if is_new:
             self._log_messages(db, conv, text, WELCOME)
             return WELCOME
@@ -155,11 +183,42 @@ class ConversationFSM:
         state = conv["state"]
         ctx: dict = conv.get("context") or {}
 
+        # Inactivity timeout check — skips onboarding and resume states
+        if state not in ONBOARDING_STATES and state != "awaiting_resume":
+            last_activity = conv.get("last_activity")
+            if last_activity:
+                try:
+                    last_dt = datetime.fromisoformat(last_activity)
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                    if elapsed > TIMEOUT_SECONDS:
+                        resume_ctx = {
+                            "_pre_timeout_state": state,
+                            "_pre_timeout_context": dict(ctx),
+                        }
+                        self._save_conv(db, conv, {
+                            "state": "awaiting_resume",
+                            "context": resume_ctx,
+                            "session_status": "timed_out",
+                            "session_jid": jid or conv.get("session_jid") or "",
+                            "last_activity": now_iso,
+                        })
+                        self._log_messages(db, conv, text, RESUME_MSG)
+                        return RESUME_MSG
+                except Exception:
+                    pass
+
         handler = getattr(self, f"_handle_{state}", self._handle_unknown)
         reply, new_state, new_ctx = handler(phone, text, ctx, user, db)
 
-        if new_state != state or new_ctx != ctx:
-            self._save_conv(db, conv, {"state": new_state, "context": {**ctx, **new_ctx}})
+        self._save_conv(db, conv, {
+            "state": new_state,
+            "context": new_ctx,
+            "last_activity": now_iso,
+            "session_jid": jid or conv.get("session_jid") or "",
+            "session_status": "active",
+        })
 
         self._log_messages(db, conv, text, reply)
         return reply
@@ -168,7 +227,7 @@ class ConversationFSM:
 
     def _handle_onboarding_email(self, phone, text, ctx, user, db):
         if user and user.get("profile_complete"):
-            return CATALOG_MSG, "selecting_catalog", {}
+            return self._show_main_menu(phone, db)
 
         if not _EMAIL_RE.fullmatch(text):
             return (
@@ -178,7 +237,6 @@ class ConversationFSM:
                 {},
             )
 
-        # Look up in Freshservice
         requester = self._fs.search_requester_by_email(text)
         if requester:
             name = requester.get("name", "").strip()
@@ -231,7 +289,7 @@ class ConversationFSM:
                 upsert_data["empresa"] = EMPRESAS[empresa_key]
                 upsert_data["profile_complete"] = True
                 self._upsert_user(db, phone, upsert_data)
-                return CATALOG_MSG, "selecting_catalog", {}
+                return self._show_main_menu(phone, db)
             else:
                 self._upsert_user(db, phone, upsert_data)
                 return EMPRESA_MSG, "onboarding_empresa", {}
@@ -255,7 +313,7 @@ class ConversationFSM:
             upsert_data["empresa"] = EMPRESAS[empresa_key]
             upsert_data["profile_complete"] = True
             self._upsert_user(db, phone, upsert_data)
-            return CATALOG_MSG, "selecting_catalog", {}
+            return self._show_main_menu(phone, db)
         else:
             self._upsert_user(db, phone, upsert_data)
             return EMPRESA_MSG, "onboarding_empresa", {}
@@ -265,7 +323,7 @@ class ConversationFSM:
             return (EMPRESA_MSG + "\n\nDigite o número da sua empresa (1–5).", "onboarding_empresa", ctx)
         empresa = EMPRESAS[text]
         self._upsert_user(db, phone, {"empresa": empresa, "profile_complete": True})
-        return CATALOG_MSG, "selecting_catalog", {}
+        return self._show_main_menu(phone, db)
 
     def _handle_onboarding_name(self, phone, text, ctx, user, db):
         if len(text) < 2:
@@ -313,6 +371,29 @@ class ConversationFSM:
             "onboarding_name",
             {"email": ctx.get("email", "")},
         )
+
+    def _handle_awaiting_resume(self, phone, text, ctx, user, db):
+        if text.strip() == "1":
+            prev_state = ctx.get("_pre_timeout_state", "main_menu")
+            prev_ctx = ctx.get("_pre_timeout_context", {})
+            reply = "✅ Continuando de onde parou! Envie sua próxima mensagem."
+            return reply, prev_state, prev_ctx
+        else:
+            return self._show_main_menu(phone, db)
+
+    def _handle_main_menu(self, phone, text, ctx, user, db):
+        if text == "1":
+            return CATALOG_MSG, "selecting_catalog", {}
+        ticket_id = self._parse_ticket_number(text)
+        if ticket_id:
+            return self._fetch_ticket_status(ticket_id)
+        reply, state, new_ctx = self._show_main_menu(phone, db)
+        return reply, state, new_ctx
+
+    def _handle_viewing_ticket_status(self, phone, text, ctx, user, db):
+        if text == "1":
+            return CATALOG_MSG, "selecting_catalog", {}
+        return self._show_main_menu(phone, db)
 
     def _handle_selecting_catalog(self, phone, text, ctx, user, db):
         if text not in CATALOG:
@@ -432,15 +513,53 @@ class ConversationFSM:
         return reply, "idle", {}
 
     def _handle_awaiting_ticket_selection(self, phone, text, ctx, user, db):
-        return CATALOG_MSG, "selecting_catalog", {}
+        return self._show_main_menu(phone, db)
 
     def _handle_idle(self, phone, text, ctx, user, db):
-        return CATALOG_MSG, "selecting_catalog", {}
+        return self._show_main_menu(phone, db)
 
     def _handle_unknown(self, phone, text, ctx, user, db):
         return WELCOME, "onboarding_email", {}
 
     # ── helpers ──────────────────────────────────────────────────────
+
+    def _show_main_menu(self, phone: str, db) -> tuple[str, str, dict]:
+        """Exibe menu inicial: abrir novo chamado + lista de chamados abertos (se houver)."""
+        u = db.table("support_users").select("email").eq("phone", phone).execute()
+        email = u.data[0].get("email", "") if u.data else ""
+        tickets = self._fs.get_all_open_tickets(email) if email else []
+
+        if not tickets:
+            return CATALOG_MSG, "selecting_catalog", {}
+
+        lines = ["👋 Como posso ajudar?\n", "*1.* 📝 Abrir novo chamado\n", "📋 *Chamados em aberto:*"]
+        for t in tickets[:5]:
+            lines.append(f"#*{t.get('id')}* — {t.get('subject', '(sem assunto)')}")
+        lines.append("\n_Digite *1* para novo chamado ou o número do chamado para ver o status._")
+        return "\n".join(lines), "main_menu", {}
+
+    def _parse_ticket_number(self, text: str) -> int | None:
+        t = text.strip().lstrip("#")
+        if t.isdigit() and 1 <= len(t) <= 8:
+            return int(t)
+        return None
+
+    def _fetch_ticket_status(self, ticket_id: int) -> tuple[str, str, dict]:
+        ticket = self._fs.get_ticket(ticket_id)
+        if not ticket:
+            return (
+                "❌ Chamado não encontrado.\n\nDigite *1* para novo chamado ou *0* para voltar ao menu.",
+                "main_menu",
+                {},
+            )
+        status = _TICKET_STATUS_MAP.get(ticket.get("status", 0), "Desconhecido")
+        msg = (
+            f"📋 *Chamado #{ticket.get('id')}*\n"
+            f"*Assunto:* {ticket.get('subject', '(sem assunto)')}\n"
+            f"*Status:* {status}\n\n"
+            f"*0* — Voltar ao menu  •  *1* — Abrir novo chamado"
+        )
+        return msg, "viewing_ticket_status", {"viewed_ticket_id": ticket_id}
 
     def _list_open_tickets(self, phone, ctx, user, db):
         u = db.table("support_users").select("email").eq("phone", phone).execute()
@@ -454,7 +573,7 @@ class ConversationFSM:
                 "selecting_catalog",
                 {},
             )
-        lines = [f"📋 *Chamados em aberto:*\n"]
+        lines = ["📋 *Chamados em aberto:*\n"]
         for t in tickets[:5]:
             lines.append(f"• #{t.get('id')} — {t.get('subject', '(sem assunto)')}")
         lines.append("\nDigite qualquer mensagem para voltar ao menu.")

@@ -82,7 +82,7 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
         if not text:
             return JSONResponse({"ok": True})
 
-        reply = await asyncio.to_thread(_fsm.process, phone, text)
+        reply = await asyncio.to_thread(_fsm.process, phone, text, send_to)
 
         if reply:
             s = get_settings()

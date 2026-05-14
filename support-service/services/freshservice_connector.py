@@ -153,6 +153,10 @@ class FreshserviceConnector:
             body["custom_fields"] = {"empresa": empresa}
         return self._post("/tickets", body)
 
+    def get_all_open_tickets(self, email: str) -> list[dict]:
+        """Retorna todos os chamados abertos do usuário em todos os workspaces."""
+        return self.get_tickets_by_requester(email)
+
     def get_tickets_by_requester(self, email: str, workspace_id: int | None = None) -> list[dict]:
         try:
             params: dict = {"query": f"\"email:'{email}' AND status:2\"", "per_page": 10}
