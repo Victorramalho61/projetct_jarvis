@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, ReactNode } from "react";
 import { apiFetch, setUnauthorizedHandler } from "../lib/api";
 
-export type Role = "admin" | "user";
+export type Role = "admin" | "user" | "rh" | "gestor" | "coordenador" | "supervisor" | "colaborador";
 
 export type User = {
   username: string;

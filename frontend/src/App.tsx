@@ -26,6 +26,7 @@ const CTOInboxPage = lazy(() => import("./pages/admin/CTOInboxPage"));
 const OrchestratorPage = lazy(() => import("./pages/admin/OrchestratorPage"));
 const FreshservicePage = lazy(() => import("./pages/FreshservicePage"));
 const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
+const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 
 function PageLoader() {
   return (
@@ -71,6 +72,7 @@ export default function App() {
             <Route path="/admin/proposals" element={<ProposalsPage />} />
             <Route path="/admin/cto-inbox" element={<CTOInboxPage />} />
             <Route path="/admin/orquestrador" element={<OrchestratorPage />} />
+            <Route path="/desempenho" element={<PerformancePage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

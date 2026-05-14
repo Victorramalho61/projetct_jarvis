@@ -211,6 +211,18 @@ services:
           - name: cors
             enabled: false
 
+  - name: performance-svc
+    url: http://performance-service:8008
+    routes:
+      - name: performance-route
+        paths:
+          - /api/performance
+        strip_path: false
+        preserve_host: true
+        plugins:
+          - name: cors
+            enabled: false
+
   # Core captura /api/auth, /api/users, /api/admin, /api/health, /api/ready
   - name: core-svc
     url: http://core-service:8001

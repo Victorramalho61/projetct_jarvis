@@ -528,6 +528,37 @@ services:
       retries: 3
       start_period: 20s
 
+  performance-service:
+    build:
+      context: ./performance-service
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      SQL_SERVER_HOST: ${SQL_SERVER_HOST:-}
+      SQL_SERVER_PORT: ${SQL_SERVER_PORT:-1433}
+      SQL_SERVER_DB: ${SQL_SERVER_BENNER_HR_DB:-}
+      SQL_SERVER_USER: ${SQL_SERVER_USER:-}
+      SQL_SERVER_PASSWORD: ${SQL_SERVER_PASSWORD:-}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8008/health', timeout=4)\""]
+      interval: 300s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   support-service:
     build:
       context: ./support-service

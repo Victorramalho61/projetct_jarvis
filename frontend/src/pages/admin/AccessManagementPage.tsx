@@ -8,7 +8,7 @@ type Profile = {
   username: string;
   display_name: string;
   email: string;
-  role: "admin" | "user";
+  role: "admin" | "user" | "rh" | "gestor" | "coordenador" | "supervisor" | "colaborador";
   active: boolean;
   created_at: string;
 };
@@ -271,6 +271,11 @@ export default function AccessManagementPage() {
                       >
                         <option value="user">Usuário</option>
                         <option value="admin">Admin</option>
+                        <option value="rh">RH</option>
+                        <option value="gestor">Gestor</option>
+                        <option value="coordenador">Coordenador</option>
+                        <option value="supervisor">Supervisor</option>
+                        <option value="colaborador">Colaborador</option>
                       </select>
                     </td>
                     <td className="px-6 py-4">

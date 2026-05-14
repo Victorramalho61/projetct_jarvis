@@ -8,7 +8,7 @@ Documentação completa do projeto em `docs/arquitetura.md`.
 - **Autenticação**: rotas admin usam `Depends(require_role("admin"))`, nunca `get_current_user` diretamente.
 - **Deploy**: `docker compose up -d --build <serviço>`. CI/CD via GitHub Actions (self-hosted runner no servidor).
 - **Kong**: `volumes/api/kong.yml` — declarativo, restart do Kong aplica mudanças.
-- **Portas**: apenas 80/443/8181 expostas. Microsserviços 8001–8007 são internos à rede Docker.
+- **Portas**: apenas 80/443/8181 expostas. Microsserviços 8001–8008 são internos à rede Docker.
 - **Rate-limiting global no Kong removido** — causava 429 entre microsserviços.
 
 ## Roteamento rápido
@@ -21,4 +21,5 @@ moneypenny-service:8004  /api/moneypenny/*
 agents-service:8005    /api/agents/*
 expenses-service:8006  /api/expenses/*
 support-service:8007   /api/support/*
+performance-service:8008  /api/performance/*
 ```

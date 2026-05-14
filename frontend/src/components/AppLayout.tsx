@@ -14,16 +14,17 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { id: "home",       label: "Início",          path: "/",                     icon: "home",     roles: ["admin", "user"] },
-  { id: "moneypenny", label: "Moneypenny",       path: "/moneypenny",           icon: "sparkle",  roles: ["admin", "user"] },
-  { id: "access",     label: "Gestão de Acesso", path: "/admin/acesso",         icon: "users",    roles: ["admin", "user"] },
-  { id: "logs",       label: "Logs",             path: "/admin/logs",           icon: "file",     roles: ["admin"] },
-  { id: "monitoring",    label: "Monitoramento",    path: "/admin/monitoramento",  icon: "chart",      roles: ["admin"] },
-  { id: "freshservice",  label: "Freshservice",     path: "/freshservice",         icon: "briefcase",  roles: ["admin"] },
-  { id: "agents",   label: "Agentes (desligado)",   path: "/admin/agentes", icon: "cpu",    roles: ["admin"] },
-  { id: "expenses",   label: "Gastos TI",   path: "/admin/gastos",      icon: "wallet", roles: ["admin"] },
-  { id: "governance", label: "Governança",  path: "/admin/governanca",  icon: "shield", roles: ["admin"] },
-  { id: "payfly",     label: "PayFly",      path: "/admin/payfly",      icon: "zap",    roles: ["admin"] },
+  { id: "home",        label: "Início",          path: "/",                     icon: "home",      roles: ["admin", "user", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
+  { id: "moneypenny", label: "Moneypenny",       path: "/moneypenny",           icon: "sparkle",   roles: ["admin", "user"] },
+  { id: "desempenho", label: "Desempenho",        path: "/desempenho",           icon: "chart",     roles: ["admin", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
+  { id: "access",     label: "Gestão de Acesso",  path: "/admin/acesso",         icon: "users",     roles: ["admin", "user", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
+  { id: "logs",       label: "Logs",              path: "/admin/logs",           icon: "file",      roles: ["admin"] },
+  { id: "monitoring",   label: "Monitoramento",   path: "/admin/monitoramento",  icon: "chart",     roles: ["admin"] },
+  { id: "freshservice", label: "Freshservice",    path: "/freshservice",         icon: "briefcase", roles: ["admin"] },
+  { id: "agents",     label: "Agentes (desligado)", path: "/admin/agentes",      icon: "cpu",       roles: ["admin"] },
+  { id: "expenses",   label: "Gastos TI",         path: "/admin/gastos",         icon: "wallet",    roles: ["admin"] },
+  { id: "governance", label: "Governança",         path: "/admin/governanca",    icon: "shield",    roles: ["admin"] },
+  { id: "payfly",     label: "PayFly",             path: "/admin/payfly",        icon: "zap",       roles: ["admin"] },
 ];
 
 export default function AppLayout() {
@@ -362,7 +363,15 @@ const filteredNav = visible.filter((i) =>
                   ? "bg-brand-deep text-white"
                   : "bg-transparent border border-white/30 text-white"
               }`}>
-                {user?.role === "admin" ? "Admin" : "Colaborador"}
+                {({
+                  admin: "Admin",
+                  user: "Colaborador",
+                  rh: "RH",
+                  gestor: "Gestor",
+                  coordenador: "Coordenador",
+                  supervisor: "Supervisor",
+                  colaborador: "Colaborador",
+                } as Record<string, string>)[user?.role ?? "user"] ?? user?.role}
               </span>
             </div>
           </div>
