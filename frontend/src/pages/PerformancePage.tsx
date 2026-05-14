@@ -726,9 +726,535 @@ function DashboardTab({ token }: { token: string | null }) {
   );
 }
 
+// ── Tab: Gestão (RH/Admin/Gestor Ciclo) ──────────────────────────────────────
+
+type GestaoSubTab = "visao-geral" | "slas" | "relatorios" | "notificacoes";
+
+type OverviewGroup = {
+  id: string; name: string; total: number;
+  by_status: Record<string, number>; completion_rate: number;
+};
+
+type OverviewData = {
+  cycle_id: string; total_reviews: number;
+  by_company: OverviewGroup[]; by_branch: OverviewGroup[]; by_manager: OverviewGroup[];
+};
+
+type SlaViolation = { phase: string; phase_label: string; item_id: string; days_overdue: number; max_days: number; employee_id?: string };
+type SlaData = { configs: { phase: string; max_days: number }[]; violations: SlaViolation[]; total_violations: number; compliance_pct: number };
+
+type ReminderLog = { id: string; cycle_id: string; employee_id: string; phase: string; sent_at: string; sent_by: string | null };
+
+const PHASES = [
+  { key: "goal_signing",    label: "Assinatura de Metas",   defaultDays: 5 },
+  { key: "self_assessment", label: "Autoavaliação",         defaultDays: 10 },
+  { key: "manager_review",  label: "Avaliação do Gestor",   defaultDays: 7 },
+  { key: "acknowledgment",  label: "Ciência do Resultado",  defaultDays: 5 },
+];
+
+function ProgressBar({ pct, color = "bg-brand-green" }: { pct: number; color?: string }) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+      </div>
+      <span className="text-xs text-gray-500 w-8 text-right">{pct}%</span>
+    </div>
+  );
+}
+
+function ComplianceBadge({ pct }: { pct: number }) {
+  const color = pct >= 90 ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+    : pct >= 70 ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+    : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+  return <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${color}`}>{pct}%</span>;
+}
+
+function GestaoOverviewSection({ title, groups }: { title: string; groups: OverviewGroup[] }) {
+  const [open, setOpen] = useState(true);
+  if (groups.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm">
+      <button onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors rounded-xl">
+        {title}
+        <svg className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800">
+            <thead className="bg-gray-50 dark:bg-gray-800/50">
+              <tr>
+                {["Dimensão", "Total", "% Concluído", "Metas Ass.", "Autoaval.", "Av.Gestor", "Ciência"].map((h) => (
+                  <th key={h} className="px-4 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+              {groups.map((g) => (
+                <tr key={g.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                  <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100 text-sm max-w-[180px] truncate">{g.name || g.id}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-400">{g.total}</td>
+                  <td className="px-4 py-3 min-w-[140px]"><ProgressBar pct={g.completion_rate} /></td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{g.by_status?.completed ?? 0}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{g.by_status?.pending_self ?? 0}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{g.by_status?.pending_manager ?? 0}</td>
+                  <td className="px-4 py-3 text-sm text-gray-500">{g.by_status?.pending_ack ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GestaoTab({ token }: { token: string | null }) {
+  const [subTab, setSubTab] = useState<GestaoSubTab>("visao-geral");
+  const [cycles, setCycles] = useState<Cycle[]>([]);
+  const [selectedCycleId, setSelectedCycleId] = useState("");
+
+  // Visão Geral state
+  const [overview, setOverview] = useState<OverviewData | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+
+  // SLAs state
+  const [slaData, setSlaData] = useState<SlaData | null>(null);
+  const [slaLoading, setSlaLoading] = useState(false);
+  const [slaForm, setSlaForm] = useState<Record<string, number>>({});
+  const [slaSaving, setSlaSaving] = useState(false);
+
+  // Notificações state
+  const [notifPhase, setNotifPhase] = useState("self_assessment");
+  const [dryRunResult, setDryRunResult] = useState<{ name: string; email: string }[] | null>(null);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifHistory, setNotifHistory] = useState<ReminderLog[]>([]);
+
+  // Advance/revert state
+  const [reviewIdInput, setReviewIdInput] = useState("");
+  const [transitionReason, setTransitionReason] = useState("");
+  const [transitioning, setTransitioning] = useState(false);
+
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiFetch<Cycle[]>("/api/performance/evaluations/cycles", { token })
+      .then((data) => {
+        setCycles(data);
+        const open = data.find((c) => c.status === "open" || c.status === "evaluation");
+        setSelectedCycleId(open?.id ?? data[0]?.id ?? "");
+      })
+      .catch(() => {});
+  }, [token]);
+
+  // Load overview when cycle or subtab changes
+  useEffect(() => {
+    if (subTab !== "visao-geral" || !selectedCycleId) return;
+    setOverviewLoading(true);
+    setError(null);
+    apiFetch<OverviewData>(`/api/performance/management/overview?cycle_id=${selectedCycleId}`, { token })
+      .then(setOverview)
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Erro ao carregar visão geral"))
+      .finally(() => setOverviewLoading(false));
+  }, [subTab, selectedCycleId, token]);
+
+  // Load SLA data
+  useEffect(() => {
+    if (subTab !== "slas" || !selectedCycleId) return;
+    setSlaLoading(true);
+    setError(null);
+    Promise.all([
+      apiFetch<SlaData>(`/api/performance/management/sla?cycle_id=${selectedCycleId}`, { token }),
+      apiFetch<{ phase: string; max_days: number }[]>(`/api/performance/management/sla-configs?cycle_id=${selectedCycleId}`, { token }),
+    ])
+      .then(([sla, configs]) => {
+        setSlaData(sla);
+        const map: Record<string, number> = {};
+        PHASES.forEach((p) => {
+          const found = configs.find((c) => c.phase === p.key);
+          map[p.key] = found?.max_days ?? p.defaultDays;
+        });
+        setSlaForm(map);
+      })
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Erro ao carregar SLAs"))
+      .finally(() => setSlaLoading(false));
+  }, [subTab, selectedCycleId, token]);
+
+  // Load notif history
+  useEffect(() => {
+    if (subTab !== "notificacoes" || !selectedCycleId) return;
+    apiFetch<ReminderLog[]>(`/api/performance/management/notify-history?cycle_id=${selectedCycleId}`, { token })
+      .then(setNotifHistory)
+      .catch(() => {});
+  }, [subTab, selectedCycleId, token]);
+
+  async function handleSaveSla() {
+    setSlaSaving(true);
+    setError(null);
+    try {
+      await Promise.all(
+        PHASES.map((p) =>
+          apiFetch("/api/performance/management/sla-configs", {
+            method: "POST", token,
+            json: { cycle_id: selectedCycleId, phase: p.key, max_days: slaForm[p.key] ?? p.defaultDays },
+          })
+        )
+      );
+      setSuccess("SLAs salvos com sucesso.");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Erro ao salvar SLAs");
+    } finally {
+      setSlaSaving(false);
+    }
+  }
+
+  async function handleDryRun() {
+    setNotifLoading(true);
+    setDryRunResult(null);
+    setError(null);
+    try {
+      const res = await apiFetch<{ dry_run_list: { name: string; email: string }[] }>(
+        "/api/performance/management/notify-pending",
+        { method: "POST", token, json: { cycle_id: selectedCycleId, phase: notifPhase, dry_run: true } }
+      );
+      setDryRunResult(res.dry_run_list ?? []);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Erro ao pré-visualizar");
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
+  async function handleSendNotif() {
+    if (!confirm(`Enviar e-mails para todos os pendentes na fase selecionada?`)) return;
+    setNotifLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch<{ sent: number; skipped: number }>(
+        "/api/performance/management/notify-pending",
+        { method: "POST", token, json: { cycle_id: selectedCycleId, phase: notifPhase, dry_run: false } }
+      );
+      setSuccess(`Enviados: ${res.sent}, ignorados: ${res.skipped}`);
+      setDryRunResult(null);
+      const history = await apiFetch<ReminderLog[]>(`/api/performance/management/notify-history?cycle_id=${selectedCycleId}`, { token });
+      setNotifHistory(history);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Erro ao enviar notificações");
+    } finally {
+      setNotifLoading(false);
+    }
+  }
+
+  async function handleTransition(action: "advance" | "revert") {
+    if (!reviewIdInput.trim() || !transitionReason.trim()) {
+      setError("Informe o ID da review e o motivo.");
+      return;
+    }
+    setTransitioning(true);
+    setError(null);
+    try {
+      const result = await apiFetch<{ status: string }>(
+        `/api/performance/management/reviews/${reviewIdInput.trim()}/${action}`,
+        { method: "PATCH", token, json: { reason: transitionReason } }
+      );
+      setSuccess(`Review ${action === "advance" ? "avançada" : "revertida"} para "${result.status}".`);
+      setReviewIdInput("");
+      setTransitionReason("");
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : `Erro ao ${action === "advance" ? "avançar" : "reverter"}`);
+    } finally {
+      setTransitioning(false);
+    }
+  }
+
+  function downloadReport(path: string, filename: string) {
+    const url = `${path}${path.includes("?") ? "&" : "?"}format=csv`;
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then((res) => {
+        if (!res.ok) throw new Error(`Erro ${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      })
+      .catch(() => setError("Erro ao exportar relatório"));
+  }
+
+  const SUB_TABS: { id: GestaoSubTab; label: string }[] = [
+    { id: "visao-geral",     label: "Visão Geral" },
+    { id: "slas",            label: "SLAs" },
+    { id: "relatorios",      label: "Relatórios" },
+    { id: "notificacoes",    label: "Notificações" },
+  ];
+
+  return (
+    <div className="p-6">
+      <div className="flex flex-wrap items-center gap-4 mb-5">
+        <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">Gestão do Ciclo</h3>
+        <select
+          value={selectedCycleId}
+          onChange={(e) => setSelectedCycleId(e.target.value)}
+          className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand-green"
+        >
+          {cycles.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+
+      {/* Sub-tabs */}
+      <div className="flex gap-1 border-b border-gray-100 dark:border-gray-800 mb-5 overflow-x-auto">
+        {SUB_TABS.map((t) => (
+          <button key={t.id} onClick={() => { setSubTab(t.id); setError(null); setSuccess(null); }}
+            className={`whitespace-nowrap px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              subTab === t.id
+                ? "border-brand-green text-brand-deep dark:text-brand-mid"
+                : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+            }`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {error && <div className="mb-4 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div>}
+      {success && <div className="mb-4 rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-4 py-3 text-sm text-green-700 dark:text-green-300">{success}</div>}
+
+      {/* ── Visão Geral ── */}
+      {subTab === "visao-geral" && (
+        <div className="space-y-4">
+          {overviewLoading ? (
+            <div className="text-sm text-gray-400">Carregando...</div>
+          ) : overview ? (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                {[
+                  { label: "Total Avaliações", value: overview.total_reviews },
+                  { label: "Por Empresa", value: overview.by_company.length },
+                  { label: "Por Filial", value: overview.by_branch.length },
+                ].map((k) => (
+                  <div key={k.label} className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm text-center">
+                    <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{k.value}</div>
+                    <div className="text-xs text-gray-400 mt-1">{k.label}</div>
+                  </div>
+                ))}
+              </div>
+              <GestaoOverviewSection title="Por Empresa" groups={overview.by_company} />
+              <GestaoOverviewSection title="Por Filial" groups={overview.by_branch} />
+              <GestaoOverviewSection title="Por Gestor" groups={overview.by_manager} />
+            </>
+          ) : (
+            <p className="text-sm text-gray-400">Selecione um ciclo para visualizar.</p>
+          )}
+        </div>
+      )}
+
+      {/* ── SLAs ── */}
+      {subTab === "slas" && (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Configurar SLAs do Ciclo</h4>
+            {slaLoading ? (
+              <div className="text-sm text-gray-400">Carregando...</div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {PHASES.map((p) => (
+                    <div key={p.key}>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{p.label}</label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number" min={1} max={60}
+                          value={slaForm[p.key] ?? p.defaultDays}
+                          onChange={(e) => setSlaForm((prev) => ({ ...prev, [p.key]: Number(e.target.value) }))}
+                          className="w-24 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand-green"
+                        />
+                        <span className="text-sm text-gray-500">dias</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button onClick={handleSaveSla} disabled={slaSaving || !selectedCycleId}
+                  className="mt-4 rounded-lg bg-brand-green px-5 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:opacity-50 transition-colors">
+                  {slaSaving ? "Salvando..." : "Salvar SLAs"}
+                </button>
+              </>
+            )}
+          </div>
+
+          {slaData && (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+              <div className="flex items-center justify-between mb-4">
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Violações de SLA</h4>
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  Compliance: <ComplianceBadge pct={slaData.compliance_pct} />
+                </div>
+              </div>
+              {slaData.violations.length === 0 ? (
+                <p className="text-sm text-green-600 dark:text-green-400">Nenhuma violação de SLA no ciclo.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800 text-sm">
+                    <thead className="bg-gray-50 dark:bg-gray-800/50">
+                      <tr>
+                        {["Fase", "Item", "Dias em Atraso", "Prazo"].map((h) => (
+                          <th key={h} className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                      {slaData.violations.map((v) => (
+                        <tr key={`${v.phase}-${v.item_id}`} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                          <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{v.phase_label}</td>
+                          <td className="px-4 py-3 font-mono text-xs text-gray-500">{v.item_id.slice(0, 8)}...</td>
+                          <td className="px-4 py-3"><span className="rounded-full bg-red-100 dark:bg-red-900/30 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-400">+{v.days_overdue}d</span></td>
+                          <td className="px-4 py-3 text-gray-500">{v.max_days} dias</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Relatórios ── */}
+      {subTab === "relatorios" && (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Exportar Relatórios</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {[
+                { label: "Completude por Empresa", path: `/api/performance/management/reports/completion?cycle_id=${selectedCycleId}&dimension=company`, filename: "completude_empresa.csv" },
+                { label: "Completude por Filial",  path: `/api/performance/management/reports/completion?cycle_id=${selectedCycleId}&dimension=branch`,  filename: "completude_filial.csv" },
+                { label: "Completude por Gestor",  path: `/api/performance/management/reports/completion?cycle_id=${selectedCycleId}&dimension=manager`, filename: "completude_gestor.csv" },
+                { label: "Violações de SLA",        path: `/api/performance/management/reports/sla?cycle_id=${selectedCycleId}`,                           filename: "sla_violations.csv" },
+                { label: "Notas por Colaborador",   path: `/api/performance/management/reports/scores?cycle_id=${selectedCycleId}`,                        filename: "scores.csv" },
+              ].map((r) => (
+                <button
+                  key={r.label}
+                  disabled={!selectedCycleId}
+                  onClick={() => downloadReport(r.path, r.filename)}
+                  className="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 px-4 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors text-left"
+                >
+                  <svg className="w-4 h-4 shrink-0 text-brand-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {r.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Notificações ── */}
+      {subTab === "notificacoes" && (
+        <div className="space-y-5">
+          {/* Send notifications */}
+          <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Notificar Pendentes</h4>
+            <div className="flex flex-wrap items-end gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Fase</label>
+                <select value={notifPhase} onChange={(e) => setNotifPhase(e.target.value)}
+                  className="rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand-green">
+                  {PHASES.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+                </select>
+              </div>
+              <button onClick={handleDryRun} disabled={notifLoading || !selectedCycleId}
+                className="rounded-lg border border-gray-300 dark:border-gray-700 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 transition-colors">
+                {notifLoading ? "..." : "Pré-visualizar"}
+              </button>
+              <button onClick={handleSendNotif} disabled={notifLoading || !selectedCycleId}
+                className="rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:opacity-50 transition-colors">
+                {notifLoading ? "Enviando..." : "Enviar E-mails"}
+              </button>
+            </div>
+            {dryRunResult && (
+              <div className="mt-3">
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">
+                  {dryRunResult.length === 0 ? "Nenhum pendente encontrado." : `${dryRunResult.length} destinatário(s) que receberiam o e-mail:`}
+                </p>
+                {dryRunResult.map((d, i) => (
+                  <div key={i} className="text-sm text-gray-600 dark:text-gray-400">{d.name} &lt;{d.email}&gt;</div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Flow control */}
+          <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Controle de Fluxo</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Review ID</label>
+                <input value={reviewIdInput} onChange={(e) => setReviewIdInput(e.target.value)}
+                  placeholder="UUID da review"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand-green" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Motivo</label>
+                <input value={transitionReason} onChange={(e) => setTransitionReason(e.target.value)}
+                  placeholder="Justificativa obrigatória"
+                  className="w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-brand-green" />
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={() => handleTransition("advance")} disabled={transitioning}
+                className="rounded-lg bg-brand-green px-4 py-2 text-sm font-semibold text-white hover:bg-brand-deep disabled:opacity-50 transition-colors">
+                {transitioning ? "..." : "Avançar"}
+              </button>
+              <button onClick={() => handleTransition("revert")} disabled={transitioning}
+                className="rounded-lg border border-amber-300 dark:border-amber-700 px-4 py-2 text-sm font-semibold text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 disabled:opacity-50 transition-colors">
+                {transitioning ? "..." : "Reverter"}
+              </button>
+            </div>
+          </div>
+
+          {/* History */}
+          {notifHistory.length > 0 && (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 shadow-sm">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Histórico de Lembretes</h4>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-100 dark:divide-gray-800 text-sm">
+                  <thead className="bg-gray-50 dark:bg-gray-800/50">
+                    <tr>
+                      {["Fase", "Colaborador", "Enviado em", "Por"].map((h) => (
+                        <th key={h} className="px-4 py-2 text-left text-xs font-semibold uppercase tracking-wide text-gray-500">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
+                    {notifHistory.slice(0, 20).map((h) => (
+                      <tr key={h.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                        <td className="px-4 py-2.5 text-gray-700 dark:text-gray-300">{h.phase}</td>
+                        <td className="px-4 py-2.5 font-mono text-xs text-gray-500">{h.employee_id?.slice(0, 8)}...</td>
+                        <td className="px-4 py-2.5 text-gray-500">{new Date(h.sent_at).toLocaleString("pt-BR")}</td>
+                        <td className="px-4 py-2.5 text-gray-500">{h.sent_by ?? "automático"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-type Tab = "meus-objetivos" | "minha-avaliacao" | "avaliar-liderados" | "ciclos" | "dashboard";
+type Tab = "meus-objetivos" | "minha-avaliacao" | "avaliar-liderados" | "ciclos" | "dashboard" | "gestao";
 
 const TABS: { id: Tab; label: string; roles: string[] }[] = [
   { id: "meus-objetivos",    label: "Meus Objetivos",   roles: ["admin", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
@@ -736,6 +1262,7 @@ const TABS: { id: Tab; label: string; roles: string[] }[] = [
   { id: "avaliar-liderados", label: "Avaliar Liderados", roles: ["admin", "rh", "gestor", "coordenador", "supervisor"] },
   { id: "ciclos",            label: "Ciclos",            roles: ["admin", "rh"] },
   { id: "dashboard",         label: "Dashboard",         roles: ["admin", "rh"] },
+  { id: "gestao",            label: "Gestão",            roles: ["admin", "rh", "gestor_ciclo"] },
 ];
 
 export default function PerformancePage() {
@@ -773,6 +1300,7 @@ export default function PerformancePage() {
         {activeTab === "avaliar-liderados" && <TeamReviewTab token={token} />}
         {activeTab === "ciclos"            && <CyclesTab token={token} />}
         {activeTab === "dashboard"         && <DashboardTab token={token} />}
+        {activeTab === "gestao"            && <GestaoTab token={token} />}
       </div>
     </div>
   );

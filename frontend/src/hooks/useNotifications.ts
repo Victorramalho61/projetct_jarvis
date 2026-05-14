@@ -19,7 +19,7 @@ type NotificationSummary = {
   critical_findings: number;
 };
 
-const PERFORMANCE_ROLES: string[] = ["rh", "gestor", "coordenador", "supervisor", "colaborador"];
+const PERFORMANCE_ROLES: string[] = ["rh", "gestor", "coordenador", "supervisor", "colaborador", "gestor_ciclo"];
 
 export function useNotifications() {
   const { token, user } = useAuth();

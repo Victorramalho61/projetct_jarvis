@@ -27,13 +27,17 @@ from routes.evidences import router as evidences_router
 from routes.kpis import router as kpis_router
 from routes.admin import router as admin_router
 from routes.notifications import router as notifications_router
+from routes.management import router as management_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from services.benner_sync import start as _sync_start, stop as _sync_stop
+    from services.sla_scheduler import start as _sla_start, stop as _sla_stop
     _sync_start()
+    _sla_start()
     yield
+    _sla_stop()
     _sync_stop()
 
 
@@ -76,3 +80,4 @@ app.include_router(evidences_router)
 app.include_router(kpis_router)
 app.include_router(admin_router)
 app.include_router(notifications_router)
+app.include_router(management_router)

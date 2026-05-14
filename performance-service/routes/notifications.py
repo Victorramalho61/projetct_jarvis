@@ -9,7 +9,7 @@ from db import get_supabase
 router = APIRouter(prefix="/api/performance/notifications")
 _logger = logging.getLogger(__name__)
 
-_PERF_ROLES = ("admin", "rh", "gestor", "coordenador", "supervisor", "colaborador")
+_PERF_ROLES = ("admin", "rh", "gestor", "coordenador", "supervisor", "colaborador", "gestor_ciclo")
 
 
 @router.get("/summary")
@@ -28,7 +28,7 @@ def notifications_summary(
     pending_manager_review = 0
     pending_ack_result = 0
 
-    if role in ("admin", "rh"):
+    if role in ("admin", "rh", "gestor_ciclo"):
         pending_goal_acks = len(
             db.table("performance_goals").select("id").eq("status", "draft").execute().data
         )

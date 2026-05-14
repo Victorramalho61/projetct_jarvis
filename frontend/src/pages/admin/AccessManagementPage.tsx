@@ -14,7 +14,7 @@ const ALL_MODULES = [
   { id: "payfly",      label: "PayFly" },
 ];
 
-const PERF_ROLES = new Set(["rh", "gestor", "coordenador", "supervisor", "colaborador"]);
+const PERF_ROLES = new Set(["rh", "gestor", "coordenador", "supervisor", "colaborador", "gestor_ciclo"]);
 
 function ModulesPanel({
   token,
@@ -27,6 +27,7 @@ function ModulesPanel({
 }) {
   const { toast, showToast } = useToast();
   const [selected, setSelected] = useState<string[]>([]);
+  const [perfRole, setPerfRole] = useState(PERF_ROLES.has(role) ? role : "colaborador");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -37,6 +38,10 @@ function ModulesPanel({
       .catch(() => showToast("Erro ao carregar módulos."))
       .finally(() => setLoading(false));
   }, [username, token]);
+
+  useEffect(() => {
+    if (PERF_ROLES.has(role)) setPerfRole(role);
+  }, [role]);
 
   function toggle(id: string) {
     setSelected((prev) => prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]);
@@ -50,6 +55,13 @@ function ModulesPanel({
         token,
         json: { allowed_modules: selected },
       });
+      if (selected.includes("desempenho") && perfRole !== role) {
+        await apiFetch(`/api/users/${username}/role`, {
+          method: "PATCH",
+          token,
+          json: { role: perfRole },
+        });
+      }
       showToast("Módulos atualizados.");
     } catch (err) {
       showToast(err instanceof ApiError ? err.message : "Erro ao salvar.");
@@ -78,20 +90,39 @@ function ModulesPanel({
           const forced = isPerf && mod.id === "desempenho";
           const checked = forced || selected.includes(mod.id);
           return (
-            <label
-              key={mod.id}
-              className={`flex items-center gap-3 cursor-pointer ${forced ? "opacity-60 cursor-not-allowed" : ""}`}
-            >
-              <input
-                type="checkbox"
-                checked={checked}
-                disabled={forced}
-                onChange={() => !forced && toggle(mod.id)}
-                className="rounded border-gray-300 dark:border-gray-600 text-voetur-600 focus:ring-voetur-500"
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">{mod.label}</span>
-              {forced && <span className="text-xs text-gray-400 dark:text-gray-500">(obrigatório)</span>}
-            </label>
+            <div key={mod.id}>
+              <label className={`flex items-center gap-3 cursor-pointer ${forced ? "opacity-60 cursor-not-allowed" : ""}`}>
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  disabled={forced}
+                  onChange={() => !forced && toggle(mod.id)}
+                  className="rounded border-gray-300 dark:border-gray-600 text-voetur-600 focus:ring-voetur-500"
+                />
+                <span className="text-sm text-gray-700 dark:text-gray-300">{mod.label}</span>
+                {forced && <span className="text-xs text-gray-400 dark:text-gray-500">(obrigatório)</span>}
+              </label>
+              {mod.id === "desempenho" && (forced || selected.includes("desempenho")) && (
+                <div className="ml-6 mt-1.5">
+                  <label className="block text-xs text-gray-400 dark:text-gray-500 mb-1">Papel no módulo</label>
+                  <select
+                    value={perfRole}
+                    onChange={(e) => setPerfRole(e.target.value)}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+                  >
+                    <option value="colaborador">Colaborador</option>
+                    <option value="supervisor">Supervisor</option>
+                    <option value="coordenador">Coordenador</option>
+                    <option value="gestor">Gestor</option>
+                    <option value="gestor_ciclo">Gestor do Ciclo (RH operacional)</option>
+                    <option value="rh">RH (administrador do módulo)</option>
+                  </select>
+                  <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+                    colaborador → supervisor → coordenador → gestor → gestor_ciclo → rh → admin
+                  </p>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -111,7 +142,7 @@ type Profile = {
   username: string;
   display_name: string;
   email: string;
-  role: "admin" | "user" | "rh" | "gestor" | "coordenador" | "supervisor" | "colaborador";
+  role: "admin" | "user" | "rh" | "gestor" | "coordenador" | "supervisor" | "colaborador" | "gestor_ciclo";
   active: boolean;
   created_at: string;
 };
@@ -379,6 +410,7 @@ export default function AccessManagementPage() {
                         <option value="coordenador">Coordenador</option>
                         <option value="supervisor">Supervisor</option>
                         <option value="colaborador">Colaborador</option>
+                        <option value="gestor_ciclo">Gestor Ciclo</option>
                       </select>
                     </td>
                     <td className="px-6 py-4">

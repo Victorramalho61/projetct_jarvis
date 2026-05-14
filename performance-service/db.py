@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     sql_server_user: str = ""
     sql_server_password: str = ""
     sql_server_driver: str = "ODBC Driver 17 for SQL Server"
+    smtp_host: str = "smtp.office365.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
 
     model_config = {"env_file": ".env"}
 

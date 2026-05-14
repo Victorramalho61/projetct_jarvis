@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 _VALID_ROLES = {
     "admin", "user",
     "rh", "gestor", "coordenador", "supervisor", "colaborador",
+    "gestor_ciclo",
 }
 
 

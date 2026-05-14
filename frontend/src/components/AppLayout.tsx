@@ -16,7 +16,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { id: "home",        label: "Início",          path: "/",                     icon: "home",      roles: ["admin", "user", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
   { id: "moneypenny", label: "Moneypenny",       path: "/moneypenny",           icon: "sparkle",   roles: ["admin", "user"] },
-  { id: "desempenho", label: "Gestão de Desempenho", path: "/desempenho",         icon: "chart",     roles: ["admin", "rh", "gestor", "coordenador", "supervisor", "colaborador"] },
+  { id: "desempenho", label: "Gestão de Desempenho", path: "/desempenho",         icon: "chart",     roles: ["admin", "rh", "gestor", "coordenador", "supervisor", "colaborador", "gestor_ciclo"] },
   { id: "access",     label: "Gestão de Acesso",  path: "/admin/acesso",         icon: "users",     roles: ["admin", "user"] },
   { id: "logs",       label: "Logs",              path: "/admin/logs",           icon: "file",      roles: ["admin"] },
   { id: "monitoring",   label: "Monitoramento",   path: "/admin/monitoramento",  icon: "chart",     roles: ["admin"] },
@@ -402,6 +402,7 @@ const filteredNav = visible.filter((i) =>
                     coordenador: "Coordenador",
                     supervisor: "Supervisor",
                     colaborador: "Colaborador",
+                    gestor_ciclo: "Gestor Ciclo",
                   } as Record<string, string>)[user?.role ?? "user"] ?? user?.role}
                 </span>
                 <svg className={`w-3 h-3 text-white/60 transition-transform ${userDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
