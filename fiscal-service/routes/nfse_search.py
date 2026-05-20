@@ -12,9 +12,27 @@ def list_companies(_user: dict = Depends(get_current_user)):
     """Lista todas as empresas fiscais cadastradas."""
     sb = get_supabase()
     result = sb.table("fiscal_companies").select(
-        "id,cnpj,nome,regime,sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
+        "id,cnpj,nome,regime,grupo,tipo,cidade,uf_sede,"
+        "sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
         "ndd_last_sync_at,ndd_access_token,ndd_token_expires_at,cert_expiry,ultima_sync"
-    ).order("nome").execute()
+    ).order("grupo").order("tipo").execute()
+    return result.data or []
+
+
+@router.get("/sync/logs")
+def list_sync_logs_global(
+    limit: int = Query(30, ge=1, le=100),
+    _user: dict = Depends(get_current_user),
+):
+    """Logs de sync de todas as empresas, ordenados por data desc."""
+    sb = get_supabase()
+    result = (
+        sb.table("fiscal_sync_logs")
+        .select("id,company_id,tipo,status,documentos_novos,documentos_cancelados,erro_msg,janela,executado_em")
+        .order("executado_em", desc=True)
+        .limit(limit)
+        .execute()
+    )
     return result.data or []
 
 
