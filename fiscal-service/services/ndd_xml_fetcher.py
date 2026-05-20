@@ -51,11 +51,11 @@ def fetch_all_xml(
     """
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     odata_filter = (
-        f"dataEmissao ge {data_inicio.isoformat()}T00:00:00 "
-        f"and dataEmissao le {data_fim.isoformat()}T23:59:59"
+        f"dataEmissao ge {data_inicio.isoformat()}T00:00:00+00:00 "
+        f"and dataEmissao le {data_fim.isoformat()}T23:59:59+00:00"
     )
     if since_dt is not None:
-        odata_filter += f" and dataProcessamento ge {since_dt.strftime('%Y-%m-%dT%H:%M:%S')}"
+        odata_filter += f" and dataProcessamento ge {since_dt.strftime('%Y-%m-%dT%H:%M:%S+00:00')}"
 
     skip = 0
     total_listados = 0
