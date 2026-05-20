@@ -27,6 +27,7 @@ const OrchestratorPage = lazy(() => import("./pages/admin/OrchestratorPage"));
 const FreshservicePage = lazy(() => import("./pages/FreshservicePage"));
 const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
+const FiscalPage = lazy(() => import("./pages/admin/FiscalPage"));
 
 function PageLoader() {
   return (
@@ -67,6 +68,7 @@ export default function App() {
             {/* Módulo de Agentes consolidado — abas via ?tab= */}
             <Route path="/admin/agentes" element={<AgentsDashboard />} />
             <Route path="/admin/gastos" element={<ExpensesPage />} />
+            <Route path="/admin/fiscal" element={<FiscalPage />} />
             <Route path="/admin/governanca" element={<GovernancePage />} />
             <Route path="/admin/payfly" element={<PayFlyPage />} />
             <Route path="/admin/proposals" element={<ProposalsPage />} />

@@ -1,13 +1,35 @@
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Query, Depends, HTTPException
 from typing import Optional
 
-from auth import get_current_user
+from auth import get_current_user, require_role
 from db import get_supabase
 
-router = APIRouter(prefix="/api/fiscal/nfse", tags=["nfse-search"])
+router = APIRouter(prefix="/api/fiscal", tags=["nfse-search"])
 
 
-@router.get("")
+@router.get("/companies")
+def list_companies(_user: dict = Depends(get_current_user)):
+    """Lista todas as empresas fiscais cadastradas."""
+    sb = get_supabase()
+    result = sb.table("fiscal_companies").select(
+        "id,cnpj,nome,regime,sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
+        "ndd_last_sync_at,ndd_access_token,ndd_token_expires_at,cert_expiry,ultima_sync"
+    ).order("nome").execute()
+    return result.data or []
+
+
+@router.post("/nfse/sync/run")
+async def run_nfse_sync(
+    background_tasks: BackgroundTasks,
+    _user: dict = Depends(require_role("admin")),
+):
+    """Dispara o sync incremental NFSe NDD imediatamente (não aguarda 05:00)."""
+    from services.scheduler import _sync_nfse_ndd_incremental
+    background_tasks.add_task(_sync_nfse_ndd_incremental)
+    return {"ok": True, "message": "Sync NFSe NDD iniciado em background"}
+
+
+@router.get("/nfse")
 def search_nfse(
     q:                Optional[str]   = Query(None, description="Busca full-text (emitente, destinatário, município, natureza)"),
     company_id:       Optional[str]   = Query(None),
@@ -68,7 +90,7 @@ def search_nfse(
     return {"total": len(data), "offset": offset, "limit": limit, "data": data}
 
 
-@router.get("/stats")
+@router.get("/nfse/stats")
 def nfse_stats(
     company_id: Optional[str] = Query(None),
     ano:        Optional[int] = Query(None),
