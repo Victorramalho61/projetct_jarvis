@@ -66,6 +66,39 @@ def store_ndd_token(
     }
 
 
+@router.get("/{company_id}/ndd/authorize-url")
+def ndd_authorize_url(
+    company_id: str,
+    redirect_base: str = "",
+    _user: dict = Depends(require_role("admin")),
+):
+    """
+    Retorna a URL de autorização como JSON para o frontend abrir via window.open.
+    Inclui offline_access para obter refresh_token e renovação automática permanente.
+    """
+    base = redirect_base or NDD_BASE
+    redirect_uri = f"{base}{NDD_CALLBACK_PATH}"
+
+    verifier, challenge, state = _generate_pkce()
+    _pkce_state[state] = {
+        "verifier": verifier,
+        "company_id": company_id,
+        "redirect_uri": redirect_uri,
+        "created_at": datetime.now(timezone.utc).timestamp(),
+    }
+
+    params = "&".join([
+        f"client_id={NDD_CLIENT_ID}",
+        "response_type=code",
+        "scope=openid+profile+email+nfse-api+nfe-api+cte-api+offline_access",
+        f"redirect_uri={redirect_uri}",
+        f"code_challenge={challenge}",
+        "code_challenge_method=S256",
+        f"state={state}",
+    ])
+    return {"authorize_url": f"{NDD_IDENTITY}/connect/authorize?{params}"}
+
+
 @router.get("/{company_id}/ndd/authorize")
 def ndd_authorize(
     company_id: str,
@@ -76,7 +109,6 @@ def ndd_authorize(
     Inicia fluxo PKCE com offline_access para obter refresh_token automático.
     O refresh_token permite renovação sem interação do usuário.
     """
-    settings = get_settings()
     base = redirect_base or NDD_BASE
     redirect_uri = f"{base}{NDD_CALLBACK_PATH}"
 
@@ -150,12 +182,32 @@ def ndd_callback(code: str = "", state: str = "", error: str = ""):
     }).eq("id", pkce["company_id"]).execute()
 
     has_refresh = bool(refresh_token)
-    msg = (
-        "Conectado com sucesso! Renovação automática ativada."
-        if has_refresh else
-        "Conectado. Token válido por 30 min — reconecte periodicamente."
-    )
-    return {"ok": True, "message": msg, "has_refresh_token": has_refresh, "expires_at": expires_at}
+    if has_refresh:
+        status_msg = "✅ Conectado com sucesso! Renovação automática ativada — não precisa fazer isso de novo."
+    else:
+        status_msg = "⚠️ Conectado, mas sem refresh_token. Token expira em 30 min."
+
+    from fastapi.responses import HTMLResponse
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head><meta charset="UTF-8"><title>NDD Digital — Conectado</title>
+<style>body{{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;background:#f9fafb}}
+.card{{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:40px;text-align:center;max-width:420px;box-shadow:0 4px 24px rgba(0,0,0,.08)}}
+h2{{color:{"#16a34a" if has_refresh else "#ca8a04"};margin:0 0 12px}}p{{color:#374151;margin:0 0 24px;line-height:1.5}}
+button{{background:#2563eb;color:#fff;border:none;border-radius:8px;padding:10px 24px;font-size:14px;cursor:pointer}}
+button:hover{{background:#1d4ed8}}</style></head>
+<body><div class="card">
+<h2>{"🔒 NDD Digital" if has_refresh else "⚠️ NDD Digital"}</h2>
+<p>{status_msg}</p>
+<button onclick="window.close()">Fechar e voltar ao Jarvis</button>
+</div>
+<script>
+if (window.opener) {{
+  window.opener.postMessage({{type:"ndd_connected",has_refresh:{str(has_refresh).lower()}}}, "*");
+}}
+</script>
+</body></html>"""
+    return HTMLResponse(content=html)
 
 
 @router.get("/{company_id}/ndd/status")

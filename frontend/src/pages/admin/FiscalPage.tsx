@@ -19,6 +19,7 @@ interface FiscalCompany {
   sync_nfse_ativo: boolean;
   ndd_last_sync_at: string | null;
   ndd_access_token: string | null;
+  ndd_refresh_token: string | null;
   ndd_token_expires_at: string | null;
 }
 
@@ -225,6 +226,58 @@ export default function FiscalPage() {
 
   useEffect(() => { if (tab === "sync") loadSyncLogs(); }, [tab, loadSyncLogs]);
 
+  // ── Conectar NDD via PKCE (offline_access → refresh_token permanente) ───────
+  const [nddConnecting, setNddConnecting] = useState(false);
+  const [nddMsg, setNddMsg] = useState("");
+
+  const connectNdd = async () => {
+    if (!token) return;
+    // Usa a empresa Voetur (portadora do token NDD — sync_nfse_ativo)
+    const nddCompany = companies.find((c) => c.sync_nfse_ativo);
+    if (!nddCompany) {
+      setNddMsg("Nenhuma empresa com sync_nfse_ativo configurado.");
+      return;
+    }
+    setNddConnecting(true);
+    setNddMsg("");
+    try {
+      const redirectBase = window.location.origin;
+      const res = await apiFetch<{ authorize_url: string }>(
+        `/api/fiscal/${nddCompany.id}/ndd/authorize-url?redirect_base=${encodeURIComponent(redirectBase)}`,
+        { token }
+      );
+      const popup = window.open(res.authorize_url, "ndd_auth", "width=600,height=700");
+      // Escuta mensagem de sucesso do popup (callback HTML envia postMessage)
+      const onMsg = (e: MessageEvent) => {
+        if (e.data?.type === "ndd_connected") {
+          window.removeEventListener("message", onMsg);
+          setNddMsg(
+            e.data.has_refresh
+              ? "✅ Conectado! Renovação automática ativada — não precisa fazer isso de novo."
+              : "⚠️ Conectado sem refresh_token. Token expira em 30 min."
+          );
+          setNddConnecting(false);
+          // Recarrega companies para atualizar status do token
+          apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token }).then(setCompanies).catch(() => {});
+          if (popup) popup.close();
+        }
+      };
+      window.addEventListener("message", onMsg);
+      // Timeout de segurança: se fechar o popup sem completar o auth
+      const interval = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(interval);
+          window.removeEventListener("message", onMsg);
+          setNddConnecting(false);
+        }
+      }, 1000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setNddMsg(`Erro: ${msg}`);
+      setNddConnecting(false);
+    }
+  };
+
   // ── Trigger sync ────────────────────────────────────────────────────────────
   const triggerSync = async () => {
     if (!token || syncing) return;
@@ -234,8 +287,9 @@ export default function FiscalPage() {
       await apiFetch("/api/fiscal/nfse/sync/run", { token, method: "POST" });
       setSyncMsg("Sync NFSe iniciado — aguarde alguns minutos e clique Atualizar.");
       setTimeout(() => loadSyncLogs(), 6000);
-    } catch {
-      setSyncMsg("Erro ao iniciar sync. Verifique se o token NDD está configurado.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setSyncMsg(`Erro: ${msg}`);
     } finally {
       setSyncing(false);
     }
@@ -568,6 +622,48 @@ export default function FiscalPage() {
       {/* ════ TAB: SYNC ════ */}
       {tab === "sync" && (
         <div className="space-y-5">
+
+          {/* Painel de conexão NDD Digital */}
+          <div className={`rounded-xl border p-5 ${card}`}>
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                  Conexão NDD Digital
+                </h2>
+                <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  {companies.find((c) => c.sync_nfse_ativo)?.ndd_access_token
+                    ? companies.find((c) => c.sync_nfse_ativo)?.ndd_refresh_token
+                      ? "✅ Conectado com renovação automática (refresh_token ativo)"
+                      : "⚠️ Token ativo mas sem refresh — expira em 30 min. Reconecte para ativar renovação automática."
+                    : "Sem token NDD configurado. Clique em Conectar para autenticar."}
+                </p>
+              </div>
+              <button
+                onClick={connectNdd}
+                disabled={nddConnecting}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 transition-colors whitespace-nowrap"
+              >
+                {nddConnecting ? (
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Icon name="link" size={14} />
+                )}
+                Conectar NDD Digital
+              </button>
+            </div>
+            {nddMsg && (
+              <p className={`mt-3 text-sm p-3 rounded-lg ${
+                nddMsg.startsWith("✅")
+                  ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                  : nddMsg.startsWith("⚠")
+                  ? "bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400"
+                  : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+              }`}>
+                {nddMsg}
+              </p>
+            )}
+          </div>
+
           {/* Painel de controle */}
           <div className={`rounded-xl border p-5 ${card}`}>
             <div className="flex flex-wrap items-start justify-between gap-4">

@@ -14,7 +14,7 @@ def list_companies(_user: dict = Depends(get_current_user)):
     result = sb.table("fiscal_companies").select(
         "id,cnpj,nome,regime,grupo,tipo,cidade,uf_sede,"
         "sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
-        "ndd_last_sync_at,ndd_access_token,ndd_token_expires_at,cert_expiry,ultima_sync"
+        "ndd_last_sync_at,ndd_access_token,ndd_refresh_token,ndd_token_expires_at,cert_expiry,ultima_sync"
     ).order("grupo").order("tipo").execute()
     return result.data or []
 
