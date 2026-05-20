@@ -226,55 +226,43 @@ export default function FiscalPage() {
 
   useEffect(() => { if (tab === "sync") loadSyncLogs(); }, [tab, loadSyncLogs]);
 
-  // ── Conectar NDD via PKCE (offline_access → refresh_token permanente) ───────
-  const [nddConnecting, setNddConnecting] = useState(false);
-  const [nddMsg, setNddMsg] = useState("");
+  // ── Configurar token NDD manualmente (via DevTools do portal NDD) ───────────
+  const [showTokenForm, setShowTokenForm] = useState(false);
+  const [nddAccessToken, setNddAccessToken]   = useState("");
+  const [nddRefreshToken, setNddRefreshToken] = useState("");
+  const [savingToken, setSavingToken]         = useState(false);
+  const [nddMsg, setNddMsg]                   = useState("");
 
-  const connectNdd = async () => {
+  const saveNddToken = async () => {
     if (!token) return;
-    // Usa a empresa Voetur (portadora do token NDD — sync_nfse_ativo)
     const nddCompany = companies.find((c) => c.sync_nfse_ativo);
-    if (!nddCompany) {
-      setNddMsg("Nenhuma empresa com sync_nfse_ativo configurado.");
-      return;
-    }
-    setNddConnecting(true);
+    if (!nddCompany) { setNddMsg("Nenhuma empresa com sync NFSe ativo."); return; }
+    if (!nddAccessToken.trim()) { setNddMsg("Cole o access_token."); return; }
+    setSavingToken(true);
     setNddMsg("");
     try {
-      const redirectBase = window.location.origin;
-      const res = await apiFetch<{ authorize_url: string }>(
-        `/api/fiscal/${nddCompany.id}/ndd/authorize-url?redirect_base=${encodeURIComponent(redirectBase)}`,
-        { token }
+      await apiFetch(`/api/fiscal/${nddCompany.id}/ndd/token`, {
+        token,
+        method: "POST",
+        json: {
+          access_token:  nddAccessToken.trim(),
+          refresh_token: nddRefreshToken.trim(),
+          expires_in:    1800,
+        },
+      });
+      setNddMsg(
+        nddRefreshToken.trim()
+          ? "✅ Tokens salvos! Renovação automática ativada — não precisa fazer isso de novo."
+          : "⚠️ access_token salvo. Sem refresh_token: expira em 30 min. Cole também o refresh_token para renovação automática."
       );
-      const popup = window.open(res.authorize_url, "ndd_auth", "width=600,height=700");
-      // Escuta mensagem de sucesso do popup (callback HTML envia postMessage)
-      const onMsg = (e: MessageEvent) => {
-        if (e.data?.type === "ndd_connected") {
-          window.removeEventListener("message", onMsg);
-          setNddMsg(
-            e.data.has_refresh
-              ? "✅ Conectado! Renovação automática ativada — não precisa fazer isso de novo."
-              : "⚠️ Conectado sem refresh_token. Token expira em 30 min."
-          );
-          setNddConnecting(false);
-          // Recarrega companies para atualizar status do token
-          apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token }).then(setCompanies).catch(() => {});
-          if (popup) popup.close();
-        }
-      };
-      window.addEventListener("message", onMsg);
-      // Timeout de segurança: se fechar o popup sem completar o auth
-      const interval = setInterval(() => {
-        if (popup?.closed) {
-          clearInterval(interval);
-          window.removeEventListener("message", onMsg);
-          setNddConnecting(false);
-        }
-      }, 1000);
+      setNddAccessToken("");
+      setNddRefreshToken("");
+      setShowTokenForm(false);
+      apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token }).then(setCompanies).catch(() => {});
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      setNddMsg(`Erro: ${msg}`);
-      setNddConnecting(false);
+      setNddMsg(`Erro: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setSavingToken(false);
     }
   };
 
@@ -623,46 +611,111 @@ export default function FiscalPage() {
       {tab === "sync" && (
         <div className="space-y-5">
 
-          {/* Painel de conexão NDD Digital */}
-          <div className={`rounded-xl border p-5 ${card}`}>
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-1">
-                <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
-                  Conexão NDD Digital
-                </h2>
-                <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                  {companies.find((c) => c.sync_nfse_ativo)?.ndd_access_token
-                    ? companies.find((c) => c.sync_nfse_ativo)?.ndd_refresh_token
-                      ? "✅ Conectado com renovação automática (refresh_token ativo)"
-                      : "⚠️ Token ativo mas sem refresh — expira em 30 min. Reconecte para ativar renovação automática."
-                    : "Sem token NDD configurado. Clique em Conectar para autenticar."}
-                </p>
-              </div>
-              <button
-                onClick={connectNdd}
-                disabled={nddConnecting}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2 transition-colors whitespace-nowrap"
-              >
-                {nddConnecting ? (
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <Icon name="link" size={14} />
+          {/* Painel de configuração do token NDD */}
+          {(() => {
+            const nddCo = companies.find((c) => c.sync_nfse_ativo);
+            const hasToken   = !!nddCo?.ndd_access_token;
+            const hasRefresh = !!nddCo?.ndd_refresh_token;
+            return (
+              <div className={`rounded-xl border p-5 space-y-4 ${card}`}>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="space-y-1">
+                    <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                      Token NDD Digital
+                    </h2>
+                    <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      {!hasToken && "Sem token configurado."}
+                      {hasToken && hasRefresh && "✅ Renovação automática ativa (refresh_token configurado)."}
+                      {hasToken && !hasRefresh && "⚠️ access_token ativo, mas sem refresh_token — expira em 30 min."}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setShowTokenForm((v) => !v); setNddMsg(""); }}
+                    className={`px-3 py-2 text-sm rounded-lg border transition-colors flex items-center gap-2 ${
+                      isDark ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-50 text-gray-700"
+                    }`}
+                  >
+                    <Icon name="key" size={13} />
+                    {hasRefresh ? "Atualizar tokens" : "Configurar tokens"}
+                  </button>
+                </div>
+
+                {showTokenForm && (
+                  <div className={`rounded-lg border p-4 space-y-4 ${isDark ? "border-gray-700 bg-gray-900/40" : "border-gray-200 bg-gray-50"}`}>
+                    {/* Instruções */}
+                    <div className={`text-xs space-y-1 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      <p className="font-semibold text-blue-500">Como obter os tokens do portal NDD:</p>
+                      <ol className="list-decimal list-inside space-y-0.5 pl-1">
+                        <li>Abra <span className="font-mono">spaceportalprod.e-datacenter.nddigital.com.br</span> e faça login</li>
+                        <li>Pressione <kbd className={`px-1 py-0.5 rounded text-xs font-mono ${isDark ? "bg-gray-700" : "bg-white border border-gray-300"}`}>F12</kbd> → aba <strong>Network</strong> → filtre por <span className="font-mono">token</span></li>
+                        <li>Recarregue a página ou navegue — aparecerá um POST para <span className="font-mono">/connect/token</span></li>
+                        <li>Clique nessa request → aba <strong>Response</strong> → copie <code>access_token</code> e <code>refresh_token</code></li>
+                      </ol>
+                      <p className="text-yellow-500 font-medium pt-1">O refresh_token é mais longo que o access_token e não expira em 30 min — é ele que mantém a conexão permanente.</p>
+                    </div>
+
+                    {/* Campos */}
+                    <div className="space-y-3">
+                      <div>
+                        <label className={`block text-xs font-medium mb-1 ${isDark ? "text-gray-400" : "text-gray-600"}`}>
+                          access_token <span className="text-gray-400">(obrigatório)</span>
+                        </label>
+                        <textarea
+                          rows={3}
+                          value={nddAccessToken}
+                          onChange={(e) => setNddAccessToken(e.target.value)}
+                          placeholder="eyJhbGciOiJSUzI1NiIs..."
+                          className={`w-full font-mono text-xs rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            isDark ? "bg-gray-700 border border-gray-600 text-white placeholder-gray-500" : "bg-white border border-gray-300 text-gray-900 placeholder-gray-400"
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label className={`block text-xs font-medium mb-1 ${isDark ? "text-gray-400" : "text-gray-600"}`}>
+                          refresh_token <span className="text-green-500">(recomendado — renovação automática)</span>
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={nddRefreshToken}
+                          onChange={(e) => setNddRefreshToken(e.target.value)}
+                          placeholder="Cole o refresh_token aqui..."
+                          className={`w-full font-mono text-xs rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                            isDark ? "bg-gray-700 border border-gray-600 text-white placeholder-gray-500" : "bg-white border border-gray-300 text-gray-900 placeholder-gray-400"
+                          }`}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={saveNddToken}
+                          disabled={savingToken || !nddAccessToken.trim()}
+                          className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                        >
+                          {savingToken && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                          Salvar tokens
+                        </button>
+                        <button
+                          onClick={() => { setShowTokenForm(false); setNddMsg(""); }}
+                          className={`px-4 py-2 text-sm rounded-lg border transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 )}
-                Conectar NDD Digital
-              </button>
-            </div>
-            {nddMsg && (
-              <p className={`mt-3 text-sm p-3 rounded-lg ${
-                nddMsg.startsWith("✅")
-                  ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
-                  : nddMsg.startsWith("⚠")
-                  ? "bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400"
-                  : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
-              }`}>
-                {nddMsg}
-              </p>
-            )}
-          </div>
+
+                {nddMsg && (
+                  <p className={`text-sm p-3 rounded-lg ${
+                    nddMsg.startsWith("✅") ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400"
+                    : nddMsg.startsWith("⚠") ? "bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400"
+                    : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"
+                  }`}>
+                    {nddMsg}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Painel de controle */}
           <div className={`rounded-xl border p-5 ${card}`}>
