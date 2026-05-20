@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Sistema interno da Voetur/VTCLog com autenticação própria e oito módulos:
+Sistema interno da Voetur/VTCLog com autenticação própria e nove módulos:
 
 | Módulo | Serviço | Porta | Descrição |
 |---|---|---|---|
@@ -14,6 +14,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e oito módulos:
 | Gastos TI | expenses-service | 8006 | Dashboard financeiro executivo — despesas de TI via ERP Benner |
 | VoeIA | support-service | 8007 | Bot WhatsApp de suporte com abertura de chamados no Freshservice |
 | Desempenho | performance-service | 8008 | Gestão de ciclos, metas, avaliações e KPIs de desempenho |
+| Fiscal | fiscal-service | 8009 | Validação NFe/NFSe — sync NDD Digital, busca full-text, dashboard |
 
 ---
 
@@ -23,6 +24,8 @@ Sistema interno da Voetur/VTCLog com autenticação própria e oito módulos:
 Browser
   └─► nginx:443 (HTTPS — frontend container)
         ├─ /api/* ─────────────────────────► Kong:8000 (interno Docker)
+        │                                     ├─ /api/fiscal/*
+        │                                     │     └─► fiscal-service:8009
         │                                     ├─ /api/performance/*
         │                                     │     └─► performance-service:8008
         │                                     ├─ /api/auth, /api/users, /api/admin, /api/health
@@ -67,7 +70,7 @@ Supabase Self-Hosted (Docker app_net):
 | 54321 | Supabase Kong | 127.0.0.1 | bloqueado |
 | 54323 | Supabase Studio | 127.0.0.1 | bloqueado |
 
-Microsserviços (8001–8008): sem portas expostas ao host, apenas rede interna Docker.
+Microsserviços (8001–8009): sem portas expostas ao host, apenas rede interna Docker.
 
 ---
 
@@ -886,6 +889,19 @@ erDiagram
 | GET | `/api/support/health` | público | healthcheck |
 | GET | `/api/support/ready` | público | readiness |
 
+### fiscal-service:8009
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/fiscal/companies` | autenticado | lista empresas |
+| GET | `/api/fiscal/sync/logs` | autenticado | logs globais |
+| GET | `/api/fiscal/nfse` | autenticado | busca NFSe com filtros |
+| GET | `/api/fiscal/nfse/stats` | autenticado | totais por período |
+| POST | `/api/fiscal/nfse/sync/run` | admin | dispara sync NFSe NDD |
+| GET | `/api/fiscal/{id}/ndd/authorize-url` | admin | URL PKCE para frontend |
+| GET | `/api/fiscal/ndd/callback` | público | callback OAuth NDD |
+| GET | `/api/fiscal/{id}/ndd/status` | autenticado | status token NDD |
+| POST | `/api/fiscal/{id}/certificates` | admin | upload cert A1 |
+
 ### performance-service:8008
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
@@ -1104,6 +1120,149 @@ pending_self → pending_manager → pending_second_manager → pending_hr → p
 
 ---
 
+## Módulo Fiscal — fiscal-service:8009
+
+Validação e visualização de documentos fiscais (NFe, CTe, NFSe) sincronizados via portal **NDD Digital**.
+
+### Empresas cadastradas
+
+| Grupo | CNPJ | Cidade/UF | NFe | CTe | NFSe |
+|---|---|---|:---:|:---:|:---:|
+| VTC (Matriz) | 24.893.687/0001-08 | Brasília/DF | ✓ | ✓ | — |
+| VTC (Filial) | 24.893.687/0002-80 | Rio de Janeiro/RJ | ✓ | ✓ | — |
+| VTC (Filial) | 24.893.687/0003-61 | Recife/PE | ✓ | ✓ | — |
+| VTC (Filial) | 24.893.687/0011-71 | Guarulhos/SP | ✓ | ✓ | — |
+| VTC (Filial) | 24.893.687/0014-14 | Contagem/MG | ✓ | ✓ | — |
+| VTC (Filial) | 24.893.687/0015-03 | Brasília fil./DF | ✓ | ✓ | — |
+| VTC (Filial) | 24.893.687/0017-67 | Campinas/SP | ✓ | ✓ | — |
+| Voetur (Matriz) | 01.017.250/0001-05 | Brasília/DF | ✓ | — | ✓ |
+| Payfly (Matriz) | 66.649.752/0001-96 | São Paulo/SP | — | — | — (sem cert A1) |
+
+### Schema (`fiscal_documents` + `fiscal_companies`)
+
+```mermaid
+erDiagram
+    fiscal_companies {
+        uuid id PK
+        text cnpj UK
+        text nome
+        text regime
+        text grupo
+        text tipo
+        text cidade
+        text uf_sede
+        bool sync_nfe_ativo
+        bool sync_cte_ativo
+        bool sync_nfse_ativo
+        text ndd_access_token
+        text ndd_refresh_token
+        timestamptz ndd_token_expires_at
+        timestamptz ndd_last_sync_at
+        text cert_pfx_encrypted
+        text cert_senha_encrypted
+        timestamptz cert_expiry
+        timestamptz ultima_sync
+    }
+
+    fiscal_documents {
+        uuid id PK
+        uuid company_id FK
+        text tipo
+        text chave_acesso UK
+        text numero
+        text serie
+        text emitente_cnpj
+        text emitente_nome
+        text destinatario_cnpj
+        text destinatario_nome
+        text natureza_operacao
+        date data_emissao
+        numeric valor_total
+        numeric valor_iss
+        numeric valor_iss_retido
+        text municipio_nome
+        text status
+        text xml_content
+        bigint ndd_id
+        timestamptz ndd_sync_at
+        tsvector search_vector
+        timestamptz created_at
+    }
+
+    fiscal_sync_logs {
+        bigserial id PK
+        uuid company_id FK
+        text tipo
+        text status
+        int documentos_novos
+        int documentos_cancelados
+        text erro_msg
+        text janela
+        timestamptz executado_em
+    }
+
+    fiscal_companies ||--o{ fiscal_documents : "company_id"
+    fiscal_companies ||--o{ fiscal_sync_logs : "company_id"
+```
+
+**Campos `fiscal_companies`:**
+- `grupo`: `vtclog` | `voetur` | `payfly`
+- `tipo`: `matriz` | `filial`
+- `cert_pfx_encrypted`: certificado A1 Fernet-encrypted (nunca armazenado como arquivo)
+- `ndd_refresh_token`: permite renovação automática do token NDD sem interação humana
+
+**Full-text search:** trigger `tsvector_update_fiscal_documents` mantém `search_vector` atualizado; pesos A=nomes, B=natureza, C=município, D=número/chave. Índice GIN + `pg_trgm` para CNPJ parcial.
+
+**RPC:** `fiscal_nfse_search(p_query, p_company_id, p_limit, p_offset)` — busca com ranking por relevância via `websearch_to_tsquery('portuguese', p_query)`.
+
+### Jobs APScheduler
+
+| Horário | Job | Escopo |
+|---|---|---|
+| 02:00 | `_sync_all_companies` | NFe + CTe de todas as empresas com cert A1 |
+| 04:00 | `_sync_retry_errors` | Reprocessa documentos com status erro |
+| 05:00 | `_sync_nfse_ndd_incremental` | NFSe via NDD Digital (watermark `ndd_last_sync_at`) |
+
+**Sync NFSe:** uma conta NDD cobre todas as empresas do grupo. O job busca a empresa com `sync_nfse_ativo=True` e token válido, faz OData incremental por `dataProcessamento >= ndd_last_sync_at`, mapeia `cnpj_tomador → company_id`. Rate limit: `XML_WORKERS=2`, `INTER_PAGE_SLEEP=2s` (~3 notas/s).
+
+**Certificados A1:** nunca armazenados como arquivo — encriptados com Fernet (`CERT_ENCRYPTION_KEY`), decriptados para tempfile apenas durante o sync, deletados após uso.
+
+### Rotas fiscal-service:8009
+
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/fiscal/companies` | autenticado | lista empresas com status sync/token |
+| GET | `/api/fiscal/sync/logs` | autenticado | logs globais (todas as empresas) |
+| GET | `/api/fiscal/nfse` | autenticado | busca NFSe com 10+ filtros + full-text |
+| GET | `/api/fiscal/nfse/stats` | autenticado | totais por período (count, valor, ISS, município) |
+| POST | `/api/fiscal/nfse/sync/run` | admin | dispara sync NFSe NDD imediatamente |
+| GET | `/api/fiscal/{id}/sync/logs` | autenticado | logs de sync de uma empresa |
+| POST | `/api/fiscal/{id}/ndd/token` | admin | salva access_token manualmente (DevTools) |
+| GET | `/api/fiscal/{id}/ndd/authorize-url` | admin | retorna URL PKCE com `offline_access` para obter refresh_token |
+| GET | `/api/fiscal/{id}/ndd/authorize` | admin | redireciona para auth NDD (fluxo PKCE completo) |
+| GET | `/api/fiscal/ndd/callback` | público | recebe código NDD, troca por tokens, salva no banco |
+| GET | `/api/fiscal/{id}/ndd/status` | autenticado | status do token NDD (expirado, minutos restantes) |
+| POST | `/api/fiscal/{id}/certificates` | admin | upload certificado A1 (Fernet-encrypted) |
+| POST | `/api/fiscal/{id}/sync/run` | admin | dispara sync NFe/CTe manual |
+
+### Conexão NDD Digital (OAuth2 PKCE)
+
+Fluxo para obter `refresh_token` permanente (feito **uma única vez** por conta NDD):
+
+```
+1. Admin clica "Conectar NDD Digital" no Jarvis (aba Sync)
+2. Jarvis chama GET /api/fiscal/{id}/ndd/authorize-url (gera PKCE state)
+3. Abre popup → NDD Identity Server (login com credenciais NDD)
+4. NDD redireciona → GET /api/fiscal/ndd/callback?code=…&state=…
+5. fiscal-service troca code → access_token + refresh_token (offline_access)
+6. Tokens salvos em fiscal_companies → renovação automática a cada sync
+7. Popup fecha e envia postMessage ao Jarvis confirmando conexão
+```
+
+Após isso: `_get_ndd_token(company_id)` em `nfse_fetcher.py` auto-renova usando `refresh_token` via `POST /connect/token` (grant_type=`refresh_token`).
+
+---
+
 ## Integrações externas
 
 - **Microsoft 365 / Azure AD**: app Moneypenny, tenant `fb902eca-dc08-4dec-9e2c-7ce70ee14cf5`
@@ -1112,3 +1271,4 @@ pending_self → pending_manager → pending_second_manager → pending_hr → p
 - **Freshservice**: `voetur1.freshservice.com`, autenticação via API key
 - **WhatsApp**: Evolution API (instâncias `voetur` e `voetur-support`)
 - **SMTP**: `smtp.office365.com`, `noreply@voetur.com.br`
+- **NDD Digital**: `spaceportalprod.e-datacenter.nddigital.com.br` — portal fiscal NFe/CTe/NFSe; OAuth2 PKCE via `ndd-identity-space-gateway`; token TTL 1800s + refresh automático
