@@ -290,7 +290,7 @@ export default function FiscalPage() {
           </div>
 
           <nav className="py-2">
-            {GRUPOS.map(({ id: gid, label, color }) => {
+            {GRUPOS.map(({ id: gid, color }) => {
               const items = grouped[gid] ?? [];
               if (items.length === 0) return null;
               const expanded = expandedGroups.has(gid);
