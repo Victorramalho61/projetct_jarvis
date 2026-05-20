@@ -35,17 +35,22 @@ interface NfseDoc {
   id: string;
   company_id: string;
   chave_acesso: string;
-  numero: string;
+  numero: string | null;
+  serie: string | null;
   emitente_cnpj: string;
   emitente_nome: string;
   destinatario_cnpj: string;
   destinatario_nome: string;
+  natureza_operacao: string | null;
   data_emissao: string;
   valor_total: number;
   valor_iss: number | null;
+  valor_iss_retido: number | null;
   municipio_nome: string;
   status: string;
+  ndd_id: number | null;
   ndd_sync_at: string | null;
+  xml_content?: string | null;
 }
 
 interface SyncLog {
@@ -143,6 +148,10 @@ export default function FiscalPage() {
   const [filterMunicipio, setFilterMunicipio] = useState("");
   const [filterCnpj, setFilterCnpj]         = useState("");
 
+  // drill-down
+  const [detailDoc, setDetailDoc]       = useState<NfseDoc | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
   // sync
   const [syncLogs, setSyncLogs]         = useState<SyncLog[]>([]);
   const [syncLoading, setSyncLoading]   = useState(false);
@@ -225,6 +234,19 @@ export default function FiscalPage() {
   }, [token, selectedId]);
 
   useEffect(() => { if (tab === "sync") loadSyncLogs(); }, [tab, loadSyncLogs]);
+
+  // ── Drill-down ──────────────────────────────────────────────────────────────
+  const openDetail = async (doc: NfseDoc) => {
+    setDetailDoc(doc);
+    if (doc.xml_content) return;
+    setDetailLoading(true);
+    try {
+      const full = await apiFetch<NfseDoc>(`/api/fiscal/nfse/${doc.id}`, { token: token! });
+      setDetailDoc(full);
+    } catch {/* mostra o que temos */} finally {
+      setDetailLoading(false);
+    }
+  };
 
   // ── Configurar token NDD manualmente (via DevTools do portal NDD) ───────────
   const [showTokenForm, setShowTokenForm] = useState(false);
@@ -379,6 +401,27 @@ export default function FiscalPage() {
       {/* ════ TAB: DASHBOARD ════ */}
       {tab === "dashboard" && (
         <div className="space-y-5">
+
+          {/* Cards resumo da empresa selecionada (ano corrente) */}
+          {currentCompany && stats && (
+            <div className={`rounded-xl border p-5 space-y-3 ${card}`}>
+              <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                {currentCompany.nome} — {ano}
+              </h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KPICard label="Total NFSe" value={FMT_NUM.format(stats.total_notas)} isDark={isDark} />
+                <KPICard label="Valor Total" value={FMT_BRL.format(stats.valor_total)} isDark={isDark} />
+                <KPICard label="ISS" value={FMT_BRL.format(stats.valor_iss)} isDark={isDark} />
+                <KPICard
+                  label="Pendentes"
+                  value={FMT_NUM.format(stats.por_status?.pendente ?? 0)}
+                  sub={`Conferidos: ${FMT_NUM.format(stats.por_status?.conferido ?? 0)}`}
+                  isDark={isDark}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Filtro de período */}
           <div className={`rounded-xl border p-4 flex flex-wrap gap-3 items-end ${card}`}>
             <div className="flex flex-col gap-1">
@@ -518,90 +561,221 @@ export default function FiscalPage() {
             </div>
           </div>
 
-          {/* Tabela */}
+          {/* Lista de cards */}
           <div className={`rounded-xl border overflow-hidden ${card}`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className={`border-b text-left ${isDark ? "border-gray-700 bg-gray-900/40" : "border-gray-200 bg-gray-50"}`}>
-                    <th className="px-4 py-3 font-medium">Data</th>
-                    <th className="px-4 py-3 font-medium">Emitente</th>
-                    <th className="px-4 py-3 font-medium">Município</th>
-                    <th className="px-4 py-3 font-medium text-right">Valor</th>
-                    <th className="px-4 py-3 font-medium text-right">ISS</th>
-                    <th className="px-4 py-3 font-medium">Status</th>
-                    <th className="px-4 py-3 font-medium">Chave</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {docsLoading ? (
-                    [...Array(8)].map((_, i) => (
-                      <tr key={i} className={`border-b ${isDark ? "border-gray-700" : "border-gray-100"}`}>
-                        {[...Array(7)].map((_, j) => (
-                          <td key={j} className="px-4 py-3">
-                            <div className={`h-4 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  ) : docs.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className={`px-4 py-10 text-center text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                        Nenhuma NFSe encontrada.
-                      </td>
-                    </tr>
-                  ) : (
-                    docs.map((doc) => (
-                      <tr
-                        key={doc.id}
-                        className={`border-b transition-colors ${isDark ? "border-gray-700 hover:bg-gray-800/50" : "border-gray-100 hover:bg-gray-50"}`}
-                      >
-                        <td className="px-4 py-3 whitespace-nowrap">{fmtDay(doc.data_emissao)}</td>
-                        <td className="px-4 py-3 max-w-[180px]">
-                          <div className="truncate" title={doc.emitente_nome}>
-                            {doc.emitente_nome || doc.emitente_cnpj}
-                          </div>
-                          <div className={`text-xs font-mono ${isDark ? "text-gray-400" : "text-gray-400"}`}>
-                            {fmtCnpj(doc.emitente_cnpj)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">{doc.municipio_nome || "—"}</td>
-                        <td className="px-4 py-3 text-right font-mono whitespace-nowrap">
-                          {FMT_BRL.format(doc.valor_total ?? 0)}
-                        </td>
-                        <td className="px-4 py-3 text-right font-mono whitespace-nowrap">
-                          {doc.valor_iss != null ? FMT_BRL.format(doc.valor_iss) : "—"}
-                        </td>
-                        <td className="px-4 py-3">
+            {docsLoading ? (
+              <div className="divide-y divide-gray-700">
+                {[...Array(6)].map((_, i) => (
+                  <div key={i} className="p-4 flex justify-between gap-4">
+                    <div className="flex-1 space-y-2">
+                      <div className={`h-3 w-24 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                      <div className={`h-4 w-2/3 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                      <div className={`h-3 w-1/2 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                    </div>
+                    <div className="space-y-2 text-right">
+                      <div className={`h-5 w-28 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                      <div className={`h-3 w-20 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : docs.length === 0 ? (
+              <p className={`px-4 py-12 text-center text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                Nenhuma NFSe encontrada.
+              </p>
+            ) : (
+              <div className={`divide-y ${isDark ? "divide-gray-700" : "divide-gray-100"}`}>
+                {docs.map((doc) => (
+                  <div
+                    key={doc.id}
+                    onClick={() => openDetail(doc)}
+                    className={`p-4 cursor-pointer transition-colors ${
+                      isDark ? "hover:bg-gray-700/50" : "hover:bg-blue-50/60"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center flex-wrap gap-2 mb-1">
+                          <span className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                            {fmtDay(doc.data_emissao)}
+                          </span>
                           <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600"} />
-                        </td>
-                        <td className="px-4 py-3 font-mono text-xs">
-                          <span title={doc.chave_acesso}>{doc.chave_acesso?.slice(0, 10)}…</span>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+                          {doc.municipio_nome && (
+                            <span className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                              · {doc.municipio_nome}
+                            </span>
+                          )}
+                        </div>
+                        <p className={`font-semibold text-base leading-tight truncate ${isDark ? "text-white" : "text-gray-900"}`}
+                          title={doc.emitente_nome}>
+                          {doc.emitente_nome || doc.emitente_cnpj}
+                        </p>
+                        <p className={`text-xs font-mono mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                          {fmtCnpj(doc.emitente_cnpj)}
+                        </p>
+                        {doc.destinatario_nome && (
+                          <p className={`text-xs mt-0.5 truncate ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                            → {doc.destinatario_nome}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`font-bold text-base tabular-nums ${isDark ? "text-white" : "text-gray-900"}`}>
+                          {FMT_BRL.format(doc.valor_total ?? 0)}
+                        </p>
+                        {doc.valor_iss != null && (
+                          <p className={`text-xs mt-0.5 tabular-nums ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                            ISS {FMT_BRL.format(doc.valor_iss)}
+                          </p>
+                        )}
+                        <p className={`text-xs mt-1.5 font-mono ${isDark ? "text-gray-600" : "text-gray-400"}`}>
+                          {doc.chave_acesso?.slice(0, 12)}…
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className={`flex items-center justify-between px-4 py-3 border-t text-sm ${isDark ? "border-gray-700" : "border-gray-200"}`}>
-              <span className={isDark ? "text-gray-400" : "text-gray-500"}>{docs.length} registros</span>
+              <span className={isDark ? "text-gray-400" : "text-gray-500"}>{docs.length} registros · clique para detalhar</span>
               <div className="flex gap-2">
                 <button
                   disabled={docsOffset === 0}
                   onClick={() => setDocsOffset(Math.max(0, docsOffset - DOCS_LIMIT))}
-                  className="px-3 py-1 rounded border disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  ← Anterior
-                </button>
+                  className={`px-3 py-1 rounded border text-sm disabled:opacity-40 transition-colors ${
+                    isDark ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-50 text-gray-700"
+                  }`}
+                >← Anterior</button>
                 <button
                   disabled={docs.length < DOCS_LIMIT}
                   onClick={() => setDocsOffset(docsOffset + DOCS_LIMIT)}
-                  className="px-3 py-1 rounded border disabled:opacity-40 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                >
-                  Próximo →
-                </button>
+                  className={`px-3 py-1 rounded border text-sm disabled:opacity-40 transition-colors ${
+                    isDark ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-50 text-gray-700"
+                  }`}
+                >Próximo →</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL DETALHE NFSe ════ */}
+      {detailDoc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          onClick={() => setDetailDoc(null)}
+        >
+          <div
+            className={`rounded-2xl border shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto ${
+              isDark ? "bg-gray-900 border-gray-700 text-gray-200" : "bg-white border-gray-200 text-gray-900"
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between px-5 py-4 border-b"
+              style={{ background: isDark ? "#111827" : "#fff" }}>
+              <div>
+                <h2 className="font-bold text-base">NFSe — Detalhes</h2>
+                {detailDoc.numero && (
+                  <p className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    Nº {detailDoc.numero}{detailDoc.serie ? ` · Série ${detailDoc.serie}` : ""}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setDetailDoc(null)}
+                className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"}`}
+              >
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Status + Data */}
+              <div className="flex items-center gap-3">
+                <Badge label={detailDoc.status} cls={STATUS_BADGE[detailDoc.status] ?? "bg-gray-100 text-gray-600"} />
+                <span className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  Emitida em {fmtDay(detailDoc.data_emissao)}
+                </span>
+                {detailDoc.municipio_nome && (
+                  <span className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    · {detailDoc.municipio_nome}
+                  </span>
+                )}
+              </div>
+
+              {/* Emitente / Destinatário */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className={`rounded-xl p-4 ${isDark ? "bg-gray-800" : "bg-gray-50"}`}>
+                  <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDark ? "text-gray-500" : "text-gray-400"}`}>Emitente (Prestador)</p>
+                  <p className="font-semibold leading-snug">{detailDoc.emitente_nome || "—"}</p>
+                  <p className={`text-xs font-mono mt-1 ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtCnpj(detailDoc.emitente_cnpj)}</p>
+                </div>
+                <div className={`rounded-xl p-4 ${isDark ? "bg-gray-800" : "bg-gray-50"}`}>
+                  <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDark ? "text-gray-500" : "text-gray-400"}`}>Destinatário (Tomador)</p>
+                  <p className="font-semibold leading-snug">{detailDoc.destinatario_nome || "—"}</p>
+                  <p className={`text-xs font-mono mt-1 ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtCnpj(detailDoc.destinatario_cnpj)}</p>
+                </div>
+              </div>
+
+              {/* Valores */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className={`rounded-xl p-4 text-center ${isDark ? "bg-blue-900/30 border border-blue-800/40" : "bg-blue-50 border border-blue-100"}`}>
+                  <p className={`text-xs mb-1 ${isDark ? "text-blue-400" : "text-blue-600"}`}>Valor Total</p>
+                  <p className={`font-bold text-lg tabular-nums ${isDark ? "text-white" : "text-gray-900"}`}>
+                    {FMT_BRL.format(detailDoc.valor_total ?? 0)}
+                  </p>
+                </div>
+                <div className={`rounded-xl p-4 text-center ${isDark ? "bg-yellow-900/20 border border-yellow-800/30" : "bg-yellow-50 border border-yellow-100"}`}>
+                  <p className={`text-xs mb-1 ${isDark ? "text-yellow-400" : "text-yellow-600"}`}>ISS</p>
+                  <p className={`font-bold text-lg tabular-nums ${isDark ? "text-white" : "text-gray-900"}`}>
+                    {detailDoc.valor_iss != null ? FMT_BRL.format(detailDoc.valor_iss) : "—"}
+                  </p>
+                </div>
+                <div className={`rounded-xl p-4 text-center ${isDark ? "bg-orange-900/20 border border-orange-800/30" : "bg-orange-50 border border-orange-100"}`}>
+                  <p className={`text-xs mb-1 ${isDark ? "text-orange-400" : "text-orange-600"}`}>ISS Retido</p>
+                  <p className={`font-bold text-lg tabular-nums ${isDark ? "text-white" : "text-gray-900"}`}>
+                    {detailDoc.valor_iss_retido != null ? FMT_BRL.format(detailDoc.valor_iss_retido) : "—"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Natureza + IDs */}
+              {detailDoc.natureza_operacao && (
+                <div>
+                  <p className={`text-xs font-semibold uppercase tracking-wide mb-1 ${isDark ? "text-gray-500" : "text-gray-400"}`}>Natureza da Operação</p>
+                  <p className="text-sm">{detailDoc.natureza_operacao}</p>
+                </div>
+              )}
+
+              <div className={`grid grid-cols-2 gap-3 text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                <div>
+                  <span className="font-semibold">Chave de Acesso</span>
+                  <p className="font-mono mt-0.5 break-all">{detailDoc.chave_acesso}</p>
+                </div>
+                <div>
+                  <span className="font-semibold">NDD ID</span>
+                  <p className="font-mono mt-0.5">{detailDoc.ndd_id ?? "—"}</p>
+                  <span className="font-semibold mt-2 block">Sync em</span>
+                  <p className="mt-0.5">{fmtDate(detailDoc.ndd_sync_at)}</p>
+                </div>
+              </div>
+
+              {/* XML */}
+              {detailLoading ? (
+                <div className={`h-8 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+              ) : detailDoc.xml_content ? (
+                <details className={`rounded-xl border ${isDark ? "border-gray-700" : "border-gray-200"}`}>
+                  <summary className={`px-4 py-3 cursor-pointer text-sm font-medium select-none ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                    Ver XML completo
+                  </summary>
+                  <pre className={`text-xs p-4 overflow-auto max-h-64 border-t font-mono leading-relaxed ${
+                    isDark ? "bg-gray-950 text-green-400 border-gray-700" : "bg-gray-50 text-gray-700 border-gray-200"
+                  }`}>
+                    {detailDoc.xml_content}
+                  </pre>
+                </details>
+              ) : null}
             </div>
           </div>
         </div>
@@ -785,9 +959,9 @@ export default function FiscalPage() {
               </button>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className={`w-full text-sm ${isDark ? "text-gray-200" : "text-gray-900"}`}>
                 <thead>
-                  <tr className={`border-b text-left ${isDark ? "border-gray-700" : "border-gray-200"}`}>
+                  <tr className={`border-b text-left ${isDark ? "border-gray-700 text-gray-400" : "border-gray-200 text-gray-600"}`}>
                     <th className="px-4 py-3 font-medium">Executado em</th>
                     <th className="px-4 py-3 font-medium">Tipo</th>
                     <th className="px-4 py-3 font-medium">Janela</th>

@@ -47,6 +47,19 @@ async def run_nfse_sync(
     return {"ok": True, "message": "Sync NFSe NDD iniciado em background"}
 
 
+@router.get("/nfse/{doc_id}")
+def get_nfse_detail(
+    doc_id: str,
+    _user: dict = Depends(get_current_user),
+):
+    """Retorna NFSe completa incluindo xml_content."""
+    sb = get_supabase()
+    r = sb.table("fiscal_documents").select("*").eq("id", doc_id).eq("tipo", "NFSe").execute()
+    if not r.data:
+        raise HTTPException(status_code=404, detail="NFSe não encontrada")
+    return r.data[0]
+
+
 @router.get("/nfse")
 def search_nfse(
     q:                Optional[str]   = Query(None, description="Busca full-text (emitente, destinatário, município, natureza)"),
