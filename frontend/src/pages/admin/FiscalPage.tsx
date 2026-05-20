@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import { apiFetch } from "../../lib/api";
@@ -126,6 +126,14 @@ export default function FiscalPage() {
   const { theme } = useTheme();
   const isDark = theme === "dark";
 
+  const cache = useRef<Map<string, { data: unknown; ts: number }>>(new Map());
+  const cached = <T,>(key: string, ttl = 120_000): T | null => {
+    const e = cache.current.get(key);
+    return e && Date.now() - e.ts < ttl ? (e.data as T) : null;
+  };
+  const setCache = (key: string, data: unknown) =>
+    cache.current.set(key, { data, ts: Date.now() });
+
   const [tab, setTab]           = useState<Tab>("dashboard");
   const [companies, setCompanies] = useState<FiscalCompany[]>([]);
   // "" = todas as empresas
@@ -190,11 +198,14 @@ export default function FiscalPage() {
   // ── Load stats ──────────────────────────────────────────────────────────────
   const loadStats = useCallback(() => {
     if (!token) return;
-    setStatsLoading(true);
     const p = new URLSearchParams({ ano: String(ano), mes: String(mes) });
     if (selectedId) p.set("company_id", selectedId);
+    const key = `stats:${p}`;
+    const hit = cached<NfseStats>(key);
+    if (hit) { setStats(hit); return; }
+    setStatsLoading(true);
     apiFetch<NfseStats>(`/api/fiscal/nfse/stats?${p}`, { token })
-      .then(setStats)
+      .then((d) => { setStats(d); setCache(key, d); })
       .catch(() => setStats(null))
       .finally(() => setStatsLoading(false));
   }, [token, ano, mes, selectedId]);
@@ -204,15 +215,18 @@ export default function FiscalPage() {
   // ── Load docs ───────────────────────────────────────────────────────────────
   const loadDocs = useCallback(() => {
     if (!token) return;
-    setDocsLoading(true);
     const p = new URLSearchParams({ limit: String(DOCS_LIMIT), offset: String(docsOffset) });
     if (selectedId)      p.set("company_id", selectedId);
     if (q)               p.set("q", q);
     if (filterStatus)    p.set("status", filterStatus);
     if (filterMunicipio) p.set("municipio", filterMunicipio);
     if (filterCnpj)      p.set("emitente_cnpj", filterCnpj);
+    const key = `docs:${p}`;
+    const hit = cached<NfseDoc[]>(key, 60_000);
+    if (hit) { setDocs(hit); return; }
+    setDocsLoading(true);
     apiFetch<{ data: NfseDoc[] }>(`/api/fiscal/nfse?${p}`, { token })
-      .then((r) => setDocs(r.data ?? []))
+      .then((r) => { const d = r.data ?? []; setDocs(d); setCache(key, d); })
       .catch(() => setDocs([]))
       .finally(() => setDocsLoading(false));
   }, [token, selectedId, q, filterStatus, filterMunicipio, filterCnpj, docsOffset]);
@@ -222,13 +236,15 @@ export default function FiscalPage() {
   // ── Load sync logs ──────────────────────────────────────────────────────────
   const loadSyncLogs = useCallback(() => {
     if (!token) return;
-    setSyncLoading(true);
-    // Sem empresa selecionada: pega logs globais (sem filtro de company_id)
     const url = selectedId
       ? `/api/fiscal/${selectedId}/sync/logs?limit=30`
       : `/api/fiscal/sync/logs?limit=30`;
+    const key = `logs:${selectedId}`;
+    const hit = cached<SyncLog[]>(key, 30_000);
+    if (hit) { setSyncLogs(hit); return; }
+    setSyncLoading(true);
     apiFetch<SyncLog[]>(url, { token })
-      .then(setSyncLogs)
+      .then((d) => { setSyncLogs(d); setCache(key, d); })
       .catch(() => setSyncLogs([]))
       .finally(() => setSyncLoading(false));
   }, [token, selectedId]);

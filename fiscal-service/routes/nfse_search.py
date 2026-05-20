@@ -128,38 +128,17 @@ def nfse_stats(
     mes:        Optional[int] = Query(None),
     _user: dict = Depends(get_current_user),
 ):
-    """Totais por período: count, soma valor_total, soma valor_iss, breakdown por município e status."""
+    """Totais agregados via SQL — sem varredura full-table no Python."""
     sb = get_supabase()
-    query = sb.table("fiscal_documents").select(
-        "data_emissao,valor_total,valor_iss,municipio_nome,status"
-    ).eq("tipo", "NFSe")
-
-    if company_id:
-        query = query.eq("company_id", company_id)
-    if ano:
-        query = query.gte("data_emissao", f"{ano}-01-01").lte("data_emissao", f"{ano}-12-31")
-    if mes and ano:
-        import calendar
-        ultimo_dia = calendar.monthrange(ano, mes)[1]
-        query = query.gte("data_emissao", f"{ano}-{mes:02d}-01").lte(
-            "data_emissao", f"{ano}-{mes:02d}-{ultimo_dia:02d}"
-        )
-
-    result = query.execute()
-    docs = result.data or []
-
-    return {
-        "total_notas":  len(docs),
-        "valor_total":  round(sum(d.get("valor_total") or 0 for d in docs), 2),
-        "valor_iss":    round(sum(d.get("valor_iss") or 0 for d in docs), 2),
-        "por_municipio": _group_count(docs, "municipio_nome"),
-        "por_status":    _group_count(docs, "status"),
+    result = sb.rpc("fiscal_nfse_stats", {
+        "p_company_id": company_id,
+        "p_ano": ano,
+        "p_mes": mes,
+    }).execute()
+    data = result.data
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    return data or {
+        "total_notas": 0, "valor_total": 0, "valor_iss": 0,
+        "por_municipio": {}, "por_status": {},
     }
-
-
-def _group_count(docs: list, field: str) -> dict:
-    counts: dict = {}
-    for d in docs:
-        k = d.get(field) or "desconhecido"
-        counts[k] = counts.get(k, 0) + 1
-    return counts
