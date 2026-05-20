@@ -559,6 +559,35 @@ services:
       retries: 3
       start_period: 30s
 
+  fiscal-service:
+    build:
+      context: ./fiscal-service
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      CERT_ENCRYPTION_KEY: ${CERT_ENCRYPTION_KEY:-}
+      SEFAZ_AMBIENTE: ${SEFAZ_AMBIENTE:-1}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8009/health', timeout=4)\""]
+      interval: 300s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
   support-service:
     build:
       context: ./support-service
