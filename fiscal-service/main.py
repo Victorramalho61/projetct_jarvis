@@ -25,6 +25,8 @@ from routes.municipalities import router as municipalities_router
 from routes.documents import router as documents_router
 from routes.conference import router as conference_router
 from routes.apuration import router as apuration_router
+from routes.ndd_auth import router as ndd_auth_router
+from routes.nfse_search import router as nfse_search_router
 
 
 @asynccontextmanager
@@ -73,3 +75,5 @@ app.include_router(municipalities_router)
 app.include_router(documents_router)
 app.include_router(conference_router)
 app.include_router(apuration_router)
+app.include_router(ndd_auth_router)
+app.include_router(nfse_search_router)

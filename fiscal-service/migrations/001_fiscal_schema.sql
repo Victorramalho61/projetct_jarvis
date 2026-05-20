@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS fiscal_companies (
     sync_cte_ativo        boolean DEFAULT false,
     sync_nfse_ativo       boolean DEFAULT false,
     ultima_sync           timestamptz,
+    -- ND Digital portal (NFSe recebidas via portal centralizador)
+    ndd_access_token      text,
+    ndd_refresh_token     text,
+    ndd_token_expires_at  timestamptz,
     created_at            timestamptz DEFAULT now()
 );
 

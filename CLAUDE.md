@@ -1,5 +1,14 @@
 # Jarvis — Claude Code Instructions
 
+## Modo padrão de resposta
+
+Antes de executar qualquer pedido, aplique o **token-efficiency** mode:
+- Respostas compactas, sem introduções ou frases de conexão desnecessárias
+- Uma ideia por frase
+- Terminologia abreviada quando possível (fn, impl, cfg, svc)
+- Símbolos de estado: OK, FAIL, WARN, SKIP
+- Redução de 30–50% de tokens versus output padrão, mantendo >=95% da informação
+
 Documentação completa do projeto em `docs/arquitetura.md`.
 
 ## Regras de desenvolvimento

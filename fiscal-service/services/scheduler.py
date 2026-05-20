@@ -30,8 +30,16 @@ async def start_scheduler():
         id="sync_retry",
         misfire_grace_time=600,
     )
+    _scheduler.add_job(
+        _sync_nfse_ndd_incremental,
+        "cron",
+        hour=5,
+        minute=0,
+        id="sync_nfse_ndd",
+        misfire_grace_time=600,
+    )
     _scheduler.start()
-    _logger.info("Scheduler fiscal iniciado: 02:00 (principal) + 04:00 (retry on error)")
+    _logger.info("Scheduler fiscal iniciado: 02:00 (NFe/CTe) + 04:00 (retry) + 05:00 (NFSe NDD incremental)")
 
 
 async def stop_scheduler():
@@ -102,16 +110,13 @@ async def _sync_retry_errors():
 
 async def _run_sync(company: dict, janela: str = "manual"):
     from db import get_supabase, get_settings
-    from services.cert_manager import extract_pem_for_requests
-    from services.nfse_fetcher import NFSeFetcher
-    from services.xml_parser import parse_xml_auto
 
     sb = get_supabase()
     settings = get_settings()
     company_id = company["id"]
     cnpj = company["cnpj"]
 
-    _logger.info("[%s] Iniciando sync (%s)", cnpj, janela)
+    _logger.info("[%s] Iniciando sync NFe/CTe (%s)", cnpj, janela)
 
     if company.get("sync_nfe_ativo") and company.get("cert_pfx_encrypted"):
         await _sync_nfe(sb, settings, company, janela)
@@ -119,8 +124,7 @@ async def _run_sync(company: dict, janela: str = "manual"):
     if company.get("sync_cte_ativo") and company.get("cert_pfx_encrypted"):
         await _sync_cte(sb, settings, company, janela)
 
-    if company.get("sync_nfse_ativo"):
-        await _sync_nfse(sb, settings, company, janela)
+    # NFSe NDD é tratada exclusivamente pelo job das 05:00 (_sync_nfse_ndd_incremental)
 
     # Alerta cert expirando
     cert_expiry_res = sb.table("fiscal_companies").select("cert_expiry").eq(
@@ -247,79 +251,161 @@ async def _sync_cte(sb, settings, company, janela):
 
 
 async def _sync_nfse(sb, settings, company, janela):
-    from services.nfse_fetcher import NFSeFetcher
+    """
+    NFSe via NDD Digital portal — uma chamada busca XMLs de TODAS as empresas
+    visíveis na conta. Os documentos são associados às empresas pelo CNPJ do tomador.
+    """
+    from services.ndd_xml_fetcher import fetch_all_xml
+    from services.nfse_fetcher import _get_ndd_token
     from services.xml_parser import parse_xml_auto
-    from services.cert_manager import extract_pem_for_requests
-    from datetime import timedelta
 
     company_id = company["id"]
     cnpj = company["cnpj"]
 
-    mun_result = sb.table("fiscal_nfse_municipalities").select(
-        "municipio_ibge,municipio_nome,uf,sistema_tipo,status"
-    ).eq("company_id", company_id).eq("ativo", True).execute()
-
-    municipios = mun_result.data or []
-    if not municipios:
-        _logger.info("[%s] NFSe: nenhum município ativo", cnpj)
+    # Obtém token NDD — armazenado na empresa (conta do portal cobre todas as empresas)
+    try:
+        token = _get_ndd_token(company_id)
+    except RuntimeError as e:
+        _logger.warning("[%s] NFSe NDD: %s", cnpj, e)
+        _log_sync(sb, company_id, "NFSe", None, None, None, 0, 0, "erro", str(e), janela)
         return
 
-    cert_path_ctx = None
-    if company.get("cert_pfx_encrypted") and settings.cert_encryption_key:
-        cert_path_ctx = extract_pem_for_requests(
-            company["cert_pfx_encrypted"],
-            company["cert_password_encrypted"],
-            settings.cert_encryption_key,
-        )
-
     hoje = date.today()
-    data_inicio = hoje.replace(day=1)
+    data_inicio = hoje.replace(day=1)  # mês corrente
 
-    for mun in municipios:
-        ibge = mun["municipio_ibge"]
-        if mun["status"] == "pendente":
-            _logger.warning(
-                "[%s] NFSe %s/%s: necessário realizar cadastro como contribuinte "
-                "no portal da prefeitura (IBGE: %s) para habilitar o sync.",
-                cnpj, mun["municipio_nome"], mun["uf"], ibge,
-            )
-            continue
+    # Mapa CNPJ → company_id para associar notas às empresas certas
+    all_companies = sb.table("fiscal_companies").select("id,cnpj").execute()
+    cnpj_map = {r["cnpj"]: r["id"] for r in (all_companies.data or [])}
 
-        docs_novos = 0
-        try:
-            if cert_path_ctx:
-                with cert_path_ctx as (cert_path, key_path):
-                    fetcher = NFSeFetcher(cnpj, cert_path, key_path)
-                    docs = fetcher.fetch_municipio(ibge, data_inicio, hoje)
-            else:
-                fetcher = NFSeFetcher(cnpj, None, None)
-                docs = fetcher.fetch_municipio(ibge, data_inicio, hoje)
+    docs_por_empresa: dict[str, int] = {}
+    erros = 0
 
-            for doc in docs:
-                doc["company_id"] = company_id
-                doc["municipio_ibge"] = ibge
-                _ensure_period(sb, company_id, doc.get("data_emissao"), doc)
-                try:
-                    sb.table("fiscal_documents").upsert(
-                        doc, on_conflict="chave_acesso"
-                    ).execute()
-                    docs_novos += 1
-                except Exception as e:
-                    _logger.warning("[%s] NFSe upsert erro (%s): %s", cnpj, ibge, e)
+    try:
+        for nota in fetch_all_xml(token, data_inicio, hoje):
+            cnpj_tom = nota["cnpj_tomador"]
+            target_company_id = cnpj_map.get(cnpj_tom, company_id)
 
-            sb.table("fiscal_nfse_municipalities").update(
-                {"ultima_sync": datetime.now(timezone.utc).isoformat(), "status": "cadastrado"}
-            ).eq("company_id", company_id).eq("municipio_ibge", ibge).execute()
+            doc = {
+                "tipo": "NFSe",
+                "company_id": target_company_id,
+                "chave_acesso": nota["chave_acesso"],
+                "emitente_cnpj": nota["cnpj_prestador"],
+                "destinatario_cnpj": cnpj_tom,
+                "data_emissao": nota["data_emissao"],
+                "valor_total": nota["valor_total"],
+                "xml_content": nota["xml"],
+                "status": "pendente",
+            }
+            _ensure_period(sb, target_company_id, nota["data_emissao"], doc)
 
-            _log_sync(sb, company_id, "NFSe", ibge, None, None, docs_novos, 0, "ok", None, janela)
-            _logger.info("[%s] NFSe %s OK: +%d docs", cnpj, ibge, docs_novos)
+            try:
+                sb.table("fiscal_documents").upsert(
+                    doc, on_conflict="chave_acesso"
+                ).execute()
+                docs_por_empresa[cnpj_tom] = docs_por_empresa.get(cnpj_tom, 0) + 1
+            except Exception as e:
+                _logger.warning("NFSe NDD upsert erro (chave %s): %s", nota["chave_acesso"], e)
+                erros += 1
 
-        except Exception as e:
-            sb.table("fiscal_nfse_municipalities").update(
-                {"status": "erro"}
-            ).eq("company_id", company_id).eq("municipio_ibge", ibge).execute()
-            _log_sync(sb, company_id, "NFSe", ibge, None, None, 0, 0, "erro", str(e), janela)
-            _logger.error("[%s] NFSe %s ERRO: %s", cnpj, ibge, e)
+        total = sum(docs_por_empresa.values())
+        resumo = ", ".join(f"{c[-4:]}:{n}" for c, n in docs_por_empresa.items())
+        _logger.info("[%s] NFSe NDD OK: %d notas (%s)", cnpj, total, resumo)
+        _log_sync(sb, company_id, "NFSe", None, None, None, total, 0,
+                  "ok" if erros == 0 else "parcial", None, janela)
+
+    except Exception as e:
+        _log_sync(sb, company_id, "NFSe", None, None, None, 0, 0, "erro", str(e), janela)
+        _logger.error("[%s] NFSe NDD ERRO: %s", cnpj, e)
+        raise
+
+
+async def _sync_nfse_ndd_incremental():
+    """05:00 — busca NFSe NDD incrementalmente usando ndd_last_sync_at como watermark."""
+    from db import get_supabase, get_settings
+    from services.nfse_fetcher import _get_ndd_token
+    from services.ndd_xml_fetcher import fetch_all_xml
+
+    _logger.info("NFSe NDD 05:00 — iniciando sync incremental")
+    sb = get_supabase()
+
+    result = sb.table("fiscal_companies").select(
+        "id,cnpj,nome,sync_nfse_ativo,ndd_access_token,ndd_refresh_token,"
+        "ndd_token_expires_at,ndd_last_sync_at"
+    ).eq("sync_nfse_ativo", True).execute()
+    companies = result.data or []
+
+    token_company = None
+    for c in companies:
+        if c.get("ndd_access_token") or c.get("ndd_refresh_token"):
+            token_company = c
+            break
+
+    if not token_company:
+        _logger.warning("NFSe NDD 05:00: nenhuma empresa com token NDD configurado")
+        return
+
+    try:
+        token = _get_ndd_token(token_company["id"])
+    except RuntimeError as e:
+        _logger.error("NFSe NDD 05:00: token inválido — %s", e)
+        _log_sync(sb, token_company["id"], "NFSe", None, None, None, 0, 0, "erro", str(e), "ndd_05h")
+        return
+
+    last_sync_str = token_company.get("ndd_last_sync_at")
+    since_dt = datetime.fromisoformat(last_sync_str) if last_sync_str else None
+    hoje = date.today()
+    data_inicio = since_dt.date() if since_dt else hoje.replace(day=1)
+
+    all_co = sb.table("fiscal_companies").select("id,cnpj").execute()
+    cnpj_map = {r["cnpj"]: r["id"] for r in (all_co.data or [])}
+
+    sync_start = datetime.now(timezone.utc)
+    docs_total = 0
+    erros = 0
+
+    try:
+        for nota in fetch_all_xml(token, data_inicio, hoje, since_dt=since_dt):
+            cnpj_tom = nota["cnpj_tomador"]
+            target_id = cnpj_map.get(cnpj_tom, token_company["id"])
+
+            doc = {
+                "tipo": "NFSe",
+                "company_id": target_id,
+                "chave_acesso": nota["chave_acesso"],
+                "emitente_cnpj": nota["cnpj_prestador"],
+                "destinatario_cnpj": cnpj_tom,
+                "data_emissao": nota["data_emissao"],
+                "valor_total": nota["valor_total"],
+                "municipio_nome": nota["municipio_nome"],
+                "xml_content": nota["xml"],
+                "status": "pendente",
+                "ndd_id": nota["ndd_id"],
+                "ndd_sync_at": sync_start.isoformat(),
+            }
+            _ensure_period(sb, target_id, nota["data_emissao"], doc)
+
+            try:
+                sb.table("fiscal_documents").upsert(
+                    doc, on_conflict="chave_acesso"
+                ).execute()
+                docs_total += 1
+            except Exception as e:
+                _logger.warning("NFSe upsert erro (chave %s): %s", nota["chave_acesso"], e)
+                erros += 1
+
+        sb.table("fiscal_companies").update(
+            {"ndd_last_sync_at": sync_start.isoformat()}
+        ).eq("id", token_company["id"]).execute()
+
+        status = "ok" if erros == 0 else "parcial"
+        _log_sync(sb, token_company["id"], "NFSe", None, None, None,
+                  docs_total, 0, status, None, "ndd_05h")
+        _logger.info("NFSe NDD 05:00 OK: %d docs, %d erros", docs_total, erros)
+
+    except Exception as e:
+        _log_sync(sb, token_company["id"], "NFSe", None, None, None,
+                  0, 0, "erro", str(e), "ndd_05h")
+        _logger.error("NFSe NDD 05:00 ERRO: %s", e)
 
 
 def _ensure_period(sb, company_id: str, data_emissao, doc: dict):

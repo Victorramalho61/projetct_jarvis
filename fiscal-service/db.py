@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     cert_encryption_key: str = ""
     sefaz_ambiente: str = "1"
+    # ND Digital portal (NFSe recebidas via portal centralizador)
+    ndd_client_id: str = ""          # OAuth client_id — capturar do DevTools Network
+    ndd_username: str = ""           # login do portal NDD
+    ndd_password: str = ""           # senha do portal NDD
     model_config = {"env_file": ".env"}
 
 

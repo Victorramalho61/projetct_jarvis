@@ -296,9 +296,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 10s
 
@@ -329,9 +329,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 15s
 
@@ -361,9 +361,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 15s
 
@@ -395,9 +395,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 15s
 
@@ -488,9 +488,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8005/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8005/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 15s
 
@@ -522,9 +522,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8006/health')\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8006/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 20s
 
@@ -553,9 +553,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8008/health', timeout=4)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8008/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 30s
 
@@ -579,12 +579,15 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       CERT_ENCRYPTION_KEY: ${CERT_ENCRYPTION_KEY:-}
       SEFAZ_AMBIENTE: ${SEFAZ_AMBIENTE:-1}
+      NDD_CLIENT_ID: ${NDD_CLIENT_ID:-}
+      NDD_USERNAME: ${NDD_USERNAME:-}
+      NDD_PASSWORD: ${NDD_PASSWORD:-}
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8009/health', timeout=4)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8009/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 30s
 
@@ -614,9 +617,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8007/health', timeout=4)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8007/health', timeout=8)\""]
       interval: 300s
-      timeout: 5s
+      timeout: 12s
       retries: 3
       start_period: 30s
 
