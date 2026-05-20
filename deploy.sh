@@ -14,7 +14,7 @@ cd "$APP_DIR"
 if ! git diff --quiet docs/ 2>/dev/null || git ls-files --others --exclude-standard docs/ | grep -q .; then
     echo ">>> Docs alterados — commitando antes do deploy..."
     git add docs/
-    git commit -m "docs: auto-update pre-deploy $(date +%Y-%m-%d)"
+    git commit -m "docs: auto-update pre-deploy $(date +%Y-%m-%d) [skip ci]"
     git push origin HEAD:main
     echo ">>> Docs enviados ao GitHub."
 fi
@@ -22,13 +22,30 @@ fi
 PREV_HEAD=$(git rev-parse HEAD)
 
 git fetch origin main
-git checkout origin/main
+git reset --hard origin/main
 
 NEW_HEAD=$(git rev-parse HEAD)
 
 docker compose up -d --build
 
 echo "Deployed: ${PREV_HEAD:0:7} -> ${NEW_HEAD:0:7}"
+
+echo ">>> Aguardando containers (15s)..."
+sleep 15
+FAILED=()
+for svc in core-service monitoring-service freshservice-service \
+           moneypenny-service expenses-service support-service performance-service; do
+    if docker compose ps "$svc" 2>/dev/null | grep -qE "Up|healthy|running"; then
+        echo "✓ $svc"
+    else
+        echo "✗ $svc"
+        FAILED+=("$svc")
+    fi
+done
+if [ ${#FAILED[@]} -gt 0 ]; then
+    echo "AVISO: Serviços com problema: ${FAILED[*]}"
+    docker compose logs --tail=30 "${FAILED[@]}"
+fi
 
 # ── Hook: dispara agente docs-sync no Jarvis ─────────────────────────────
 # Usa docker exec para gerar JWT dentro do container e chamar o endpoint.

@@ -3,22 +3,25 @@ name: Deploy
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  # ── 1. Gitleaks ──────────────────────────────────────────────────────────
   security-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # ── 2. Testes frontend ───────────────────────────────────────────────────
   test-frontend:
     needs: security-scan
     runs-on: ubuntu-latest
@@ -27,19 +30,177 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-
       - run: npm install
       - run: npm audit --audit-level=high
       - run: npm run typecheck
 
+  # ── 3. Agente: Revisão de Segurança (BLOQUEIA deploy) ───────────────────
+  agent-security-review:
+    needs: security-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Revisão de Segurança (NVIDIA NIM)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          pip install openai --quiet
+          git diff HEAD~1 HEAD -- '*.py' '*.ts' '*.tsx' '*.js' '*.sh' '*.yml' \
+            | head -c 60000 > /tmp/diff.txt
+
+          echo "## Revisão de Segurança" >> $GITHUB_STEP_SUMMARY
+
+          python3 << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import os
+          from openai import OpenAI
+
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=os.environ["NVIDIA_API_KEY"]
+          )
+          with open("/tmp/diff.txt") as f:
+              diff = f.read()
+          if not diff.strip():
+              print("Sem alterações de código — nenhuma revisão necessária.")
+          else:
+              prompt = (
+                  "Você é especialista em segurança de aplicações. Analise o diff buscando: "
+                  "OWASP Top 10, credenciais expostas, SQL injection, XSS, SSRF, command injection, "
+                  "falhas de autenticação/autorização.\n\n"
+                  "Responda EM PORTUGUÊS com as seções:\n"
+                  "## Vulnerabilidades Críticas\n## Vulnerabilidades Altas\n## Avisos\n\n"
+                  "Ao final escreva EXATAMENTE uma das linhas:\n"
+                  "VEREDICTO: APROVADO\n"
+                  "VEREDICTO: BLOQUEADO\n\n"
+                  f"Diff:\n{diff}"
+              )
+              r = client.chat.completions.create(
+                  model="meta/llama-3.3-70b-instruct",
+                  messages=[{"role": "user", "content": prompt}],
+                  temperature=0.1,
+                  max_tokens=3000,
+              )
+              print(r.choices[0].message.content)
+          PYEOF
+
+          if grep -q "VEREDICTO: BLOQUEADO" $GITHUB_STEP_SUMMARY; then
+            echo "::error::Revisão de segurança bloqueou o deploy. Veja o Job Summary."
+            exit 1
+          fi
+
+  # ── 4. Agente: Qualidade de Código (advisory) ────────────────────────────
+  agent-code-quality:
+    needs: security-scan
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Qualidade de Código (NVIDIA NIM)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          pip install openai --quiet
+          git diff HEAD~1 HEAD -- '*.py' '*.ts' '*.tsx' \
+            | head -c 60000 > /tmp/diff.txt
+
+          echo "## Qualidade de Código" >> $GITHUB_STEP_SUMMARY
+
+          python3 << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import os
+          from openai import OpenAI
+
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=os.environ["NVIDIA_API_KEY"]
+          )
+          with open("/tmp/diff.txt") as f:
+              diff = f.read()
+          if not diff.strip():
+              print("Sem alterações de código.")
+          else:
+              prompt = (
+                  "Você é revisor de código sênior. Analise o diff buscando: "
+                  "código duplicado, funções muito longas, nomes confusos, tratamento de erros inadequado, "
+                  "bugs potenciais e problemas de performance.\n\n"
+                  "Responda em português com:\n"
+                  "## Problemas Encontrados\n## Sugestões de Melhoria\n## Pontos Positivos\n\n"
+                  f"Diff:\n{diff}"
+              )
+              r = client.chat.completions.create(
+                  model="meta/llama-3.3-70b-instruct",
+                  messages=[{"role": "user", "content": prompt}],
+                  temperature=0.1,
+                  max_tokens=3000,
+              )
+              print(r.choices[0].message.content)
+          PYEOF
+
+  # ── 5. Agente: Revisão de Arquitetura (advisory) ─────────────────────────
+  agent-architecture-review:
+    needs: security-scan
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Revisão de Arquitetura (NVIDIA NIM)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          pip install openai --quiet
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          git diff HEAD~1 HEAD | head -c 60000 > /tmp/diff.txt
+
+          echo "## Revisão de Arquitetura" >> $GITHUB_STEP_SUMMARY
+
+          python3 - "$CHANGED" << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import os, sys
+          from openai import OpenAI
+
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=os.environ["NVIDIA_API_KEY"]
+          )
+          changed = sys.argv[1] if len(sys.argv) > 1 else ""
+          with open("/tmp/diff.txt") as f:
+              diff = f.read()
+          prompt = (
+              "Você é arquiteto de software. O projeto tem 8 microsserviços Python (portas 8001-8008), "
+              "gateway Kong, Supabase e frontend Next.js.\n"
+              "Regras do projeto: autenticação via require_role('admin'); "
+              "código compartilhado (db.py, auth.py, limiter.py) existe em cópia em cada serviço — "
+              "mudanças devem ser replicadas nos 7 serviços.\n\n"
+              f"Arquivos alterados:\n{changed}\n\n"
+              "Analise: 1) impacto nos contratos de API entre serviços, "
+              "2) violações de separação de responsabilidades, "
+              "3) risco de acoplamento, "
+              "4) se mudanças em código compartilhado foram replicadas em todos os serviços.\n\n"
+              "Responda em português com:\n"
+              "## Impacto na Arquitetura\n## Riscos\n## Recomendações\n\n"
+              f"Diff:\n{diff}"
+          )
+          r = client.chat.completions.create(
+              model="meta/llama-3.3-70b-instruct",
+              messages=[{"role": "user", "content": prompt}],
+              temperature=0.1,
+              max_tokens=3000,
+          )
+          print(r.choices[0].message.content)
+          PYEOF
+
+  # ── 6. Deploy ────────────────────────────────────────────────────────────
   deploy:
-    needs: [test-frontend]
+    needs: [test-frontend, agent-security-review]
     runs-on: self-hosted
     steps:
       - name: Deploy
@@ -49,3 +210,50 @@ jobs:
           if (!(Test-Path $bash)) { $bash = (Get-Command bash -ErrorAction SilentlyContinue).Source }
           if (!$bash) { throw "bash não encontrado" }
           & $bash "E:/claudecode/claudecode/deploy.sh"
+
+  # ── 7. Agente: Documentação (pós-deploy, advisory) ───────────────────────
+  agent-docs-update:
+    needs: deploy
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Documentação do Deploy (NVIDIA NIM)
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          pip install openai --quiet
+          CHANGED=$(git diff --name-only HEAD~1 HEAD)
+          git diff HEAD~1 HEAD | head -c 60000 > /tmp/diff.txt
+
+          echo "## Changelog do Deploy" >> $GITHUB_STEP_SUMMARY
+
+          python3 - "$CHANGED" << 'PYEOF' >> $GITHUB_STEP_SUMMARY
+          import os, sys
+          from openai import OpenAI
+
+          client = OpenAI(
+              base_url="https://integrate.api.nvidia.com/v1",
+              api_key=os.environ["NVIDIA_API_KEY"]
+          )
+          changed = sys.argv[1] if len(sys.argv) > 1 else ""
+          with open("/tmp/diff.txt") as f:
+              diff = f.read()
+          prompt = (
+              "Você é documentador técnico. Gere um resumo de CHANGELOG em português para este deploy.\n\n"
+              f"Arquivos alterados:\n{changed}\n\n"
+              "Formato markdown com seções:\n"
+              "## O que Mudou\n## Impacto para Desenvolvedores\n"
+              "## Configurações Necessárias (novas variáveis .env, migrações SQL)\n\n"
+              f"Diff:\n{diff}"
+          )
+          r = client.chat.completions.create(
+              model="meta/llama-3.3-70b-instruct",
+              messages=[{"role": "user", "content": prompt}],
+              temperature=0.2,
+              max_tokens=2000,
+          )
+          print(r.choices[0].message.content)
+          PYEOF

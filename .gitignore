@@ -1,6 +1,7 @@
 # Ambiente
 .env
 .env.local
+.env.backup
 .env.*.local
 
 # SSH / Chaves
