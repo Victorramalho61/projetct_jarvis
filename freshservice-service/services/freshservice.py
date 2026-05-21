@@ -566,6 +566,44 @@ async def run_daily_sync() -> int:
     return await asyncio.to_thread(_run_daily_sync_sync)
 
 
+async def run_open_tickets_sync() -> int:
+    return await asyncio.to_thread(_run_open_tickets_sync)
+
+
+def _run_open_tickets_sync() -> int:
+    """
+    Busca TODOS os tickets atualmente abertos (status 2, 3, 6) em todos os workspaces,
+    sem filtro de data — garante que chamados antigos sem atualização recente apareçam.
+    """
+    db = get_supabase()
+    s = get_settings()
+    client = FreshserviceClient(s.freshservice_api_key)
+    total = 0
+
+    for ws_id in _ACTIVE_WORKSPACE_IDS:
+        for status_code in (2, 3, 6):
+            page = 1
+            while True:
+                try:
+                    tickets = client.list_tickets_by_status(
+                        status=status_code, page=page, workspace_id=ws_id
+                    )
+                except Exception as exc:
+                    logger.warning("open_sync ws=%s status=%s p=%s: %s", ws_id, status_code, page, exc)
+                    break
+                if not tickets:
+                    break
+                rows = [_extract_ticket_row(t) for t in tickets]
+                _upsert_tickets(db, rows)
+                total += len(rows)
+                if len(tickets) < PAGE_SIZE:
+                    break
+                page += 1
+
+    logger.info("open_tickets_sync: %d tickets abertos/pendentes upserted", total)
+    return total
+
+
 async def get_live_metrics() -> dict:
     cache_key = "live"
     now = time.monotonic()
