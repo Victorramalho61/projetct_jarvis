@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Bar, BarChart, CartesianGrid, Cell, Pie, PieChart,
@@ -33,7 +33,118 @@ const FMT_DATETIME = (s: string | null | undefined) => {
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
-type PayFlyTab = 'investimentos' | 'monitoramento' | 'governanca' | 'midia' | 'chamados'
+type PayFlyTab = 'dashboard' | 'vendas' | 'investimentos' | 'monitoramento' | 'governanca' | 'midia' | 'chamados'
+
+// ── Vendas / Dashboard types ───────────────────────────────────────────────
+
+interface SaleReservation {
+  id: string
+  type: string
+  status: string
+  os_number: string | null
+  company_name: string | null
+  passenger_name: string | null
+  destination: string | null
+  hotel_city: string | null
+  origin: string | null
+  total_amount: number | null
+  choice_date: string | null
+  travel_start_date: string | null
+  solicitor_name: string | null
+}
+
+interface SaleReservationDetail {
+  id: string
+  type: string
+  status: string
+  os_number: string | null
+  trip_type: string | null
+  is_reissue: boolean | null
+  original_id: string | null
+  order_origin: string | null
+  choice_date: string | null
+  emission_date: string | null
+  travel_start_date: string | null
+  travel_end_date: string | null
+  approval_date: string | null
+  cancellation_date: string | null
+  expiration_date: string | null
+  last_update_date: string | null
+  request_date: string | null
+  company_id: string | null
+  company_cnpj: string | null
+  company_name: string | null
+  passenger_name: string | null
+  passenger_email: string | null
+  passenger_document: string | null
+  passenger_employee_id: string | null
+  passenger_department_name: string | null
+  passenger_age_group: string | null
+  passenger_employee_level: string | null
+  approver_name: string | null
+  approver_email: string | null
+  solicitor_name: string | null
+  solicitor_email: string | null
+  currency: string | null
+  total_amount: number | null
+  daily_rate: number | null
+  total_nights: number | null
+  base_fare: number | null
+  service_tax: number | null
+  boarding_tax: number | null
+  iss_tax: number | null
+  net_amount: number | null
+  published_fare: number | null
+  payment_method: string | null
+  hotel_name: string | null
+  hotel_city: string | null
+  hotel_address: string | null
+  checkin_date: string | null
+  checkout_date: string | null
+  rooms: number | null
+  adults: number | null
+  children: number | null
+  destination: string | null
+  record_locator: string | null
+  source_system: string | null
+  supplier_code: string | null
+  room_name: string | null
+  cancellation_policy: string | null
+  origin: string | null
+  airline: string | null
+  flight_number: string | null
+  cabin_class: string | null
+  cost_center_name: string | null
+  project_name: string | null
+  reason_name: string | null
+  travel_justification_name: string | null
+  sales_channel: string | null
+  policy_compliance: string | null
+}
+
+interface SalesStats {
+  total_count: number
+  total_amount: number
+  amount_flight: number
+  amount_hotel: number
+  count_flight: number
+  count_hotel: number
+  por_status: Record<string, number>
+  por_empresa: Record<string, number>
+}
+
+interface DashboardRankItem {
+  solicitor_name: string
+  total_amount: number
+  qty: number
+}
+
+interface PayFlyDashboardData {
+  total_amount: number
+  total_count: number
+  top10_by_value: DashboardRankItem[] | null
+  top10_by_qty: DashboardRankItem[] | null
+}
 
 interface PayFlySupplier {
   fornecedor: string
@@ -168,12 +279,21 @@ interface FreshTicket {
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const TABS: { id: PayFlyTab; label: string }[] = [
+  { id: 'dashboard',     label: 'Dashboard' },
+  { id: 'vendas',        label: 'Vendas' },
   { id: 'investimentos', label: 'Investimentos' },
   { id: 'monitoramento', label: 'Monitoramento' },
   { id: 'governanca',    label: 'Governança & Auditoria' },
   { id: 'midia',         label: 'Mídia & Redes Sociais' },
   { id: 'chamados',      label: 'Chamados' },
 ]
+
+const STATUS_BADGE: Record<string, string> = {
+  'Emitido':  'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+  'Cancelado':'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  'Reservado':'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300',
+  'Expirado': 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400',
+}
 
 const FS_STATUS: Record<number, { label: string; cls: string }> = {
   2: { label: 'Aberto',              cls: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
@@ -286,6 +406,587 @@ function Placeholder({ title }: { title: string }) {
       </div>
       <p className="text-base font-semibold text-gray-700 dark:text-gray-300">{title}</p>
       <p className="text-sm text-gray-400">Em construção — em breve disponível.</p>
+    </div>
+  )
+}
+
+// ── Dashboard Tab ─────────────────────────────────────────────────────────────
+
+function DashboardTab({ token }: { token: string }) {
+  const today = new Date()
+  const firstOfYear = `${today.getFullYear()}-01-01`
+  const todayStr = today.toISOString().slice(0, 10)
+
+  const [startDate, setStartDate]   = useState(firstOfYear)
+  const [endDate, setEndDate]       = useState(todayStr)
+  const [company, setCompany]       = useState('')
+  const [data, setData]             = useState<PayFlyDashboardData | null>(null)
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState<string | null>(null)
+  const cacheRef = useRef(new Map<string, { data: PayFlyDashboardData; ts: number }>())
+
+  const load = useCallback(async () => {
+    const key = `dash:${startDate}:${endDate}:${company}`
+    const cached = cacheRef.current.get(key)
+    if (cached && Date.now() - cached.ts < 300_000) { setData(cached.data); return }
+    setLoading(true); setError(null)
+    try {
+      const q = new URLSearchParams()
+      if (startDate) q.set('start_date', startDate)
+      if (endDate)   q.set('end_date', endDate)
+      if (company)   q.set('company_name', company)
+      const res = await apiFetch<PayFlyDashboardData>(
+        `/api/expenses/payfly/reservations/dashboard?${q}`, { token }
+      )
+      cacheRef.current.set(key, { data: res, ts: Date.now() })
+      setData(res)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao carregar dashboard')
+    } finally { setLoading(false) }
+  }, [startDate, endDate, company, token])
+
+  useEffect(() => { load() }, [load])
+
+  const top10Val = data?.top10_by_value ?? []
+  const top10Qty = data?.top10_by_qty   ?? []
+  const maxVal   = top10Val[0]?.total_amount ?? 1
+  const maxQty   = top10Qty[0]?.qty         ?? 1
+
+  return (
+    <div className="space-y-6">
+      {/* Filtros */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">De</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Até</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Empresa</label>
+          <input type="text" value={company} placeholder="Todas" onChange={e => setCompany(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 w-48" />
+        </div>
+        <button onClick={load}
+          className="px-4 py-1.5 bg-brand-green text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity">
+          Atualizar
+        </button>
+      </div>
+
+      {error && <p className="text-sm text-red-500">{error}</p>}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-sm text-gray-500">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+          </svg>
+          Carregando…
+        </div>
+      )}
+
+      {!loading && data && (
+        <>
+          {/* KPIs */}
+          <div className="grid grid-cols-2 gap-4">
+            <KpiCard
+              label="Valor Total de Vendas"
+              value={FMT_BRL(data.total_amount ?? 0)}
+              sub="Reservas não canceladas"
+              accent
+            />
+            <KpiCard
+              label="Qtde de Reservas"
+              value={(data.total_count ?? 0).toLocaleString('pt-BR')}
+              sub="Reservas não canceladas"
+            />
+          </div>
+
+          {/* Rankings */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top 10 por Valor */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+                Top 10 Solicitantes — por Valor
+              </h3>
+              {top10Val.length === 0 ? (
+                <p className="text-sm text-gray-400">Sem dados</p>
+              ) : (
+                <div className="space-y-3">
+                  {top10Val.map((item, idx) => (
+                    <div key={item.solicitor_name}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-bold text-gray-400 w-5 text-right">{idx + 1}</span>
+                          <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{item.solicitor_name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 ml-3 shrink-0">
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{FMT_COMPACT(item.total_amount)}</span>
+                          <span className="text-xs text-gray-400">{item.qty} res.</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-brand-green/60 dark:bg-brand-green/50 rounded-full"
+                          style={{ width: `${(item.total_amount / maxVal) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Top 10 por Qtde */}
+            <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
+                Top 10 Solicitantes — por Quantidade
+              </h3>
+              {top10Qty.length === 0 ? (
+                <p className="text-sm text-gray-400">Sem dados</p>
+              ) : (
+                <div className="space-y-3">
+                  {top10Qty.map((item, idx) => (
+                    <div key={item.solicitor_name}>
+                      <div className="flex items-center justify-between mb-0.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs font-bold text-gray-400 w-5 text-right">{idx + 1}</span>
+                          <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{item.solicitor_name}</span>
+                        </div>
+                        <div className="flex items-center gap-3 ml-3 shrink-0">
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{item.qty} res.</span>
+                          <span className="text-xs text-gray-400">{FMT_COMPACT(item.total_amount)}</span>
+                        </div>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                        <div
+                          className="h-full bg-indigo-400/60 dark:bg-indigo-500/50 rounded-full"
+                          style={{ width: `${(item.qty / maxQty) * 100}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Vendas Tab ─────────────────────────────────────────────────────────────────
+
+function VendasTab({ token }: { token: string }) {
+  const today = new Date()
+  const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
+  const todayStr = today.toISOString().slice(0, 10)
+
+  const [startDate, setStartDate]     = useState(firstOfMonth)
+  const [endDate, setEndDate]         = useState(todayStr)
+  const [company, setCompany]         = useState('')
+  const [filterType, setFilterType]   = useState('')
+  const [filterStatus, setFilterStatus] = useState('')
+  const [offset, setOffset]           = useState(0)
+  const LIMIT = 50
+
+  const [stats, setStats]             = useState<SalesStats | null>(null)
+  const [items, setItems]             = useState<SaleReservation[]>([])
+  const [selected, setSelected]       = useState<SaleReservationDetail | null>(null)
+  const [openSections, setOpenSections] = useState<Set<string>>(new Set(['identificacao']))
+  const [loading, setLoading]         = useState(false)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [error, setError]             = useState<string | null>(null)
+
+  const statsCache = useRef(new Map<string, { data: SalesStats; ts: number }>())
+  const listCache  = useRef(new Map<string, { data: SaleReservation[]; ts: number }>())
+  const detailCache = useRef(new Map<string, { data: SaleReservationDetail; ts: number }>())
+
+  const statsKey = () => `stats:${startDate}:${endDate}:${company}:${filterStatus}:${filterType}`
+  const listKey  = () => `list:${startDate}:${endDate}:${company}:${filterStatus}:${filterType}:${offset}`
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null)
+    const sk = statsKey()
+    const lk = listKey()
+    const cachedStats  = statsCache.current.get(sk)
+    const cachedList   = listCache.current.get(lk)
+    const now = Date.now()
+
+    try {
+      const promises: Promise<void>[] = []
+
+      if (cachedStats && now - cachedStats.ts < 300_000) {
+        setStats(cachedStats.data)
+      } else {
+        promises.push((async () => {
+          const q = new URLSearchParams()
+          if (startDate)     q.set('start_date', startDate)
+          if (endDate)       q.set('end_date', endDate)
+          if (company)       q.set('company_name', company)
+          if (filterStatus)  q.set('status', filterStatus)
+          if (filterType)    q.set('type', filterType)
+          const res = await apiFetch<SalesStats>(`/api/expenses/payfly/reservations/stats?${q}`, { token })
+          statsCache.current.set(sk, { data: res, ts: Date.now() })
+          setStats(res)
+        })())
+      }
+
+      if (cachedList && now - cachedList.ts < 120_000) {
+        setItems(cachedList.data)
+      } else {
+        promises.push((async () => {
+          const q = new URLSearchParams()
+          if (startDate)     q.set('start_date', startDate)
+          if (endDate)       q.set('end_date', endDate)
+          if (company)       q.set('company_name', company)
+          if (filterStatus)  q.set('status', filterStatus)
+          if (filterType)    q.set('type', filterType)
+          q.set('limit', String(LIMIT))
+          q.set('offset', String(offset))
+          const res = await apiFetch<{ items: SaleReservation[] }>(`/api/expenses/payfly/reservations/?${q}`, { token })
+          listCache.current.set(lk, { data: res.items, ts: Date.now() })
+          setItems(res.items)
+        })())
+      }
+
+      await Promise.all(promises)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro ao carregar vendas')
+    } finally { setLoading(false) }
+  }, [startDate, endDate, company, filterStatus, filterType, offset, token])
+
+  useEffect(() => { load() }, [load])
+
+  const openDetail = useCallback(async (id: string) => {
+    const cached = detailCache.current.get(id)
+    if (cached && Date.now() - cached.ts < 600_000) { setSelected(cached.data); return }
+    try {
+      const res = await apiFetch<SaleReservationDetail>(`/api/expenses/payfly/reservations/${id}`, { token })
+      detailCache.current.set(id, { data: res, ts: Date.now() })
+      setSelected(res)
+      setOpenSections(new Set(['identificacao']))
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao abrir detalhe')
+    }
+  }, [token])
+
+  const handleSync = useCallback(async () => {
+    setSyncLoading(true)
+    try {
+      const q = new URLSearchParams({ start_date: startDate, end_date: endDate })
+      await apiFetch(`/api/expenses/payfly/reservations/sync?${q}`, { token, method: 'POST' })
+      alert('Sync iniciado em background. Aguarde alguns minutos.')
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao iniciar sync')
+    } finally { setSyncLoading(false) }
+  }, [startDate, endDate, token])
+
+  const handleBulkSync = useCallback(async () => {
+    const sd = prompt('Data de início da carga histórica (YYYY-MM-DD):', '2026-01-01')
+    if (!sd) return
+    setSyncLoading(true)
+    try {
+      await apiFetch(`/api/expenses/payfly/reservations/sync/bulk?start_date=${sd}`, { token, method: 'POST' })
+      alert(`Carga histórica iniciada desde ${sd}. Pode levar horas para completar.`)
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : 'Erro ao iniciar carga histórica')
+    } finally { setSyncLoading(false) }
+  }, [token])
+
+  const toggleSection = (s: string) =>
+    setOpenSections(prev => {
+      const n = new Set(prev)
+      n.has(s) ? n.delete(s) : n.add(s)
+      return n
+    })
+
+  const typeLabel = (t: string) => t === 'flight' ? '✈ Aéreo' : t === 'hotel' ? '🏨 Hotel' : t
+
+  const porStatus = stats?.por_status ?? {}
+
+  return (
+    <div className="space-y-6">
+      {/* Filtros */}
+      <div className="flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">De</label>
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Até</label>
+          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Empresa</label>
+          <input type="text" value={company} placeholder="Todas" onChange={e => setCompany(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 w-40" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo</label>
+          <select value={filterType} onChange={e => setFilterType(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+            <option value="">Todos</option>
+            <option value="flight">Aéreo</option>
+            <option value="hotel">Hotel</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Status</label>
+          <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100">
+            <option value="">Todos</option>
+            <option value="Emitido">Emitido</option>
+            <option value="Cancelado">Cancelado</option>
+            <option value="Reservado">Reservado</option>
+            <option value="Expirado">Expirado</option>
+          </select>
+        </div>
+        <button onClick={() => { setOffset(0); load() }}
+          className="px-4 py-1.5 bg-brand-green text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity">
+          Buscar
+        </button>
+        <button onClick={handleSync} disabled={syncLoading}
+          className="px-4 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">
+          {syncLoading ? 'Aguarde…' : 'Sincronizar'}
+        </button>
+        <button onClick={handleBulkSync} disabled={syncLoading}
+          className="px-4 py-1.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">
+          Carga Histórica
+        </button>
+      </div>
+
+      {error && <p className="text-sm text-red-500">{error}</p>}
+
+      {/* KPI Cards */}
+      {stats && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <KpiCard label="Total Geral"      value={FMT_BRL(stats.total_amount ?? 0)} accent />
+          <KpiCard label="Aéreo"            value={FMT_BRL(stats.amount_flight ?? 0)} sub={`${stats.count_flight ?? 0} res.`} />
+          <KpiCard label="Hotel"            value={FMT_BRL(stats.amount_hotel ?? 0)} sub={`${stats.count_hotel ?? 0} res.`} />
+          <KpiCard label="Total Reservas"   value={(stats.total_count ?? 0).toLocaleString('pt-BR')} />
+          <KpiCard label="Emitidos"         value={(porStatus['Emitido']   ?? 0).toLocaleString('pt-BR')} />
+          <KpiCard label="Cancelados"       value={(porStatus['Cancelado'] ?? 0).toLocaleString('pt-BR')} />
+        </div>
+      )}
+
+      {/* Tabela */}
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-gray-500 py-8">
+          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+          </svg>
+          Carregando…
+        </div>
+      ) : (
+        <div className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-800/50 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">OS</th>
+                  <th className="px-4 py-3 text-left">Tipo</th>
+                  <th className="px-4 py-3 text-left">Empresa</th>
+                  <th className="px-4 py-3 text-left">Passageiro</th>
+                  <th className="px-4 py-3 text-left">Destino</th>
+                  <th className="px-4 py-3 text-right">Valor</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-left">Data</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {items.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
+                      Nenhuma reserva encontrada
+                    </td>
+                  </tr>
+                ) : items.map(item => (
+                  <tr key={item.id}
+                    className="hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer transition-colors"
+                    onClick={() => openDetail(item.id)}>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">{item.os_number ?? '—'}</td>
+                    <td className="px-4 py-3">{typeLabel(item.type)}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 max-w-[120px] truncate">{item.company_name ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300 max-w-[140px] truncate">{item.passenger_name ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[120px] truncate">
+                      {item.type === 'hotel' ? (item.hotel_city ?? item.destination ?? '—') : (item.destination ?? item.origin ?? '—')}
+                    </td>
+                    <td className="px-4 py-3 text-right font-medium text-gray-900 dark:text-gray-100">
+                      {item.total_amount != null ? FMT_BRL(item.total_amount) : '—'}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[item.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                        {item.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500 dark:text-gray-400 whitespace-nowrap">{FMT_DATE(item.choice_date)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Paginação */}
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 dark:border-gray-800">
+            <span className="text-sm text-gray-500">
+              {offset + 1}–{offset + items.length} de {(stats?.total_count ?? 0).toLocaleString('pt-BR')}
+            </span>
+            <div className="flex gap-2">
+              <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - LIMIT))}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                ← Anterior
+              </button>
+              <button disabled={items.length < LIMIT} onClick={() => setOffset(offset + LIMIT)}
+                className="px-3 py-1.5 text-sm rounded-lg border border-gray-200 dark:border-gray-700 disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
+                Próximo →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Drill-down Modal */}
+      {selected && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" onClick={() => setSelected(null)}>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="sticky top-0 flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 z-10">
+              <div>
+                <h2 className="text-lg font-bold text-gray-900 dark:text-white">Reserva {selected.os_number ?? selected.id}</h2>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className="text-sm text-gray-500">{typeLabel(selected.type)}</span>
+                  <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[selected.status] ?? ''}`}>
+                    {selected.status}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => setSelected(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+                <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              {[
+                {
+                  id: 'identificacao', label: 'Identificação',
+                  rows: [
+                    ['ID', selected.id], ['OS', selected.os_number], ['Tipo', typeLabel(selected.type)],
+                    ['Status', selected.status], ['Tipo de Viagem', selected.trip_type],
+                    ['Reemissão', selected.is_reissue ? 'Sim' : 'Não'],
+                    ['ID Original', selected.original_id], ['Origem do Pedido', selected.order_origin],
+                  ]
+                },
+                {
+                  id: 'datas', label: 'Datas',
+                  rows: [
+                    ['Data Escolha', FMT_DATETIME(selected.choice_date)],
+                    ['Data Emissão', FMT_DATETIME(selected.emission_date)],
+                    ['Início Viagem', FMT_DATE(selected.travel_start_date)],
+                    ['Fim Viagem', FMT_DATE(selected.travel_end_date)],
+                    ['Data Aprovação', FMT_DATETIME(selected.approval_date)],
+                    ['Data Cancelamento', FMT_DATETIME(selected.cancellation_date)],
+                    ['Data Expiração', FMT_DATETIME(selected.expiration_date)],
+                    ['Última Atualização', FMT_DATETIME(selected.last_update_date)],
+                    ['Data Solicitação', FMT_DATETIME(selected.request_date)],
+                  ]
+                },
+                {
+                  id: 'empresa', label: 'Empresa',
+                  rows: [
+                    ['ID', selected.company_id], ['CNPJ', selected.company_cnpj], ['Nome', selected.company_name],
+                  ]
+                },
+                {
+                  id: 'pessoas', label: 'Pessoas',
+                  rows: [
+                    ['Passageiro', selected.passenger_name], ['E-mail', selected.passenger_email],
+                    ['Documento', selected.passenger_document], ['Matrícula', selected.passenger_employee_id],
+                    ['Departamento', selected.passenger_department_name], ['Faixa Etária', selected.passenger_age_group],
+                    ['Nível Func.', selected.passenger_employee_level],
+                    ['Aprovador', selected.approver_name], ['E-mail Aprov.', selected.approver_email],
+                    ['Solicitante', selected.solicitor_name], ['E-mail Solic.', selected.solicitor_email],
+                  ]
+                },
+                {
+                  id: 'financeiro', label: 'Financeiro',
+                  rows: [
+                    ['Moeda', selected.currency], ['Total', selected.total_amount != null ? FMT_BRL(selected.total_amount) : '—'],
+                    ['Diária', selected.daily_rate != null ? FMT_BRL(selected.daily_rate) : '—'],
+                    ['Noites', selected.total_nights], ['Tarifa Base', selected.base_fare != null ? FMT_BRL(selected.base_fare) : '—'],
+                    ['Taxa Serv.', selected.service_tax != null ? FMT_BRL(selected.service_tax) : '—'],
+                    ['Taxa Emb.', selected.boarding_tax != null ? FMT_BRL(selected.boarding_tax) : '—'],
+                    ['ISS', selected.iss_tax != null ? FMT_BRL(selected.iss_tax) : '—'],
+                    ['Valor Líq.', selected.net_amount != null ? FMT_BRL(selected.net_amount) : '—'],
+                    ['Tarifa Pub.', selected.published_fare != null ? FMT_BRL(selected.published_fare) : '—'],
+                    ['Forma Pag.', selected.payment_method],
+                  ]
+                },
+                ...(selected.type === 'hotel' ? [{
+                  id: 'hotel', label: 'Hotel',
+                  rows: [
+                    ['Hotel', selected.hotel_name], ['Cidade', selected.hotel_city],
+                    ['Endereço', selected.hotel_address], ['Checkin', FMT_DATE(selected.checkin_date)],
+                    ['Checkout', FMT_DATE(selected.checkout_date)], ['Quartos', selected.rooms],
+                    ['Adultos', selected.adults], ['Crianças', selected.children],
+                    ['Destino', selected.destination], ['Localizador', selected.record_locator],
+                    ['Sistema', selected.source_system], ['Cód. Forn.', selected.supplier_code],
+                    ['Tipo Quarto', selected.room_name], ['Política Cancel.', selected.cancellation_policy],
+                  ]
+                }] : [{
+                  id: 'voo', label: 'Voo',
+                  rows: [
+                    ['Origem', selected.origin], ['Companhia', selected.airline],
+                    ['Voo Nº', selected.flight_number], ['Classe', selected.cabin_class],
+                  ]
+                }]),
+                {
+                  id: 'corporativo', label: 'Corporativo',
+                  rows: [
+                    ['Centro de Custo', selected.cost_center_name], ['Projeto', selected.project_name],
+                    ['Motivo', selected.reason_name], ['Justificativa', selected.travel_justification_name],
+                    ['Canal de Venda', selected.sales_channel], ['Conformidade', selected.policy_compliance],
+                  ]
+                },
+              ].map(section => (
+                <div key={section.id} className="rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+                    onClick={() => toggleSection(section.id)}>
+                    <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{section.label}</span>
+                    <svg className={`h-4 w-4 text-gray-400 transition-transform ${openSections.has(section.id) ? 'rotate-180' : ''}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
+                  {openSections.has(section.id) && (
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-2 px-4 py-3">
+                      {section.rows.map(([label, val]) => (
+                        <div key={label as string}>
+                          <p className="text-xs text-gray-400">{label}</p>
+                          <p className="text-sm text-gray-700 dark:text-gray-300 break-words">{val ?? '—'}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1189,7 +1890,7 @@ export default function PayFlyPage() {
   const { token } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const activeTab = (searchParams.get('tab') as PayFlyTab) ?? 'investimentos'
+  const activeTab = (searchParams.get('tab') as PayFlyTab) ?? 'dashboard'
 
   function setTab(t: PayFlyTab) {
     navigate(`/admin/payfly?tab=${t}`, { replace: true })
@@ -1201,7 +1902,7 @@ export default function PayFlyPage() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">PayFly</h1>
         <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-          Acompanhamento de investimentos, chamados, mídia e governança
+          Dashboard, vendas, investimentos, chamados, mídia e governança
         </p>
       </div>
 
@@ -1225,6 +1926,8 @@ export default function PayFlyPage() {
       </div>
 
       {/* Tab content */}
+      {activeTab === 'dashboard'     && <DashboardTab token={token ?? ''} />}
+      {activeTab === 'vendas'        && <VendasTab token={token ?? ''} />}
       {activeTab === 'investimentos' && <InvestimentosTab token={token ?? ''} />}
       {activeTab === 'monitoramento' && <Placeholder title="Monitoramento" />}
       {activeTab === 'governanca'    && <Placeholder title="Governança & Auditoria" />}

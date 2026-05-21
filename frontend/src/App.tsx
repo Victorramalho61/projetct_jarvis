@@ -28,6 +28,7 @@ const FreshservicePage = lazy(() => import("./pages/FreshservicePage"));
 const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const FiscalPage = lazy(() => import("./pages/admin/FiscalPage"));
+const HermesPage = lazy(() => import("./pages/admin/HermesPage"));
 
 function PageLoader() {
   return (
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="/admin/proposals" element={<ProposalsPage />} />
             <Route path="/admin/cto-inbox" element={<CTOInboxPage />} />
             <Route path="/admin/orquestrador" element={<OrchestratorPage />} />
+            <Route path="/admin/hermes" element={<HermesPage />} />
             <Route path="/desempenho" element={<PerformancePage />} />
           </Route>
 

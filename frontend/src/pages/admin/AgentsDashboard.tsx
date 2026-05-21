@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useNotifications } from "../../hooks/useNotifications";
 import OrchestratorPage from "./OrchestratorPage";
 import CTOInboxPage from "./CTOInboxPage";
 import ProposalsPage from "./ProposalsPage";
@@ -22,7 +21,6 @@ const TABS: { id: Tab; label: string }[] = [
 export default function AgentsDashboard() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { notifications } = useNotifications();
 
   const getTabFromSearch = (): Tab => {
     const p = new URLSearchParams(location.search).get("tab");

@@ -23,6 +23,7 @@ from routes.health import router as health_router
 from routes.expenses import router as expenses_router
 from routes.governance import router as governance_router
 from routes.payfly import router as payfly_router
+from routes.payfly_reservations import router as payfly_res_router
 
 
 async def _warm_payfly_cache() -> None:
@@ -46,10 +47,13 @@ async def _warm_payfly_cache() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from services.media_scheduler import start as _media_start, stop as _media_stop
+    from services.payfly_scheduler import start as _pf_start, stop as _pf_stop
     asyncio.create_task(_warm_payfly_cache())
     _media_start()
+    _pf_start()
     yield
     _media_stop()
+    _pf_stop()
 
 
 app = FastAPI(title="Jarvis Expenses Service", lifespan=lifespan)
@@ -88,3 +92,4 @@ app.include_router(health_router)
 app.include_router(expenses_router, prefix="/api")
 app.include_router(governance_router, prefix="/api")
 app.include_router(payfly_router, prefix="/api")
+app.include_router(payfly_res_router, prefix="/api")

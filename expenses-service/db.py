@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     # Webhook de crise (opcional)
     crisis_webhook_url: str = ""
+    # PayFly API V2 — Vendas
+    payfly_v2_url:           str = ""
+    payfly_v2_client_id:     str = ""
+    payfly_v2_client_secret: str = ""
 
     model_config = {"env_file": ".env"}
 
