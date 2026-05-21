@@ -498,6 +498,7 @@ services:
     build:
       context: ./expenses-service
     restart: unless-stopped
+    init: true
     logging: *logging
     mem_limit: 512m
     cpus: "0.5"
@@ -526,9 +527,9 @@ services:
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8006/health', timeout=8)\""]
+      test: ["CMD-SHELL", "curl -fs http://localhost:8006/health || exit 1"]
       interval: 300s
-      timeout: 12s
+      timeout: 10s
       retries: 3
       start_period: 20s
 
