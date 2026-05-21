@@ -39,9 +39,9 @@ export default function AgentsDashboard() {
     navigate(`/admin/agentes?tab=${tab}`, { replace: true });
   };
 
-  const ctoBadge = notifications.filter(n => n.type === "cto_message").length;
-  const proposalsBadge = notifications.filter(n => n.type === "agent_proposal").length;
-  const changesBadge = notifications.filter(n => n.type === "critical_event").length;
+  const ctoBadge = 0;
+  const proposalsBadge = 0;
+  const changesBadge = 0;
 
   const badge = (tab: Tab): number => {
     if (tab === "cto") return ctoBadge;

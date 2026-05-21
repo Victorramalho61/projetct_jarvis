@@ -47,6 +47,29 @@ async def run_nfse_sync(
     return {"ok": True, "message": "Sync NFSe NDD iniciado em background"}
 
 
+@router.get("/nfse/stats")
+def nfse_stats(
+    company_id: Optional[str] = Query(None),
+    ano:        Optional[int] = Query(None),
+    mes:        Optional[int] = Query(None),
+    _user: dict = Depends(get_current_user),
+):
+    """Totais agregados via SQL — sem varredura full-table no Python."""
+    sb = get_supabase()
+    result = sb.rpc("fiscal_nfse_stats", {
+        "p_company_id": company_id,
+        "p_ano": ano,
+        "p_mes": mes,
+    }).execute()
+    data = result.data
+    if isinstance(data, list):
+        data = data[0] if data else {}
+    return data or {
+        "total_notas": 0, "valor_total": 0, "valor_iss": 0,
+        "por_municipio": {}, "por_status": {},
+    }
+
+
 @router.get("/nfse/{doc_id}")
 def get_nfse_detail(
     doc_id: str,
@@ -119,26 +142,3 @@ def search_nfse(
     data = result.data or []
 
     return {"total": len(data), "offset": offset, "limit": limit, "data": data}
-
-
-@router.get("/nfse/stats")
-def nfse_stats(
-    company_id: Optional[str] = Query(None),
-    ano:        Optional[int] = Query(None),
-    mes:        Optional[int] = Query(None),
-    _user: dict = Depends(get_current_user),
-):
-    """Totais agregados via SQL — sem varredura full-table no Python."""
-    sb = get_supabase()
-    result = sb.rpc("fiscal_nfse_stats", {
-        "p_company_id": company_id,
-        "p_ano": ano,
-        "p_mes": mes,
-    }).execute()
-    data = result.data
-    if isinstance(data, list):
-        data = data[0] if data else {}
-    return data or {
-        "total_notas": 0, "valor_total": 0, "valor_iss": 0,
-        "por_municipio": {}, "por_status": {},
-    }

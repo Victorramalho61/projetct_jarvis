@@ -4,7 +4,7 @@ import { apiFetch } from "../lib/api";
 
 export type Notification = {
   id: string;
-  type: "down" | "degraded" | "pending_user" | "agent_proposal" | "cto_message" | "critical_event" | "performance_pending";
+  type: "down" | "degraded" | "pending_user" | "performance_pending";
   title: string;
   body: string;
   link?: string;
@@ -14,9 +14,6 @@ type NotificationSummary = {
   systems_down: { id: string; name: string; detail: string }[];
   systems_degraded: { id: string; name: string; detail: string }[];
   pending_users: number;
-  pending_proposals: number;
-  unread_inbox: number;
-  critical_findings: number;
 };
 
 const PERFORMANCE_ROLES: string[] = ["rh", "gestor", "coordenador", "supervisor", "colaborador", "gestor_ciclo"];
@@ -62,39 +59,6 @@ export function useNotifications() {
           title: `${n} solicitaç${n > 1 ? "ões" : "ão"} pendente${n > 1 ? "s" : ""}`,
           body: "Novos usuários aguardando ativação",
           link: "/admin/acesso",
-        });
-      }
-
-      if (summary.pending_proposals > 0) {
-        const n = summary.pending_proposals;
-        next.push({
-          id: "agent-proposals",
-          type: "agent_proposal",
-          title: `${n} proposal${n > 1 ? "s" : ""} aguardando aprovação`,
-          body: "Agentes identificaram melhorias que precisam da sua decisão",
-          link: "/admin/proposals",
-        });
-      }
-
-      if (summary.unread_inbox > 0) {
-        const n = summary.unread_inbox;
-        next.push({
-          id: "cto-inbox",
-          type: "cto_message",
-          title: `${n} mensage${n > 1 ? "ns" : "m"} nova${n > 1 ? "s" : ""} do CTO`,
-          body: "Abra o Inbox para ver as sugestões e atualizações",
-          link: "/admin/cto-inbox",
-        });
-      }
-
-      if (summary.critical_findings > 0) {
-        const n = summary.critical_findings;
-        next.push({
-          id: "critical-events",
-          type: "critical_event",
-          title: `${n} evento${n > 1 ? "s" : ""} crítico${n > 1 ? "s" : ""}`,
-          body: "Eventos críticos não processados no orquestrador",
-          link: "/admin/orquestrador",
         });
       }
 

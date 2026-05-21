@@ -115,9 +115,6 @@ const filteredNav = visible.filter((i) =>
     down:                "bg-red-500",
     degraded:            "bg-amber-500",
     pending_user:        "bg-blue-500",
-    agent_proposal:      "bg-orange-500",
-    cto_message:         "bg-indigo-500",
-    critical_event:      "bg-red-600",
     performance_pending: "bg-violet-500",
   };
 
@@ -354,16 +351,6 @@ const filteredNav = visible.filter((i) =>
                   {notifications.some((n) => n.type === "down" || n.type === "degraded") && (
                     <button onClick={() => { navigate("/admin/monitoramento"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
                       Ver monitoramento →
-                    </button>
-                  )}
-                  {notifications.some((n) => n.type === "agent_proposal") && (
-                    <button onClick={() => { navigate("/admin/proposals"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
-                      Ver proposals →
-                    </button>
-                  )}
-                  {notifications.some((n) => n.type === "cto_message") && (
-                    <button onClick={() => { navigate("/admin/cto-inbox"); setNotifOpen(false); }} className="text-xs text-brand-green hover:underline">
-                      Ver inbox CTO →
                     </button>
                   )}
                   {notifications.some((n) => n.type === "pending_user") && (
