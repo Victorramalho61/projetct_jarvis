@@ -14,29 +14,35 @@ logger = logging.getLogger(__name__)
 
 PAGE_WORKERS = 5
 
-# ── Token cache (thread-safe) ─────────────────────────────────────────────────
+# ── Token (thread-safe) ───────────────────────────────────────────────────────
+# Se payfly_v2_bearer_token estiver definido, usa diretamente (token estático).
+# Caso contrário, autentica via clientId/clientSecret → /api/v2/auth/token.
 
 _token_lock  = threading.Lock()
 _token_value: Optional[str] = None
-_token_exp:   float = 0.0          # unix timestamp
+_token_exp:   float = 0.0
 
 
 def _get_token() -> str:
     global _token_value, _token_exp
     with _token_lock:
-        if _token_value and time.time() < _token_exp - 120:
-            return _token_value
         from db import get_settings
         s = get_settings()
+        # Bearer token estático tem prioridade
+        if s.payfly_v2_bearer_token:
+            return s.payfly_v2_bearer_token
+        # Renova via clientId/clientSecret
+        if _token_value and time.time() < _token_exp - 120:
+            return _token_value
         resp = requests.post(
-            f"{s.payfly_v2_url}/api/auth/token",
+            f"{s.payfly_v2_url}/api/v2/auth/token",
             json={"clientId": s.payfly_v2_client_id, "clientSecret": s.payfly_v2_client_secret},
             timeout=15,
         )
         resp.raise_for_status()
         data = resp.json()
-        _token_value = data["token"]
-        _token_exp   = time.time() + 86400   # 24h
+        _token_value = data.get("token") or data.get("access_token")
+        _token_exp   = time.time() + 86400
         return _token_value
 
 

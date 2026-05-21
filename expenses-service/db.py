@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     crisis_webhook_url: str = ""
     # PayFly API V2 — Vendas
     payfly_v2_url:           str = ""
+    payfly_v2_bearer_token:  str = ""   # token estático (prioridade sobre client_id/secret)
     payfly_v2_client_id:     str = ""
     payfly_v2_client_secret: str = ""
 
