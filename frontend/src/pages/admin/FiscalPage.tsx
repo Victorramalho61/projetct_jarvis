@@ -155,6 +155,7 @@ export default function FiscalPage() {
   const [filterStatus, setFilterStatus]     = useState("");
   const [filterMunicipio, setFilterMunicipio] = useState("");
   const [filterCnpj, setFilterCnpj]         = useState("");
+  const [filterTomadorCnpj, setFilterTomadorCnpj] = useState("");
 
   // drill-down
   const [detailDoc, setDetailDoc]       = useState<NfseDoc | null>(null);
@@ -220,7 +221,8 @@ export default function FiscalPage() {
     if (q)               p.set("q", q);
     if (filterStatus)    p.set("status", filterStatus);
     if (filterMunicipio) p.set("municipio", filterMunicipio);
-    if (filterCnpj)      p.set("emitente_cnpj", filterCnpj);
+    if (filterCnpj)        p.set("emitente_cnpj", filterCnpj);
+    if (filterTomadorCnpj) p.set("destinatario_cnpj", filterTomadorCnpj);
     const key = `docs:${p}`;
     const hit = cached<NfseDoc[]>(key, 60_000);
     if (hit) { setDocs(hit); return; }
@@ -229,7 +231,7 @@ export default function FiscalPage() {
       .then((r) => { const d = r.data ?? []; setDocs(d); setCache(key, d); })
       .catch(() => setDocs([]))
       .finally(() => setDocsLoading(false));
-  }, [token, selectedId, q, filterStatus, filterMunicipio, filterCnpj, docsOffset]);
+  }, [token, selectedId, q, filterStatus, filterMunicipio, filterCnpj, filterTomadorCnpj, docsOffset]);
 
   useEffect(() => { if (tab === "nfse") loadDocs(); }, [tab, loadDocs]);
 
@@ -548,6 +550,13 @@ export default function FiscalPage() {
                 placeholder="CNPJ emitente"
                 value={filterCnpj}
                 onChange={(e) => { setFilterCnpj(e.target.value); setDocsOffset(0); }}
+                className={`${inp} w-40 font-mono`}
+              />
+              <input
+                type="text"
+                placeholder="CNPJ tomador"
+                value={filterTomadorCnpj}
+                onChange={(e) => { setFilterTomadorCnpj(e.target.value); setDocsOffset(0); }}
                 className={`${inp} w-40 font-mono`}
               />
               <input
