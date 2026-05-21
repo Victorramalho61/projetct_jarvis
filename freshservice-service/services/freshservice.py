@@ -19,7 +19,7 @@ _RATING_MAP = {"Happy": 3, "Neutral": 2, "Unhappy": 1}
 _PHASE_ORDER = ["resolved", "closed", "csat", "metadata"]
 _PHASE_STATUS = {"resolved": 4, "closed": 5}
 # Workspaces ativos (id=23 Financeiro está em draft)
-_ACTIVE_WORKSPACE_IDS = [2, 5, 6, 13, 18, 19, 21, 22, 24, 25]
+_ACTIVE_WORKSPACE_IDS = [2, 5, 6, 13, 21, 22]  # 18,19,24,25 sem acesso (403)
 # Data de início aproximada de cada workspace (para gerar chunks trimestrais)
 _WS_START_DATES = {
     2: "2023-06-01", 5: "2023-08-01", 6: "2023-08-01",
