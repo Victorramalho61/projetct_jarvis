@@ -822,7 +822,7 @@ function VendasTab({ token }: { token: string }) {
                     className="hover:bg-gray-50 dark:hover:bg-gray-800/30 cursor-pointer transition-colors"
                     onClick={() => openDetail(item.id)}>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs">{item.os_number ?? '—'}</td>
-                    <td className="px-4 py-3">{typeLabel(item.type)}</td>
+                    <td className="px-4 py-3 text-gray-700 dark:text-gray-300">{typeLabel(item.type)}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300 max-w-[120px] truncate">{item.company_name ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-700 dark:text-gray-300 max-w-[140px] truncate">{item.passenger_name ?? '—'}</td>
                     <td className="px-4 py-3 text-gray-600 dark:text-gray-400 max-w-[120px] truncate">
