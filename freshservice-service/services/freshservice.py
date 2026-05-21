@@ -465,7 +465,7 @@ def _run_daily_sync_sync() -> int:
                 tickets = client.list_updated_tickets(updated_since=updated_since, page=page, workspace_id=ws_id)
                 if not tickets:
                     break
-                rows = [_extract_ticket_row(t) for t in tickets if t.get("status") in (4, 5)]
+                rows = [_extract_ticket_row(t) for t in tickets]
                 if rows:
                     _upsert_tickets(db, rows)
                     total_upserted += len(rows)
