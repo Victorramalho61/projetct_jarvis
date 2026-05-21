@@ -34,7 +34,7 @@ def _get_token() -> str:
         if _token_value and time.time() < _token_exp - 120:
             return _token_value
         resp = requests.post(
-            f"{s.payfly_v2_url}/api/v2/auth/token",
+            f"{s.payfly_v2_url}/api/auth/token",
             json={"clientId": s.payfly_v2_client_id, "clientSecret": s.payfly_v2_client_secret},
             timeout=15,
         )

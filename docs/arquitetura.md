@@ -1075,7 +1075,42 @@ Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorpo
 - **Endpoints**: `GET /api/expenses/dashboard?year=&filial=&tipo=` · `GET /api/expenses/forecast` · `GET /api/expenses/empresas` · `GET /api/expenses/comparativo?ano1=&ano2=`
 - **Forecast**: regressão linear + média móvel 3m, pure Python
 - **Resiliência**: `CircuitBreaker("benner")` + `@sql_retry` (3 tentativas, 2s→10s backoff) em `services/resilience.py`; `TTLCache(ttl=300)` nos serviços pesados; cache Supabase via `POST /api/expenses/sync`
-- **PayFly**: apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`); separação entre despesas contratuais e eventuais; suporte a parcelas pendentes
+- **PayFly (despesas Benner)**: apenas pagamentos liquidados (`DATALIQUIDACAO IS NOT NULL`); separação entre despesas contratuais e eventuais; suporte a parcelas pendentes
+
+### PayFly Viagens — API V2
+
+Integração com a API PayFly de reservas corporativas (voos e hotéis), separada do módulo Benner.
+
+**Client** (`services/payfly_v2_client.py`):
+- URL base: `https://integrations-api.payfly.com.br`
+- Auth: `POST /api/auth/token` com `clientId` + `clientSecret` → Bearer token com cache thread-safe (renova 2 min antes do vencimento)
+- `get_reservation_ids(start, end)` → IDs agrupados por status: `emitidos`, `cancelados`, `reservados`, `expirados`
+- `get_reservation_detail(id, type)` → detalhe completo da reserva
+- `sync_date_range(start, end)` → busca IDs + detalhes em paralelo (5 workers), faz upsert em batches de 50 na tabela `payfly_reservations`
+- Flatten: 68 campos mapeados do JSON aninhado → schema plano no Supabase
+
+**Scheduler** (`services/payfly_scheduler.py`):
+- APScheduler embutido no expenses-service (não depende do agents-service)
+- Job `payfly_reservations_daily`: cron **04:00 BRT** todo dia, sincroniza o dia anterior (`date.today() - 1`)
+- Incremental puro — nunca re-processa mais de 1 dia por execução automática
+
+**Endpoints** (`routes/payfly_reservations.py`):
+
+| Método | Path | Descrição |
+|---|---|---|
+| GET | `/api/expenses/payfly/reservations/stats` | KPIs agregados (total, por status, por empresa) via RPC |
+| GET | `/api/expenses/payfly/reservations/dashboard` | Top-10 solicitantes por valor e quantidade |
+| GET | `/api/expenses/payfly/reservations/` | Lista paginada com filtros (status/tipo/empresa/datas) |
+| GET | `/api/expenses/payfly/reservations/{id}` | Detalhe completo de uma reserva |
+| POST | `/api/expenses/payfly/reservations/sync` | Sync manual de um período (máx. 31 dias) — background |
+| POST | `/api/expenses/payfly/reservations/sync/bulk` | Carga histórica desde `start_date` até ontem — background |
+
+**Schema** (`migrations/003_payfly_reservations.sql`): tabela `payfly_reservations` com 92 colunas + `raw_json` jsonb. Índices em `status`, `type`, `company_name`, `choice_date`, `travel_start_date`, `total_amount`.
+
+**Frontend** (`PayFlyPage.tsx` — tabs Dashboard e Vendas):
+- Período padrão: `2026-01-01` → hoje
+- Botão **"Carga Histórica (jan/2026→hoje)"**: dispara `sync/bulk` desde 01/01/2026, sobrescreve dados existentes via upsert
+- Botão **"Sincronizar período"**: sync do intervalo selecionado nos filtros
 
 ---
 

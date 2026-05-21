@@ -62,8 +62,7 @@ const PLATFORM_LABELS: Record<string, { label: string; icon: string; color: stri
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function HermesPage() {
-  const { user } = useAuth();
-  const token = (user as any)?.token as string | undefined;
+  const { token } = useAuth();
 
   const [tab, setTab] = useState<Tab>("config");
   const [config, setConfig] = useState<HermesConfig | null>(null);

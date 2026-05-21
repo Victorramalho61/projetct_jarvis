@@ -600,8 +600,9 @@ services:
       context: ./hermes-service
     restart: unless-stopped
     logging: *logging
-    mem_limit: 1g
-    cpus: "1"
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: "0.5"
     depends_on:
       db:
         condition: service_healthy
@@ -613,15 +614,18 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_API_KEY: ${NVIDIA_API_KEY:-}
+      OPENAI_BASE_URL: https://integrate.api.nvidia.com/v1
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      NVIDIA_API_KEY: ${NVIDIA_API_KEY:-}
+      TELEGRAM_ALLOWED_USERS: "156349438"
     volumes:
       - hermes_data:/root/.hermes
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8010/health', timeout=8)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8010/api/hermes/health', timeout=8)\""]
       interval: 300s
       timeout: 12s
       retries: 3

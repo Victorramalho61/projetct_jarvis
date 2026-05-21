@@ -414,10 +414,9 @@ function Placeholder({ title }: { title: string }) {
 
 function DashboardTab({ token }: { token: string }) {
   const today = new Date()
-  const firstOfYear = `${today.getFullYear()}-01-01`
   const todayStr = today.toISOString().slice(0, 10)
 
-  const [startDate, setStartDate]   = useState(firstOfYear)
+  const [startDate, setStartDate]   = useState('2026-01-01')
   const [endDate, setEndDate]       = useState(todayStr)
   const [company, setCompany]       = useState('')
   const [data, setData]             = useState<PayFlyDashboardData | null>(null)
@@ -584,10 +583,9 @@ function DashboardTab({ token }: { token: string }) {
 
 function VendasTab({ token }: { token: string }) {
   const today = new Date()
-  const firstOfMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`
   const todayStr = today.toISOString().slice(0, 10)
 
-  const [startDate, setStartDate]     = useState(firstOfMonth)
+  const [startDate, setStartDate]     = useState('2026-01-01')
   const [endDate, setEndDate]         = useState(todayStr)
   const [company, setCompany]         = useState('')
   const [filterType, setFilterType]   = useState('')
@@ -601,6 +599,7 @@ function VendasTab({ token }: { token: string }) {
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(['identificacao']))
   const [loading, setLoading]         = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
+  const [bulkSyncMsg, setBulkSyncMsg] = useState<string | null>(null)
   const [error, setError]             = useState<string | null>(null)
 
   const statsCache = useRef(new Map<string, { data: SalesStats; ts: number }>())
@@ -688,14 +687,14 @@ function VendasTab({ token }: { token: string }) {
   }, [startDate, endDate, token])
 
   const handleBulkSync = useCallback(async () => {
-    const sd = prompt('Data de início da carga histórica (YYYY-MM-DD):', '2026-01-01')
-    if (!sd) return
+    if (!confirm('Iniciar carga histórica completa desde 01/01/2026 até hoje? Os dados existentes serão sobrescritos. Esse processo roda em background e pode levar vários minutos.')) return
     setSyncLoading(true)
+    setBulkSyncMsg(null)
     try {
-      await apiFetch(`/api/expenses/payfly/reservations/sync/bulk?start_date=${sd}`, { token, method: 'POST' })
-      alert(`Carga histórica iniciada desde ${sd}. Pode levar horas para completar.`)
+      await apiFetch('/api/expenses/payfly/reservations/sync/bulk?start_date=2026-01-01', { token, method: 'POST' })
+      setBulkSyncMsg('Carga histórica iniciada. Os dados serão atualizados em alguns minutos — recarregue a tabela após concluir.')
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Erro ao iniciar carga histórica')
+      setBulkSyncMsg('Erro ao iniciar carga histórica: ' + (e instanceof Error ? e.message : 'Erro desconhecido'))
     } finally { setSyncLoading(false) }
   }, [token])
 
@@ -755,13 +754,22 @@ function VendasTab({ token }: { token: string }) {
         </button>
         <button onClick={handleSync} disabled={syncLoading}
           className="px-4 py-1.5 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">
-          {syncLoading ? 'Aguarde…' : 'Sincronizar'}
+          {syncLoading ? 'Aguarde…' : 'Sincronizar período'}
         </button>
         <button onClick={handleBulkSync} disabled={syncLoading}
           className="px-4 py-1.5 bg-amber-600 text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50">
-          Carga Histórica
+          {syncLoading ? 'Aguarde…' : 'Carga Histórica (jan/2026→hoje)'}
         </button>
       </div>
+
+      {bulkSyncMsg && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
+          <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span>{bulkSyncMsg}</span>
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
