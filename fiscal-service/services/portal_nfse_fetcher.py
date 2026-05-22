@@ -109,6 +109,12 @@ class PortalNFSeFetcher:
                 )
                 break
 
+            req_count = getattr(self, "_req_count", 0) + 1
+            self._req_count = req_count
+            if req_count % 10 == 1 or req_count <= 3:
+                _logger.info("[%s] ADN req #%d NSU=%d docs_acumulados=%d",
+                             self.cnpj, req_count, nsu_atual, len(docs))
+
             nsu_antes = nsu_atual
             for item in lote_dfe:
                 nsu        = int(item.get("NSU", nsu_atual))

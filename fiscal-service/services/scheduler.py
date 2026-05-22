@@ -488,13 +488,16 @@ async def _sync_portal_nfse():
     _logger.info("Portal Nacional NFS-e %02d:00: %d empresa(s)", hora_atual, len(companies))
     for company in companies:
         try:
-            await _sync_portal_nfse_company(company, janela="portal_06h")
+            await asyncio.to_thread(_sync_portal_nfse_company, company, "portal_06h")
         except Exception:
             _logger.exception("Erro no sync Portal NFS-e para CNPJ %s", company.get("cnpj"))
 
 
-async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
-    """Sync Portal Nacional NFS-e (ADN) para uma empresa."""
+def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
+    """Sync Portal Nacional NFS-e (ADN) para uma empresa.
+    Função SÍNCRONA: Starlette/BackgroundTasks coloca em thread pool automaticamente.
+    O APScheduler chama via asyncio.to_thread para não bloquear o event loop.
+    """
     from db import get_supabase, get_settings
     from services.portal_nfse_fetcher import PortalNFSeFetcher
     from services.xml_parser import parse_nfse_portal, _compute_hash
@@ -520,6 +523,7 @@ async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
         _logger.warning("[%s] Portal NFS-e: %s — sync ignorado", cnpj, motivo)
         _log_sync(sb, company_id, "NFSe_Portal", None, ultimo_nsu, ultimo_nsu,
                   0, 0, "erro", motivo, janela)
+        _portal_syncing.discard(company_id)
         return
 
     try:
@@ -532,7 +536,7 @@ async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
                 cnpj, cert_path, key_path,
                 getattr(settings, "portal_nfse_ambiente", "1"),
             )
-            docs = await asyncio.to_thread(fetcher.dist_dfe_interesse, ultimo_nsu)
+            docs = fetcher.dist_dfe_interesse(ultimo_nsu)   # sync — OK, estamos em thread pool
 
         nsu_maximo = ultimo_nsu
         for doc in docs:

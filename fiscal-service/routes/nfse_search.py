@@ -1,4 +1,5 @@
 import logging
+import threading
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Body, Query, Depends, HTTPException
@@ -161,27 +162,33 @@ def search_nfse(
 
 
 @router.post("/portal-nfse/sync/run")
-async def trigger_portal_nfse_sync(
-    background_tasks: BackgroundTasks,
+def trigger_portal_nfse_sync(
     company_id: Optional[str] = Query(None, description="UUID da empresa; omitir para todas"),
     _user: dict = Depends(require_role("admin")),
 ):
-    """Dispara sync Portal Nacional NFS-e (ADN) manualmente."""
-    from services.scheduler import _sync_portal_nfse, _sync_portal_nfse_company
+    """Dispara sync Portal Nacional NFS-e (ADN) manualmente em daemon thread."""
+    from services.scheduler import _sync_portal_nfse_company
 
-    if company_id:
-        sb  = get_supabase()
-        res = sb.table("fiscal_companies").select(
-            "id,cnpj,cert_pfx_encrypted,cert_password_encrypted,"
-            "ultimo_nsu_nfse_nacional,sync_portal_nfse_ativo"
-        ).eq("id", company_id).execute()
-        if not res.data:
-            raise HTTPException(404, "Empresa não encontrada")
-        background_tasks.add_task(_sync_portal_nfse_company, res.data[0], "manual")
-        return {"ok": True, "message": f"Sync Portal NFS-e iniciado para empresa {company_id}"}
+    if not company_id:
+        raise HTTPException(400, "company_id obrigatório para sync manual")
 
-    background_tasks.add_task(_sync_portal_nfse)
-    return {"ok": True, "message": "Sync Portal NFS-e iniciado para todas as empresas"}
+    sb  = get_supabase()
+    res = sb.table("fiscal_companies").select(
+        "id,cnpj,cert_pfx_encrypted,cert_password_encrypted,"
+        "ultimo_nsu_nfse_nacional,sync_portal_nfse_ativo"
+    ).eq("id", company_id).execute()
+    if not res.data:
+        raise HTTPException(404, "Empresa não encontrada")
+
+    # daemon thread: roda fora do event loop, não bloqueia o servidor
+    t = threading.Thread(
+        target=_sync_portal_nfse_company,
+        args=(res.data[0], "manual"),
+        daemon=True,
+        name=f"portal-nfse-{company_id[:8]}",
+    )
+    t.start()
+    return {"ok": True, "message": f"Sync Portal NFS-e iniciado para empresa {company_id}"}
 
 
 @router.get("/{company_id}/portal-nfse/logs")
