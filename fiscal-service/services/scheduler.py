@@ -7,6 +7,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 _logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
+_portal_syncing: set[str] = set()   # guard: evita sync concorrente por empresa
 
 TZ_BR = pytz.timezone("America/Sao_Paulo")
 
@@ -198,7 +199,7 @@ async def _sync_nfe(sb, settings, company, janela):
                 settings.sefaz_ambiente,
                 usar_svc_an=company.get("sefaz_usar_svc_an", False),
             )
-            docs, flags = fetcher.dist_dfe_interesse(ultimo_nsu)
+            docs, flags = await asyncio.to_thread(fetcher.dist_dfe_interesse, ultimo_nsu)
 
         # Prepara campos para UPDATE único no final
         company_update: dict = {}
@@ -271,7 +272,7 @@ async def _sync_cte(sb, settings, company, janela):
             settings.cert_encryption_key,
         ) as (cert_path, key_path):
             fetcher = CTeDistribuicaoDFe(cnpj, cert_path, key_path, settings.sefaz_ambiente)
-            docs = fetcher.dist_dfe_interesse(ultimo_nsu)
+            docs = await asyncio.to_thread(fetcher.dist_dfe_interesse, ultimo_nsu)
 
         for doc in docs:
             parsed = parse_xml_auto(doc["xml"])
@@ -499,10 +500,17 @@ async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
     from services.xml_parser import parse_nfse_portal, _compute_hash
     from services.cert_manager import extract_pem_for_requests
 
-    sb       = get_supabase()
-    settings = get_settings()
     company_id = company["id"]
     cnpj       = company["cnpj"]
+
+    # Guard: evita sync concorrente para a mesma empresa (double-click, scheduler+manual)
+    if company_id in _portal_syncing:
+        _logger.info("[%s] Portal NFS-e: sync já em andamento — ignorando chamada duplicada", cnpj)
+        return
+    _portal_syncing.add(company_id)
+
+    sb       = get_supabase()
+    settings = get_settings()
     ultimo_nsu = company.get("ultimo_nsu_nfse_nacional") or 0
     docs_novos = 0
     docs_cancelados = 0
@@ -524,7 +532,7 @@ async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
                 cnpj, cert_path, key_path,
                 getattr(settings, "portal_nfse_ambiente", "1"),
             )
-            docs = fetcher.dist_dfe_interesse(ultimo_nsu)
+            docs = await asyncio.to_thread(fetcher.dist_dfe_interesse, ultimo_nsu)
 
         nsu_maximo = ultimo_nsu
         for doc in docs:
@@ -582,6 +590,8 @@ async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
                   0, 0, "erro", str(exc), janela)
         _logger.error("[%s] Portal NFS-e ERRO: %s", cnpj, exc)
         raise
+    finally:
+        _portal_syncing.discard(company_id)
 
 
 def _ensure_period(sb, company_id: str, data_emissao, doc: dict):

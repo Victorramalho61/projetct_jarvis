@@ -21,8 +21,10 @@ _logger = logging.getLogger(__name__)
 ADN_PROD = "https://adn.nfse.gov.br/contribuintes"
 ADN_HOM  = "https://adn.producaorestrita.nfse.gov.br/contribuintes"
 
-CSTAT_OK        = 138
-CSTAT_SEM_NOVOS = 137
+# Formato real da API ADN (gov.br/nfse):
+# {"StatusProcessamento": "DOCUMENTOS_LOCALIZADOS",
+#  "LoteDFe": [{"NSU": 1, "ChaveAcesso": "...", "TipoDocumento": "NFSE", "ArquivoXml": "base64gz"}]}
+STATUS_LOCALIZADOS = "DOCUMENTOS_LOCALIZADOS"
 
 
 class PortalNFSeFetcher:
@@ -49,7 +51,7 @@ class PortalNFSeFetcher:
     def dist_dfe_interesse(self, ultimo_nsu: int) -> list[dict]:
         """
         Puxa todos os DFe a partir de ultimo_nsu.
-        Retorna list[dict] com: nsu, schema, tipo, tipo_schema, xml, xml_hash, fonte.
+        Retorna list[dict] com: nsu, schema, tipo, tipo_schema, xml, xml_hash, fonte, chave_acesso.
         """
         if not self._cert:
             raise RuntimeError(
@@ -61,7 +63,6 @@ class PortalNFSeFetcher:
         nsu_atual = ultimo_nsu
 
         while True:
-            # Captura nsu_atual no closure para evitar late-binding
             nsu_snap = nsu_atual
 
             def _get():
@@ -85,63 +86,64 @@ class PortalNFSeFetcher:
                     "Verifique certificado e registro em gov.br/nfse."
                 )
 
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After", "3600")
+                _logger.warning(
+                    "[%s] ADN HTTP 429 — limite de req/hora atingido (Retry-After: %ss). "
+                    "Retornando %d docs coletados até NSU=%d.",
+                    self.cnpj, retry_after, len(docs), nsu_atual,
+                )
+                break   # retorna o que já coletou; NSU será salvo pelo scheduler
+
             resp.raise_for_status()
             payload = resp.json()
-            c_stat  = int(payload.get("cStat", 0))
 
-            if c_stat == CSTAT_SEM_NOVOS:
-                _logger.info("[%s] ADN cStat=137 (sem novos), NSU=%d", self.cnpj, nsu_atual)
-                break
+            # Formato ADN: StatusProcessamento + LoteDFe[]
+            status_proc = payload.get("StatusProcessamento", "")
+            lote_dfe    = payload.get("LoteDFe") or []
 
-            if c_stat not in (CSTAT_OK, 100):
-                _logger.warning(
-                    "[%s] ADN cStat=%d xMotivo=%s",
-                    self.cnpj,
-                    c_stat,
-                    payload.get("xMotivo", ""),
+            if status_proc != STATUS_LOCALIZADOS or not lote_dfe:
+                _logger.info(
+                    "[%s] ADN StatusProcessamento=%r (fim da fila), NSU=%d",
+                    self.cnpj, status_proc, nsu_atual,
                 )
                 break
 
-            lote     = payload.get("loteDistDFeInt") or {}
-            doc_zips = lote.get("docZip") or []
-            if not doc_zips:
-                break
-
-            for item in doc_zips:
-                nsu     = int(item.get("NSU", nsu_atual))
-                schema  = str(item.get("schema", ""))
-                xml_str = _decompress(item.get("xmlZip") or "")
+            nsu_antes = nsu_atual
+            for item in lote_dfe:
+                nsu        = int(item.get("NSU", nsu_atual))
+                tipo_doc   = str(item.get("TipoDocumento", ""))
+                chave      = str(item.get("ChaveAcesso", ""))
+                xml_str    = _decompress(item.get("ArquivoXml") or "")
 
                 if not xml_str:
-                    _logger.warning("[%s] ADN NSU=%d xmlZip vazio/inválido", self.cnpj, nsu)
+                    _logger.warning("[%s] ADN NSU=%d ArquivoXml vazio/inválido", self.cnpj, nsu)
                     continue
 
-                tipo_schema = "resumo"    if schema.startswith("res")    else "completo"
-                tipo        = "cancelamento" if "Evento" in schema       else "documento"
+                tipo        = "cancelamento" if "CANCEL" in tipo_doc.upper() else "documento"
+                tipo_schema = "completo"   # Portal Nacional retorna NFS-e completa
 
                 docs.append({
-                    "nsu":         nsu,
-                    "schema":      schema,
-                    "tipo":        tipo,
-                    "tipo_schema": tipo_schema,
-                    "xml":         xml_str,
-                    "xml_hash":    hashlib.sha256(xml_str.encode("utf-8")).hexdigest(),
-                    "fonte":       "portal_nacional",
+                    "nsu":          nsu,
+                    "schema":       tipo_doc,
+                    "tipo":         tipo,
+                    "tipo_schema":  tipo_schema,
+                    "xml":          xml_str,
+                    "xml_hash":     hashlib.sha256(xml_str.encode("utf-8")).hexdigest(),
+                    "fonte":        "portal_nacional",
+                    "chave_acesso": chave,
                 })
                 nsu_atual = max(nsu_atual, nsu)
 
-            max_nsu = int(payload.get("maxNSU", nsu_atual))
-            if nsu_atual >= max_nsu:
+            # Se NSU não avançou não há mais documentos — evita loop infinito
+            if nsu_atual <= nsu_antes:
                 break
 
             time.sleep(2)   # 2s entre requisições — limite 256/hora do ADN
 
         _logger.info(
             "[%s] ADN: %d docs baixados (NSU %d → %d)",
-            self.cnpj,
-            len(docs),
-            ultimo_nsu,
-            nsu_atual,
+            self.cnpj, len(docs), ultimo_nsu, nsu_atual,
         )
         return docs
 
