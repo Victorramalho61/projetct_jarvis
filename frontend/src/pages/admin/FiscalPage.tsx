@@ -242,7 +242,6 @@ export default function FiscalPage() {
   // drill-down
   const [detailDoc, setDetailDoc]       = useState<NfseDoc | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [detailFetching, setDetailFetching] = useState(false);
   const [detailFetchMsg, setDetailFetchMsg] = useState("");
 
   // sync
@@ -400,27 +399,6 @@ export default function FiscalPage() {
     }
   };
 
-  const fetchDetailByKey = async () => {
-    if (!detailDoc || !token || detailFetching) return;
-    setDetailFetching(true);
-    setDetailFetchMsg("");
-    try {
-      const r = await apiFetch<{ found: boolean; source: string; document: NfseDoc }>(
-        "/api/fiscal/fetch-by-key",
-        { token, method: "POST", json: { company_id: detailDoc.company_id, chave_acesso: detailDoc.chave_acesso } }
-      );
-      if (r.found) {
-        setDetailDoc(r.document);
-        setDetailFetchMsg("✅ Documento atualizado do portal.");
-      } else {
-        setDetailFetchMsg("⚠️ Não encontrado nos portais.");
-      }
-    } catch (e) {
-      setDetailFetchMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setDetailFetching(false);
-    }
-  };
 
   const downloadingDanfse = false;
 
@@ -1215,9 +1193,24 @@ export default function FiscalPage() {
               <button
                 onClick={fetchByKey}
                 disabled={(fetchKey.length !== 44 && fetchKey.length !== 50) || fetchKeyLoading || !fetchKeyCompanyId}
-                className="w-full px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
+                className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold shadow-sm border transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  !((fetchKey.length !== 44 && fetchKey.length !== 50) || fetchKeyLoading || !fetchKeyCompanyId)
+                    ? "hover:scale-[1.01] active:scale-95" : ""
+                } ${
+                  isDark
+                    ? "bg-gradient-to-br from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 border-blue-500/40 text-white shadow-blue-900/40"
+                    : "bg-gradient-to-br from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 border-blue-300/50 text-white shadow-blue-200"
+                }`}
               >
-                {fetchKeyLoading ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "🔍 Buscar nos portais"}
+                {fetchKeyLoading ? (
+                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+                  </svg>
+                )}
+                <span>{fetchKeyLoading ? "Buscando…" : "Buscar nos portais"}</span>
               </button>
               {fetchKeyError && <p className="text-sm text-red-500">{fetchKeyError}</p>}
               {fetchKeyResult?.found && (
@@ -1347,25 +1340,8 @@ export default function FiscalPage() {
 
               <div className={`grid grid-cols-2 gap-3 text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
                 <div>
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="font-semibold">Chave de Acesso</span>
-                    <button
-                      onClick={fetchDetailByKey}
-                      disabled={detailFetching}
-                      title="Buscar NFS-e completa nos portais"
-                      className={`px-2 py-0.5 rounded text-xs flex items-center gap-1 transition-colors ${
-                        isDark
-                          ? "bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-40"
-                          : "bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40"
-                      }`}
-                    >
-                      {detailFetching
-                        ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-                        : "🔍"}
-                      <span>Buscar</span>
-                    </button>
-                  </div>
-                  <p className="font-mono break-all">{detailDoc.chave_acesso}</p>
+                  <span className="font-semibold">Chave de Acesso</span>
+                  <p className="font-mono break-all mt-0.5">{detailDoc.chave_acesso}</p>
                   {detailFetchMsg && (
                     <p className={`mt-1 text-xs ${detailFetchMsg.startsWith("✅") ? "text-emerald-500" : "text-red-400"}`}>
                       {detailFetchMsg}
