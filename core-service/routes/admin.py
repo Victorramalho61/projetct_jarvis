@@ -20,7 +20,7 @@ def get_logs(
         db = get_supabase()
         result = (
             db.table("app_logs")
-            .select("id,created_at,level,module,message,detail,user_id", count="exact")
+            .select("id,created_at,level,module,message,detail,user_id", count="planned")
             .order("created_at", desc=True)
             .limit(limit)
             .offset(offset)

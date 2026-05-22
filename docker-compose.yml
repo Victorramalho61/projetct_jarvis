@@ -20,7 +20,7 @@ services:
     cpus: "1"
     healthcheck:
       test: pg_isready -U postgres -h localhost
-      interval: 5s
+      interval: 30s
       timeout: 5s
       retries: 10
     ports:

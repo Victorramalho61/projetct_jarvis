@@ -211,3 +211,32 @@ CREATE INDEX IF NOT EXISTS idx_system_checks_status_time
 -- agent_messages: queries por to_agent + status (inbox, notificações, pipelines)
 CREATE INDEX IF NOT EXISTS idx_agent_messages_to_agent_status
     ON public.agent_messages (to_agent, status, created_at DESC);
+
+-- ── FK indexes — evitam sequential scan em joins por user_id / created_by ──────
+
+CREATE INDEX IF NOT EXISTS idx_connected_accounts_user_id
+    ON public.connected_accounts (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_app_logs_user_id
+    ON public.app_logs (user_id)
+    WHERE user_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id
+    ON public.password_reset_tokens (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_monitored_systems_created_by
+    ON public.monitored_systems (created_by)
+    WHERE created_by IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_agents_created_by
+    ON public.agents (created_by)
+    WHERE created_by IS NOT NULL;
+
+-- ── app_logs cleanup — retém últimos 90 dias ─────────────────────────────────
+-- Chamar periodicamente: SELECT cleanup_old_app_logs();
+CREATE OR REPLACE FUNCTION cleanup_old_app_logs() RETURNS void AS $$
+BEGIN
+    DELETE FROM public.app_logs
+    WHERE created_at < now() - interval '90 days';
+END;
+$$ LANGUAGE plpgsql;

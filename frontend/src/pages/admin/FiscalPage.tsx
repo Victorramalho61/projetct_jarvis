@@ -124,6 +124,12 @@ const GRUPO_LABEL: Record<string, string> = {
   payfly: "Payfly",
 };
 
+const GRUPO_PREFIXO: Record<string, string> = {
+  vtclog: "VTCLog",
+  voetur: "Voetur",
+  payfly: "Payfly",
+};
+
 const FMT_BRL = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
 const FMT_NUM = new Intl.NumberFormat("pt-BR");
 const fmtDate = (s: string | null) =>
@@ -470,7 +476,7 @@ export default function FiscalPage() {
       Object.values(e.syncs).some((s) => s.status === "running")
     );
     if (!hasRunning) return;
-    const timer = setInterval(loadSyncStatus, 30_000);
+    const timer = setInterval(loadSyncStatus, 60_000);
     return () => clearInterval(timer);
   }, [tab, syncStatus, loadSyncStatus]);
 
@@ -738,8 +744,9 @@ export default function FiscalPage() {
                   <optgroup key={key} label={GRUPO_LABEL[key] ?? key}>
                     {items.map((c) => (
                       <option key={c.id} value={c.id}>
-                        {c.cidade ?? c.uf_sede ?? c.cnpj}
-                        {c.tipo === "matriz" ? " (Matriz)" : ""}
+                        {c.grupo && GRUPO_PREFIXO[c.grupo] ? `${GRUPO_PREFIXO[c.grupo]} — ` : ""}
+                        {c.nome}
+                        {c.cidade ? ` (${c.cidade})` : c.tipo === "matriz" ? " (Matriz)" : ""}
                         {" — "}
                         {fmtCnpj(c.cnpj)}
                       </option>
@@ -868,7 +875,7 @@ export default function FiscalPage() {
                   ) : (
                     Object.entries(stats.por_status).map(([s, n]) => (
                       <div key={s} className="flex items-center justify-between gap-3 mb-2">
-                        <Badge label={s} cls={STATUS_BADGE[s] ?? "bg-gray-100 text-gray-600"} />
+                        <Badge label={s} cls={STATUS_BADGE[s] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
                         <span className="font-mono text-sm font-medium">{FMT_NUM.format(n)}</span>
                       </div>
                     ))
@@ -982,23 +989,30 @@ export default function FiscalPage() {
                   onClick={() => exportCsv("NFSe")}
                   disabled={exportingCsv || !selectedId}
                   title={!selectedId ? "Selecione uma empresa" : !exportDateInicio ? "Informe a data inicial" : "Exportar CSV"}
-                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-emerald-900/30 border border-emerald-700/60 text-emerald-400 hover:bg-emerald-900/50" : "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100"}`}
                 >
-                  {exportingCsv ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} CSV
+                  {exportingCsv
+                    ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  CSV
                 </button>
                 <button
                   onClick={() => exportXml("NFSe")}
                   disabled={exportingXml || !selectedId}
                   title={!selectedId ? "Selecione uma empresa" : !exportDateInicio ? "Informe a data inicial" : "Baixar XMLs"}
-                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-blue-900/30 border border-blue-700/60 text-blue-400 hover:bg-blue-900/50" : "bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100"}`}
                 >
-                  {exportingXml ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} XMLs
+                  {exportingXml
+                    ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  XML
                 </button>
                 <button
                   onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); setFetchKeyCompanyId(selectedId || ""); }}
-                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors ${isDark ? "bg-violet-900/30 border border-violet-700/60 text-violet-400 hover:bg-violet-900/50" : "bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100"}`}
                 >
-                  🔍 Buscar por chave
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  Buscar por chave
                 </button>
               </div>
               {exportError && <p className="text-xs text-red-500 mt-1 col-span-full">{exportError}</p>}
@@ -1008,7 +1022,7 @@ export default function FiscalPage() {
           {/* Lista de cards */}
           <div className={`rounded-xl border overflow-hidden ${card}`}>
             {docsLoading ? (
-              <div className="divide-y divide-gray-700">
+              <div className={`divide-y ${isDark ? "divide-gray-700" : "divide-gray-100"}`}>
                 {[...Array(6)].map((_, i) => (
                   <div key={i} className="p-4 flex justify-between gap-4">
                     <div className="flex-1 space-y-2">
@@ -1043,7 +1057,7 @@ export default function FiscalPage() {
                           <span className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>
                             {fmtDay(doc.data_emissao)}
                           </span>
-                          <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600"} />
+                          <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
                           {doc.fonte && doc.fonte !== "ndd" && (
                             <Badge label={FONTE_LABEL[doc.fonte] ?? doc.fonte} cls="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" />
                           )}
@@ -1134,7 +1148,7 @@ export default function FiscalPage() {
                     <optgroup key={key} label={GRUPO_LABEL[key] ?? key}>
                       {items.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.cidade ?? c.uf_sede ?? c.cnpj} — {fmtCnpj(c.cnpj)}
+                          {c.grupo && GRUPO_PREFIXO[c.grupo] ? `${GRUPO_PREFIXO[c.grupo]} — ` : ""}{c.nome}{c.cidade ? ` (${c.cidade})` : ""} — {fmtCnpj(c.cnpj)}
                         </option>
                       ))}
                     </optgroup>
@@ -1210,7 +1224,7 @@ export default function FiscalPage() {
             <div className="p-5 space-y-5">
               {/* Status + Data */}
               <div className="flex items-center gap-3">
-                <Badge label={detailDoc.status} cls={STATUS_BADGE[detailDoc.status] ?? "bg-gray-100 text-gray-600"} />
+                <Badge label={detailDoc.status} cls={STATUS_BADGE[detailDoc.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
                 <span className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
                   Emitida em {fmtDay(detailDoc.data_emissao)}
                 </span>
@@ -1495,7 +1509,7 @@ export default function FiscalPage() {
                           <span className="text-xs font-medium">{label}</span>
                           {s.ativo ? <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> : <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />}
                         </div>
-                        {s.status && <Badge label={s.is_stuck ? "preso" : s.status} cls={s.is_stuck ? "bg-orange-100 text-orange-800" : SYNC_STATUS_CLS[s.status] ?? "bg-gray-100 text-gray-600"} />}
+                        {s.status && <Badge label={s.is_stuck ? "preso" : s.status} cls={s.is_stuck ? "bg-orange-100 text-orange-800" : SYNC_STATUS_CLS[s.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />}
                         {s.documentos_novos != null && s.documentos_novos > 0 && (
                           <p className="text-xs text-green-500">+{s.documentos_novos} docs</p>
                         )}
@@ -1626,16 +1640,23 @@ export default function FiscalPage() {
               </button>
               <div className="flex gap-2 ml-auto">
                 <button onClick={() => exportCsv("NFe,CTe")} disabled={exportingNfeCsv || !selectedId}
-                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 disabled:opacity-40 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
-                  {exportingNfeCsv ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} CSV
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-emerald-900/30 border border-emerald-700/60 text-emerald-400 hover:bg-emerald-900/50" : "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100"}`}>
+                  {exportingNfeCsv
+                    ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  CSV
                 </button>
                 <button onClick={() => exportXml("NFe,CTe")} disabled={exportingNfeXml || !selectedId}
-                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 disabled:opacity-40 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
-                  {exportingNfeXml ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} XMLs
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-blue-900/30 border border-blue-700/60 text-blue-400 hover:bg-blue-900/50" : "bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100"}`}>
+                  {exportingNfeXml
+                    ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                  XML
                 </button>
                 <button onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); setFetchKeyCompanyId(selectedId || ""); }}
-                  className={`px-3 py-2 text-xs border rounded-lg transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
-                  🔍 Buscar por chave
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors ${isDark ? "bg-violet-900/30 border border-violet-700/60 text-violet-400 hover:bg-violet-900/50" : "bg-violet-50 border border-violet-200 text-violet-700 hover:bg-violet-100"}`}>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                  Buscar por chave
                 </button>
               </div>
             </div>
@@ -1662,7 +1683,7 @@ export default function FiscalPage() {
                         <div className="flex items-center flex-wrap gap-2 mb-1">
                           <span className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtDay(doc.data_emissao)}</span>
                           <Badge label={doc.tipo ?? "NFe"} cls="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" />
-                          <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600"} />
+                          <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
                         </div>
                         <p className={`font-semibold text-base leading-tight truncate ${isDark ? "text-white" : "text-gray-900"}`}>
                           {doc.emitente_nome || doc.emitente_cnpj}
@@ -1916,7 +1937,7 @@ export default function FiscalPage() {
                             {fmtDate(log.executado_em)}
                           </td>
                           <td className="px-4 py-2">
-                            <Badge label={log.status} cls={SYNC_STATUS_CLS[log.status] ?? "bg-gray-100 text-gray-600"} />
+                            <Badge label={log.status} cls={SYNC_STATUS_CLS[log.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums">
                             {(log.documentos_novos ?? 0) > 0

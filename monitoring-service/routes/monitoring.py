@@ -81,7 +81,7 @@ def _bulk_enrich(systems: list[dict], db) -> list[dict]:
         db.table("system_checks").select("system_id,status")
         .in_("system_id", ids)
         .gte("checked_at", since_24h)
-        .limit(len(ids) * 300)
+        .limit(min(len(ids) * 300, 5000))  # cap: evita full scan com N grande
         .execute().data
     )
 
@@ -205,7 +205,7 @@ def get_checks(
 ):
     db = get_supabase()
     q = db.table("system_checks") \
-        .select("*", count="exact") \
+        .select("*", count="planned") \
         .eq("system_id", system_id) \
         .order("checked_at", desc=True) \
         .limit(limit) \
