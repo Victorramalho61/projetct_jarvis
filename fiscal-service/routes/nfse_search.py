@@ -184,6 +184,25 @@ async def trigger_portal_nfse_sync(
     return {"ok": True, "message": "Sync Portal NFS-e iniciado para todas as empresas"}
 
 
+@router.get("/{company_id}/portal-nfse/logs")
+def get_portal_nfse_logs(
+    company_id: str,
+    _: dict = Depends(get_current_user),
+):
+    """Últimas 5 tentativas de sync NFSe_Portal para esta empresa."""
+    sb = get_supabase()
+    logs = (
+        sb.table("fiscal_sync_logs")
+        .select("status,documentos_novos,documentos_cancelados,erro_msg,executado_em,nsu_final,nsu_inicial,janela")
+        .eq("company_id", company_id)
+        .eq("tipo", "NFSe_Portal")
+        .order("executado_em", desc=True)
+        .limit(5)
+        .execute()
+    )
+    return logs.data or []
+
+
 @router.get("/sync/status")
 def get_sync_status(_user: dict = Depends(get_current_user)):
     """Status consolidado de todos os tipos de sync, por empresa."""

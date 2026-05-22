@@ -30,6 +30,20 @@ interface CertStatus {
   cert_expiry: string | null;
   dias_para_vencer: number | null;
   status: "ok" | "expirando" | "expirado" | "sem_certificado";
+  sync_portal_nfse_ativo: boolean;
+  portal_nfse_hora_sync: number;
+  sefaz_nfe_bloqueado_ate: string | null;
+  portal_nfse_last_sync_at: string | null;
+}
+
+interface PortalLog {
+  status: string;
+  documentos_novos: number | null;
+  documentos_cancelados: number | null;
+  erro_msg: string | null;
+  executado_em: string;
+  nsu_final: number | null;
+  janela: string | null;
 }
 
 interface SyncInfo {
@@ -262,6 +276,21 @@ export default function FiscalPage() {
   const [certUploading, setCertUploading] = useState(false);
   const [certMsg, setCertMsg]           = useState("");
 
+  // portal nfse settings
+  const [portalSyncHora, setPortalSyncHora]           = useState(6);
+  const [togglingPortalSync, setTogglingPortalSync]   = useState(false);
+  const [runningPortalSync, setRunningPortalSync]     = useState(false);
+  const [portalSyncMsg, setPortalSyncMsg]             = useState("");
+  const [portalLogs, setPortalLogs]                   = useState<PortalLog[]>([]);
+
+  // busca por chave — seletor próprio de empresa
+  const [fetchKeyCompanyId, setFetchKeyCompanyId] = useState("");
+
+  // export — filtros de data
+  const [exportDateInicio, setExportDateInicio] = useState("");
+  const [exportDateFim, setExportDateFim]       = useState(() => new Date().toISOString().slice(0, 10));
+  const [exportError, setExportError]           = useState("");
+
   // ── Load companies ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
@@ -486,42 +515,62 @@ export default function FiscalPage() {
 
   const exportCsv = async (tipo: string) => {
     if (!token || !selectedId) return;
+    setExportError("");
     const setter = tipo === "NFSe" ? setExportingCsv : setExportingNfeCsv;
     setter(true);
     try {
       const p = new URLSearchParams({ company_id: selectedId, tipo });
-      if (filterFonte) p.set("fonte", filterFonte);
+      if (exportDateInicio) p.set("data_inicio", exportDateInicio);
+      if (exportDateFim)    p.set("data_fim",    exportDateFim);
+      if (filterFonte)      p.set("fonte",       filterFonte);
       const resp = await fetch(`/api/fiscal/nfse/export/csv?${p}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      downloadBlob(await resp.blob(), `fiscal_${tipo.toLowerCase()}.csv`);
-    } catch { /* silent */ } finally { setter(false); }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setExportError(`Erro ao exportar CSV: ${(err as {detail?: string}).detail ?? `HTTP ${resp.status}`}`);
+        return;
+      }
+      downloadBlob(await resp.blob(), `fiscal_${tipo.toLowerCase()}_${exportDateInicio || "todos"}.csv`);
+    } catch (e) {
+      setExportError(`Erro ao exportar CSV: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setter(false); }
   };
 
   const exportXml = async (tipo: string) => {
     if (!token || !selectedId) return;
+    setExportError("");
     const setter = tipo === "NFSe" ? setExportingXml : setExportingNfeXml;
     setter(true);
     try {
       const p = new URLSearchParams({ company_id: selectedId, tipo });
-      if (filterFonte) p.set("fonte", filterFonte);
+      if (exportDateInicio) p.set("data_inicio", exportDateInicio);
+      if (exportDateFim)    p.set("data_fim",    exportDateFim);
+      if (filterFonte)      p.set("fonte",       filterFonte);
       const resp = await fetch(`/api/fiscal/nfse/export/xml?${p}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      downloadBlob(await resp.blob(), `xmls_${tipo.toLowerCase()}.zip`);
-    } catch { /* silent */ } finally { setter(false); }
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setExportError(`Erro ao exportar XMLs: ${(err as {detail?: string}).detail ?? `HTTP ${resp.status}`}`);
+        return;
+      }
+      downloadBlob(await resp.blob(), `xmls_${tipo.toLowerCase()}_${exportDateInicio || "todos"}.zip`);
+    } catch (e) {
+      setExportError(`Erro ao exportar XMLs: ${e instanceof Error ? e.message : String(e)}`);
+    } finally { setter(false); }
   };
 
   // ── Busca por chave de acesso ────────────────────────────────────────────────
   const fetchByKey = async () => {
-    if (!token || fetchKey.length !== 44 || !selectedId) return;
+    if (!token || fetchKey.length !== 44 || !fetchKeyCompanyId) return;
     setFetchKeyLoading(true);
     setFetchKeyError("");
     setFetchKeyResult(null);
     try {
       const r = await apiFetch<{found:boolean;source:string;document:NfseDoc}>(
         "/api/fiscal/fetch-by-key",
-        { token, method: "POST", json: { company_id: selectedId, chave_acesso: fetchKey } }
+        { token, method: "POST", json: { company_id: fetchKeyCompanyId, chave_acesso: fetchKey } }
       );
       setFetchKeyResult(r);
     } catch (e) {
@@ -535,11 +584,77 @@ export default function FiscalPage() {
   const loadCertStatus = useCallback(() => {
     if (!token || !selectedId) return;
     apiFetch<CertStatus>(`/api/fiscal/${selectedId}/certificates/status`, { token })
-      .then(setCertStatus)
+      .then((s) => { setCertStatus(s); setPortalSyncHora(s.portal_nfse_hora_sync ?? 6); })
       .catch(() => setCertStatus(null));
   }, [token, selectedId]);
 
-  useEffect(() => { if (tab === "certificados") loadCertStatus(); }, [tab, loadCertStatus]);
+  const loadPortalLogs = useCallback(() => {
+    if (!token || !selectedId) return;
+    apiFetch<PortalLog[]>(`/api/fiscal/${selectedId}/portal-nfse/logs`, { token })
+      .then(setPortalLogs)
+      .catch(() => {});
+  }, [token, selectedId]);
+
+  useEffect(() => {
+    if (tab === "certificados") { loadCertStatus(); loadPortalLogs(); }
+  }, [tab, loadCertStatus, loadPortalLogs]);
+
+  const togglePortalSync = async () => {
+    if (!token || !selectedId || !certStatus || togglingPortalSync) return;
+    setTogglingPortalSync(true);
+    setPortalSyncMsg("");
+    try {
+      const novo = !certStatus.sync_portal_nfse_ativo;
+      await apiFetch(`/api/fiscal/${selectedId}/portal-nfse/settings`, {
+        token, method: "PATCH", json: { sync_portal_nfse_ativo: novo },
+      });
+      setCertStatus((prev) => prev ? { ...prev, sync_portal_nfse_ativo: novo } : prev);
+    } catch (e) {
+      setPortalSyncMsg(`Erro ao alterar sync: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setTogglingPortalSync(false);
+    }
+  };
+
+  const savePortalHora = async (hora: number) => {
+    if (!token || !selectedId) return;
+    setPortalSyncHora(hora);
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/portal-nfse/settings`, {
+        token, method: "PATCH", json: { portal_nfse_hora_sync: hora },
+      });
+    } catch { /* ignora — valor já exibido na UI */ }
+  };
+
+  const runPortalSyncNow = async () => {
+    if (!token || !selectedId || runningPortalSync) return;
+    // Guard: bloqueia se cStat 656 ainda ativo
+    if (certStatus?.sefaz_nfe_bloqueado_ate) {
+      const bloqDate = new Date(certStatus.sefaz_nfe_bloqueado_ate);
+      if (bloqDate > new Date()) {
+        const min = Math.ceil((bloqDate.getTime() - Date.now()) / 60000);
+        setPortalSyncMsg(`⛔ Aguarde ${min} min. Tentar agora pode bloquear o CNPJ na ADN (cStat 656).`);
+        return;
+      }
+    }
+    setRunningPortalSync(true);
+    setPortalSyncMsg("");
+    try {
+      await apiFetch(`/api/fiscal/portal-nfse/sync/run?company_id=${selectedId}`, { token, method: "POST" });
+      setPortalSyncMsg("✅ Sync iniciado — atualize os logs em instantes.");
+      setTimeout(loadPortalLogs, 5000);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("656") || msg.toLowerCase().includes("bloqueado") || msg.toLowerCase().includes("consumo")) {
+        setPortalSyncMsg("⛔ ADN retornou cStat 656 (consumo excessivo). Aguarde 1h antes de tentar.");
+        loadCertStatus();
+      } else {
+        setPortalSyncMsg(`Erro: ${msg}`);
+      }
+    } finally {
+      setRunningPortalSync(false);
+    }
+  };
 
   const uploadCert = async () => {
     if (!token || !certFile || !certPassword || !selectedId) return;
@@ -849,11 +964,24 @@ export default function FiscalPage() {
               >
                 Buscar
               </button>
-              <div className="flex gap-2 ml-auto">
+              <div className="flex flex-wrap items-end gap-2 ml-auto">
+                {/* Filtros de período para export */}
+                <div className="flex items-end gap-1">
+                  <div className="flex flex-col gap-0.5">
+                    <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>De</label>
+                    <input type="date" value={exportDateInicio} onChange={(e) => setExportDateInicio(e.target.value)}
+                      className={`${inp} w-32 text-xs py-1.5`} />
+                  </div>
+                  <div className="flex flex-col gap-0.5">
+                    <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>Até</label>
+                    <input type="date" value={exportDateFim} onChange={(e) => setExportDateFim(e.target.value)}
+                      className={`${inp} w-32 text-xs py-1.5`} />
+                  </div>
+                </div>
                 <button
                   onClick={() => exportCsv("NFSe")}
                   disabled={exportingCsv || !selectedId}
-                  title={!selectedId ? "Selecione uma empresa" : "Exportar CSV"}
+                  title={!selectedId ? "Selecione uma empresa" : !exportDateInicio ? "Informe a data inicial" : "Exportar CSV"}
                   className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
                 >
                   {exportingCsv ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} CSV
@@ -861,18 +989,19 @@ export default function FiscalPage() {
                 <button
                   onClick={() => exportXml("NFSe")}
                   disabled={exportingXml || !selectedId}
-                  title={!selectedId ? "Selecione uma empresa" : "Baixar XMLs"}
+                  title={!selectedId ? "Selecione uma empresa" : !exportDateInicio ? "Informe a data inicial" : "Baixar XMLs"}
                   className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
                 >
                   {exportingXml ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} XMLs
                 </button>
                 <button
-                  onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); }}
+                  onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); setFetchKeyCompanyId(selectedId || ""); }}
                   className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
                 >
                   🔍 Buscar por chave
                 </button>
               </div>
+              {exportError && <p className="text-xs text-red-500 mt-1 col-span-full">{exportError}</p>}
             </div>
           </div>
 
@@ -992,21 +1121,43 @@ export default function FiscalPage() {
               </button>
             </div>
             <div className="p-5 space-y-4">
-              <input
-                value={fetchKey}
-                onChange={(e) => setFetchKey(e.target.value.replace(/\D/g, "").slice(0, 44))}
-                placeholder="Chave de acesso (44 dígitos numéricos)"
-                className={`w-full font-mono text-sm rounded-lg border px-3 py-2 ${isDark ? "bg-gray-800 border-gray-600 text-white" : "bg-white border-gray-300"}`}
-                maxLength={44}
-              />
-              <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                Busca: banco local → Portal Nacional ADN (NFS-e) → SEFAZ NF-e. Salva automaticamente se encontrado.
-              </p>
-              {!selectedId && <p className="text-xs text-amber-500">Selecione uma empresa no topo da página.</p>}
+              {/* Seletor de empresa — obrigatório, sem "todas" */}
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-600"}`}>Empresa</label>
+                <select
+                  value={fetchKeyCompanyId}
+                  onChange={(e) => setFetchKeyCompanyId(e.target.value)}
+                  className={`w-full rounded-lg border px-3 py-2 text-sm ${isDark ? "bg-gray-800 border-gray-600 text-white" : "bg-white border-gray-300 text-gray-900"}`}
+                >
+                  <option value="">— Selecione a empresa —</option>
+                  {grouped.map(({ key, items }) => (
+                    <optgroup key={key} label={GRUPO_LABEL[key] ?? key}>
+                      {items.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.cidade ?? c.uf_sede ?? c.cnpj} — {fmtCnpj(c.cnpj)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-600"}`}>Chave de acesso</label>
+                <input
+                  value={fetchKey}
+                  onChange={(e) => setFetchKey(e.target.value.replace(/\D/g, "").slice(0, 44))}
+                  placeholder="44 dígitos numéricos"
+                  className={`w-full font-mono text-sm rounded-lg border px-3 py-2 ${isDark ? "bg-gray-800 border-gray-600 text-white" : "bg-white border-gray-300"}`}
+                  maxLength={44}
+                />
+                <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  {fetchKey.length}/44 dígitos · Busca: banco local → Portal ADN (NFS-e) → SEFAZ NF-e. Salva automaticamente.
+                </p>
+              </div>
               <button
                 onClick={fetchByKey}
-                disabled={fetchKey.length !== 44 || fetchKeyLoading || !selectedId}
-                className="w-full px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-40 flex items-center justify-center gap-2 transition-colors"
+                disabled={fetchKey.length !== 44 || fetchKeyLoading || !fetchKeyCompanyId}
+                className="w-full px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
               >
                 {fetchKeyLoading ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "🔍 Buscar nos portais"}
               </button>
@@ -1482,7 +1633,7 @@ export default function FiscalPage() {
                   className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 disabled:opacity-40 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
                   {exportingNfeXml ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} XMLs
                 </button>
-                <button onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); }}
+                <button onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); setFetchKeyCompanyId(selectedId || ""); }}
                   className={`px-3 py-2 text-xs border rounded-lg transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
                   🔍 Buscar por chave
                 </button>
@@ -1560,6 +1711,7 @@ export default function FiscalPage() {
               </p>
             </div>
           ) : (
+            <>
             <div className={`rounded-xl border p-5 space-y-5 ${card}`}>
               <div className="flex items-start justify-between">
                 <div>
@@ -1630,19 +1782,160 @@ export default function FiscalPage() {
                   {certMsg}
                 </p>
               )}
-
-              {!certStatus?.has_certificate && (
-                <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-3 text-xs text-amber-700 dark:text-amber-300">
-                  <p className="font-semibold mb-1">Pré-requisitos para o Portal Nacional NFS-e (ADN)</p>
-                  <ol className="list-decimal list-inside space-y-0.5">
-                    <li>Registro em <span className="font-mono">gov.br/nfse</span> com o CNPJ desta empresa</li>
-                    <li>Verificar adesão do município em <a href="https://www.gov.br/nfse/pt-br/municipios/monitoramento-adesoes" target="_blank" className="underline">gov.br/nfse/municipios</a></li>
-                    <li>Certificado e-CNPJ A1 carregado aqui</li>
-                    <li>Habilitar: <span className="font-mono">sync_portal_nfse_ativo = true</span> no banco</li>
-                  </ol>
-                </div>
-              )}
             </div>
+
+            {/* ── Seção Portal Nacional NFS-e ── */}
+            {certStatus?.has_certificate && (
+              <div className={`rounded-xl border p-5 space-y-4 ${isDark ? "border-gray-700 bg-gray-800/50" : "border-gray-200 bg-gray-50"}`}>
+                <h3 className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+                  Portal Nacional NFS-e (ADN — gov.br/nfse)
+                </h3>
+
+                {/* Toggle ativo */}
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className={`text-sm font-medium ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+                      Sincronização automática
+                    </p>
+                    <p className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      Limite: 256 req/hora · mTLS ICP-Brasil A1
+                    </p>
+                  </div>
+                  <button
+                    onClick={togglePortalSync}
+                    disabled={togglingPortalSync}
+                    className={`relative w-12 h-6 rounded-full transition-colors disabled:opacity-50 ${certStatus.sync_portal_nfse_ativo ? "bg-emerald-500" : isDark ? "bg-gray-600" : "bg-gray-300"}`}
+                  >
+                    <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${certStatus.sync_portal_nfse_ativo ? "translate-x-6" : "translate-x-0.5"}`} />
+                  </button>
+                </div>
+
+                {/* Seletor de hora */}
+                {certStatus.sync_portal_nfse_ativo && (
+                  <div className="flex items-center gap-3">
+                    <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-600"}`}>
+                      Horário do sync automático
+                    </label>
+                    <select
+                      value={portalSyncHora}
+                      onChange={(e) => savePortalHora(+e.target.value)}
+                      className={`${inp} w-24 text-sm`}
+                    >
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                      ))}
+                    </select>
+                    <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      horário de Brasília
+                    </span>
+                  </div>
+                )}
+
+                {/* Alerta bloqueio cStat 656 */}
+                {certStatus.sefaz_nfe_bloqueado_ate && new Date(certStatus.sefaz_nfe_bloqueado_ate) > new Date() && (() => {
+                  const min = Math.ceil((new Date(certStatus.sefaz_nfe_bloqueado_ate!).getTime() - Date.now()) / 60000);
+                  return (
+                    <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-300 dark:border-red-700 p-3 space-y-1">
+                      <p className="text-sm font-semibold text-red-700 dark:text-red-400">
+                        ⛔ Sync bloqueado — aguarde {min} min
+                      </p>
+                      <p className="text-xs text-red-600 dark:text-red-300">
+                        O Portal Nacional ADN retornou <strong>cStat 656 (consumo excessivo)</strong> para este CNPJ.
+                        Tentar novamente antes de{" "}
+                        <span className="font-mono font-medium">{fmtDate(certStatus.sefaz_nfe_bloqueado_ate)}</span>{" "}
+                        pode resultar em <strong>bloqueio prolongado do CNPJ</strong> pela Receita Federal.
+                      </p>
+                    </div>
+                  );
+                })()}
+
+                {/* Botão Sync agora */}
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={runPortalSyncNow}
+                    disabled={runningPortalSync || (!!certStatus.sefaz_nfe_bloqueado_ate && new Date(certStatus.sefaz_nfe_bloqueado_ate) > new Date())}
+                    className="px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 transition-colors"
+                  >
+                    {runningPortalSync
+                      ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      : "▶ Sync agora"}
+                  </button>
+                  {certStatus.portal_nfse_last_sync_at && (
+                    <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      Último sync: {fmtDate(certStatus.portal_nfse_last_sync_at)}
+                    </span>
+                  )}
+                </div>
+                {portalSyncMsg && (
+                  <p className={`text-sm p-2 rounded ${portalSyncMsg.startsWith("✅") ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+                    {portalSyncMsg}
+                  </p>
+                )}
+
+                {/* Pré-requisitos simplificados (sem SQL) */}
+                {!certStatus.sync_portal_nfse_ativo && (
+                  <div className={`rounded-lg p-3 text-xs ${isDark ? "bg-gray-700/50 text-gray-300" : "bg-white text-gray-600 border border-gray-200"}`}>
+                    <p className={`font-medium mb-1 ${isDark ? "text-gray-200" : "text-gray-700"}`}>Antes de ativar, verifique:</p>
+                    <ol className="list-decimal list-inside space-y-0.5">
+                      <li>Empresa registrada em <a href="https://www.gov.br/nfse" target="_blank" rel="noreferrer" className="text-blue-500 underline">gov.br/nfse</a></li>
+                      <li>Município aderiu: <a href="https://www.gov.br/nfse/pt-br/municipios/monitoramento-adesoes" target="_blank" rel="noreferrer" className="text-blue-500 underline">verificar adesão</a></li>
+                      <li>Ao ativar, o sync roda automaticamente no horário configurado</li>
+                    </ol>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Histórico das últimas 5 tentativas ── */}
+            {certStatus?.has_certificate && (
+              <div className={`rounded-xl border overflow-hidden mt-0 ${card}`}>
+                <div className={`px-4 py-3 border-b flex items-center justify-between ${isDark ? "border-gray-700" : "border-gray-200"}`}>
+                  <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    Últimas tentativas — Portal Nacional NFS-e
+                  </h3>
+                  <button onClick={loadPortalLogs} className="text-xs text-blue-500 hover:underline">Atualizar</button>
+                </div>
+                {portalLogs.length === 0 ? (
+                  <p className={`px-4 py-6 text-center text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                    Nenhum sync realizado ainda.
+                  </p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className={`border-b ${isDark ? "border-gray-700 text-gray-400" : "border-gray-100 text-gray-500"}`}>
+                        <th className="px-4 py-2 text-left font-medium">Executado em</th>
+                        <th className="px-4 py-2 text-left font-medium">Status</th>
+                        <th className="px-4 py-2 text-right font-medium">Notas</th>
+                        <th className="px-4 py-2 text-left font-medium">Erro</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {portalLogs.map((log, i) => (
+                        <tr key={i} className={`border-b last:border-0 ${isDark ? "border-gray-700" : "border-gray-100"}`}>
+                          <td className={`px-4 py-2 font-mono whitespace-nowrap ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                            {fmtDate(log.executado_em)}
+                          </td>
+                          <td className="px-4 py-2">
+                            <Badge label={log.status} cls={SYNC_STATUS_CLS[log.status] ?? "bg-gray-100 text-gray-600"} />
+                          </td>
+                          <td className="px-4 py-2 text-right tabular-nums">
+                            {(log.documentos_novos ?? 0) > 0
+                              ? <span className="text-emerald-500">+{log.documentos_novos}</span>
+                              : <span className={isDark ? "text-gray-600" : "text-gray-400"}>—</span>}
+                          </td>
+                          <td className="px-4 py-2 max-w-[200px]">
+                            {log.erro_msg
+                              ? <span className="text-red-400 truncate block" title={log.erro_msg}>{log.erro_msg.slice(0, 50)}</span>
+                              : <span className={isDark ? "text-gray-600" : "text-gray-400"}>—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+            </>
           )}
         </div>
       )}

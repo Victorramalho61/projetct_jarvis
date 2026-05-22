@@ -1,7 +1,7 @@
 import logging
-from datetime import date, datetime
+from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, Form
 
 from auth import require_role, get_current_user
 from db import get_supabase, get_settings
@@ -53,29 +53,66 @@ def certificate_status(
 ):
     sb = get_supabase()
     result = sb.table("fiscal_companies").select(
-        "cert_expiry,cert_pfx_encrypted"
+        "cert_expiry,cert_pfx_encrypted,"
+        "sync_portal_nfse_ativo,portal_nfse_hora_sync,"
+        "sefaz_nfe_bloqueado_ate,portal_nfse_last_sync_at"
     ).eq("id", company_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
 
     row = result.data[0]
-    expiry = row.get("cert_expiry")
+    expiry   = row.get("cert_expiry")
     has_cert = bool(row.get("cert_pfx_encrypted"))
-    dias = None
+    dias     = None
     if expiry and has_cert:
         dias = (date.fromisoformat(expiry) - date.today()).days
 
     return {
         "has_certificate": has_cert,
-        "cert_expiry": expiry,
+        "cert_expiry":     expiry,
         "dias_para_vencer": dias,
         "status": (
-            "ok" if dias and dias > 30 else
-            "expirando" if dias and dias > 0 else
-            "expirado" if dias is not None and dias <= 0 else
+            "ok"             if dias and dias > 30       else
+            "expirando"      if dias and dias > 0        else
+            "expirado"       if dias is not None and dias <= 0 else
             "sem_certificado"
         ),
+        "sync_portal_nfse_ativo": row.get("sync_portal_nfse_ativo", False),
+        "portal_nfse_hora_sync":  row.get("portal_nfse_hora_sync", 6),
+        "sefaz_nfe_bloqueado_ate":  row.get("sefaz_nfe_bloqueado_ate"),
+        "portal_nfse_last_sync_at": row.get("portal_nfse_last_sync_at"),
     }
+
+
+@router.patch("/{company_id}/portal-nfse/settings")
+def update_portal_nfse_settings(
+    company_id: str,
+    body: dict = Body(...),
+    _user: dict = Depends(require_role("admin")),
+):
+    """Atualiza sync_portal_nfse_ativo e/ou portal_nfse_hora_sync para uma empresa."""
+    sb = get_supabase()
+    update: dict = {}
+
+    if "sync_portal_nfse_ativo" in body:
+        update["sync_portal_nfse_ativo"] = bool(body["sync_portal_nfse_ativo"])
+
+    if "portal_nfse_hora_sync" in body:
+        hora = int(body["portal_nfse_hora_sync"])
+        if not 0 <= hora <= 23:
+            raise HTTPException(400, "portal_nfse_hora_sync deve estar entre 0 e 23")
+        update["portal_nfse_hora_sync"] = hora
+
+    if not update:
+        raise HTTPException(400, "Nenhum campo para atualizar")
+
+    result = sb.table("fiscal_companies").select("id").eq("id", company_id).execute()
+    if not result.data:
+        raise HTTPException(404, "Empresa não encontrada")
+
+    sb.table("fiscal_companies").update(update).eq("id", company_id).execute()
+    _logger.info("Portal NFS-e settings atualizados para %s: %s", company_id[:8], update)
+    return {"ok": True, **update}
 
 
 @router.delete("/{company_id}/certificates")

@@ -1157,7 +1157,7 @@ pending_self → pending_manager → pending_second_manager → pending_hr → p
 
 ## Módulo Fiscal — fiscal-service:8009
 
-Validação e visualização de documentos fiscais (NFe, CTe, NFSe) sincronizados via portal **NDD Digital**.
+Validação e visualização de documentos fiscais (NFe, CTe, NFSe). Fontes: **NDD Digital** (OAuth2 OData), **Portal Nacional NFS-e** (ADN — gov.br/nfse, mTLS ICP-Brasil) e **SEFAZ DistDFeInt** (SOAP via zeep). Interface completa com 5 tabs: Dashboard, NFSe, NFe/CTe, Sync e Certificados.
 
 ### Empresas cadastradas
 
@@ -1189,13 +1189,22 @@ erDiagram
         bool sync_nfe_ativo
         bool sync_cte_ativo
         bool sync_nfse_ativo
+        bool sync_portal_nfse_ativo
         text ndd_access_token
         text ndd_refresh_token
         timestamptz ndd_token_expires_at
         timestamptz ndd_last_sync_at
         text cert_pfx_encrypted
-        text cert_senha_encrypted
+        text cert_password_encrypted
         timestamptz cert_expiry
+        bigint ultimo_nsu_nfe
+        bigint ultimo_nsu_cte
+        bigint ultimo_nsu_nfse_nacional
+        timestamptz portal_nfse_last_sync_at
+        int portal_nfse_hora_sync
+        bool sefaz_usar_svc_an
+        timestamptz sefaz_nfe_bloqueado_ate
+        timestamptz sefaz_nfe_ultima_consulta_hb
         timestamptz ultima_sync
     }
 
@@ -1217,6 +1226,10 @@ erDiagram
         numeric valor_iss_retido
         text municipio_nome
         text status
+        text fonte
+        bigint nsu_nacional
+        text tipo_schema
+        char xml_hash
         text xml_content
         bigint ndd_id
         timestamptz ndd_sync_at
@@ -1245,6 +1258,12 @@ erDiagram
 - `tipo`: `matriz` | `filial`
 - `cert_pfx_encrypted`: certificado A1 Fernet-encrypted (nunca armazenado como arquivo)
 - `ndd_refresh_token`: permite renovação automática do token NDD sem interação humana
+- `fonte` em `fiscal_documents`: `ndd` | `portal_nacional` | `sefaz`
+- `tipo_schema`: `resumo` (resNFe — sem XML completo) | `completo` (procNFe)
+- `xml_hash`: SHA-256 hex do XML original — compliance fiscal 5-6 anos
+- `sefaz_nfe_bloqueado_ate`: preenchido quando cStat 656 (consumo excessivo ADN/SEFAZ); sync ignorado enquanto no futuro
+- `sefaz_nfe_ultima_consulta_hb`: heartbeat da última consulta SEFAZ — alerta se > 55 dias (perda permanente de documentos após 60 dias)
+- `portal_nfse_hora_sync`: hora (0-23, horário Brasília) em que o sync automático do Portal Nacional roda para esta empresa
 
 **Full-text search:** trigger `tsvector_update_fiscal_documents` mantém `search_vector` atualizado; pesos A=nomes, B=natureza, C=município, D=número/chave. Índice GIN + `pg_trgm` para CNPJ parcial.
 
@@ -1255,29 +1274,74 @@ erDiagram
 | Horário | Job | Escopo |
 |---|---|---|
 | 02:00 | `_sync_all_companies` | NFe + CTe de todas as empresas com cert A1 |
-| 04:00 | `_sync_retry_errors` | Reprocessa documentos com status erro |
+| 04:00 | `_sync_retry_errors` | Reprocessa empresas com erro na janela 02:00 |
 | 05:00 | `_sync_nfse_ndd_incremental` | NFSe via NDD Digital (watermark `ndd_last_sync_at`) |
+| toda hora cheia | `_sync_portal_nfse` | Portal Nacional NFS-e (ADN) — filtra empresas por `portal_nfse_hora_sync == hora_atual` |
 
-**Sync NFSe:** uma conta NDD cobre todas as empresas do grupo. O job busca a empresa com `sync_nfse_ativo=True` e token válido, faz OData incremental por `dataProcessamento >= ndd_last_sync_at`, mapeia `cnpj_tomador → company_id`. Rate limit: `XML_WORKERS=2`, `INTER_PAGE_SLEEP=2s` (~3 notas/s).
+**Sync NFSe NDD:** uma conta NDD cobre todas as empresas do grupo. O job busca empresa com `sync_nfse_ativo=True` e token válido, faz OData incremental por `dataProcessamento >= ndd_last_sync_at`, mapeia `cnpj_tomador → company_id`. Rate limit: `XML_WORKERS=2`, `INTER_PAGE_SLEEP=2s` (~3 notas/s).
 
-**Certificados A1:** nunca armazenados como arquivo — encriptados com Fernet (`CERT_ENCRYPTION_KEY`), decriptados para tempfile apenas durante o sync, deletados após uso.
+**Sync Portal Nacional NFS-e (ADN):**
+- Autenticação: mTLS com certificado ICP-Brasil A1 — sem headers extras
+- Endpoint: `GET https://adn.nfse.gov.br/contribuintes/DFe/{NSU:015d}` (NSU incremental por CNPJ)
+- Limite: 256 req/hora; `time.sleep(2)` entre lotes
+- cStat 137 = sem novos; 138 = ok; 656 = bloqueio 1h → persiste em `sefaz_nfe_bloqueado_ate`
+- Schemas: `procNFse` (completo) | `resNFse` (resumo) | `procEventoNFse` (cancelamento)
+- NSU salvo por batch → retoma exatamente de onde parou
+
+**Sync SEFAZ NF-e (DistDFeInt):**
+- SOAP via zeep; WSDL `https://www1.nfe.fazenda.gov.br/NFeDistribuicaoDFe/NFeDistribuicaoDFe.asmx`
+- Limite: 20 req/hora + 600 req/5min; `time.sleep(3)` entre lotes
+- cStat 656 → `sefaz_nfe_bloqueado_ate` + skip automático nas próximas execuções
+- Heartbeat: alerta em log se > 55 dias sem consultar (perda irreversível após 60 dias)
+- Schema 15 = `resNFe` (resumo, sem XML); schema 55 = `procNFe` (completo)
+- SVC-AN: ativável por empresa via `sefaz_usar_svc_an=true`
+
+**Backoff exponencial:** `retry_utils.with_backoff()` aplicado a NDD (listing OData + download XML individual) e ADN (requisições mTLS). Estratégia: 5s → 10s → 20s para erros de rede transientes (Timeout, ConnectionError). Auth errors e cStat 656 falham imediatamente.
+
+**Certificados A1:** nunca armazenados como arquivo — encriptados com Fernet (`CERT_ENCRYPTION_KEY`), decriptados para tempfile apenas durante o sync (context manager `extract_pem_for_requests`), deletados após uso.
 
 ### Rotas fiscal-service:8009
 
+**Documentos e busca:**
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
 | GET | `/api/fiscal/companies` | autenticado | lista empresas com status sync/token |
 | GET | `/api/fiscal/sync/logs` | autenticado | logs globais (todas as empresas) |
-| GET | `/api/fiscal/nfse` | autenticado | busca NFSe com 10+ filtros + full-text |
+| GET | `/api/fiscal/sync/status` | autenticado | status consolidado por empresa e tipo de sync (com flag `is_stuck`) |
+| GET | `/api/fiscal/nfse` | autenticado | busca NFSe/NFe/CTe com filtros: tipo, fonte, status, CNPJ, período, full-text |
 | GET | `/api/fiscal/nfse/stats` | autenticado | totais por período (count, valor, ISS, município) |
+| POST | `/api/fiscal/fetch-by-key` | autenticado | busca por chave de acesso: banco → ADN → SEFAZ; salva se encontrado |
+
+**Exportação:**
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/fiscal/nfse/export/csv` | autenticado | CSV UTF-8 BOM com filtros tipo/fonte/período (para Excel) |
+| GET | `/api/fiscal/nfse/export/xml` | autenticado | ZIP com XMLs originais dos documentos |
+
+**Sync e agendamento:**
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
 | POST | `/api/fiscal/nfse/sync/run` | admin | dispara sync NFSe NDD imediatamente |
+| POST | `/api/fiscal/portal-nfse/sync/run` | admin | dispara sync Portal Nacional NFS-e (empresa ou todas) |
+| GET | `/api/fiscal/{id}/portal-nfse/logs` | autenticado | últimas 5 tentativas de sync NFSe_Portal desta empresa |
+
+**NDD Digital:**
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
 | GET | `/api/fiscal/{id}/sync/logs` | autenticado | logs de sync de uma empresa |
 | POST | `/api/fiscal/{id}/ndd/token` | admin | salva access_token manualmente (DevTools) |
-| GET | `/api/fiscal/{id}/ndd/authorize-url` | admin | retorna URL PKCE com `offline_access` para obter refresh_token |
-| GET | `/api/fiscal/{id}/ndd/authorize` | admin | redireciona para auth NDD (fluxo PKCE completo) |
-| GET | `/api/fiscal/ndd/callback` | público | recebe código NDD, troca por tokens, salva no banco |
-| GET | `/api/fiscal/{id}/ndd/status` | autenticado | status do token NDD (expirado, minutos restantes) |
-| POST | `/api/fiscal/{id}/certificates` | admin | upload certificado A1 (Fernet-encrypted) |
+| GET | `/api/fiscal/{id}/ndd/authorize-url` | admin | retorna URL PKCE com `offline_access` |
+| GET | `/api/fiscal/{id}/ndd/authorize` | admin | redireciona para auth NDD (PKCE completo) |
+| GET | `/api/fiscal/ndd/callback` | público | recebe código NDD, troca por tokens |
+| GET | `/api/fiscal/{id}/ndd/status` | autenticado | status do token NDD |
+
+**Certificados e configurações:**
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| POST | `/api/fiscal/{id}/certificates` | admin | upload certificado A1 (PFX + senha → Fernet-encrypted) |
+| GET | `/api/fiscal/{id}/certificates/status` | autenticado | status: validade, sync_portal_nfse_ativo, hora_sync, bloqueado_ate |
+| DELETE | `/api/fiscal/{id}/certificates` | admin | remove certificado |
+| PATCH | `/api/fiscal/{id}/portal-nfse/settings` | admin | atualiza `sync_portal_nfse_ativo` e/ou `portal_nfse_hora_sync` |
 | POST | `/api/fiscal/{id}/sync/run` | admin | dispara sync NFe/CTe manual |
 
 ### Conexão NDD Digital (OAuth2 PKCE)

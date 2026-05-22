@@ -23,12 +23,24 @@ Documentação completa do projeto em `docs/arquitetura.md`.
 ## Roteamento rápido
 
 ```
-core-service:8001      /api/auth, /api/users, /api/admin
+core-service:8001        /api/auth, /api/users, /api/admin
 monitoring-service:8002  /api/monitoring/*
 freshservice-service:8003  /api/freshservice/*
 moneypenny-service:8004  /api/moneypenny/*
-agents-service:8005    /api/agents/*
-expenses-service:8006  /api/expenses/*
-support-service:8007   /api/support/*
-performance-service:8008  /api/performance/*
+agents-service:8005      /api/agents/*
+expenses-service:8006    /api/expenses/*
+support-service:8007     /api/support/*
+performance-service:8008 /api/performance/*
+fiscal-service:8009      /api/fiscal/*
 ```
+
+## fiscal-service — Regras críticas
+
+- **Certificados A1**: nunca em arquivo — Fernet-encrypted no banco. Decriptado via `extract_pem_for_requests()` (context manager, deleta tempfile ao sair).
+- **Scheduler**: 02:00 NFe/CTe · 04:00 retry · 05:00 NDD · toda hora cheia Portal NFS-e (filtra `portal_nfse_hora_sync == hora_atual`).
+- **cStat 656 (SEFAZ/ADN)**: bloqueio salvo em `sefaz_nfe_bloqueado_ate`; sync pulado automaticamente; botão "Sync agora" desabilitado na UI com alerta de risco de bloqueio do CNPJ.
+- **Heartbeat NFe**: `sefaz_nfe_ultima_consulta_hb` atualizado a cada consulta; alerta de erro em log se > 55 dias (perda permanente de documentos após 60 dias de inatividade na SEFAZ).
+- **Backoff**: `retry_utils.with_backoff()` para erros de rede transientes (5s→10s→20s). Não aplicar a auth errors ou cStat 656.
+- **Export**: sempre requer `company_id`; filtro de data recomendado (sem data, exporta tudo — pode ser lento).
+- **Busca por chave**: `POST /api/fiscal/fetch-by-key` — percorre banco → ADN → SEFAZ; valida 44 dígitos e `isdigit()`.
+- **Schema da empresa**: novas colunas em migration 004 + 005 (`fonte`, `xml_hash`, `tipo_schema`, `nsu_nacional`, guards SEFAZ, `portal_nfse_hora_sync`).

@@ -41,10 +41,9 @@ async def start_scheduler():
     _scheduler.add_job(
         _sync_portal_nfse,
         "cron",
-        hour=6,
-        minute=0,
+        minute=0,                # toda hora cheia; filtra por portal_nfse_hora_sync na função
         id="sync_portal_nfse",
-        misfire_grace_time=600,
+        misfire_grace_time=300,
     )
     _scheduler.start()
     _logger.info(
@@ -468,23 +467,24 @@ async def _sync_nfse_ndd_incremental():
 
 
 async def _sync_portal_nfse():
-    """06:00 — Portal Nacional NFS-e (ADN) para todas as empresas com sync ativo e certificado."""
+    """Toda hora cheia — Portal Nacional NFS-e (ADN). Filtra empresas pela hora configurada."""
     from db import get_supabase, get_settings
 
-    _logger.info("Portal Nacional NFS-e 06:00 — iniciando sync")
+    hora_atual = datetime.now(TZ_BR).hour
+    _logger.info("Portal Nacional NFS-e %02d:00 — iniciando sync", hora_atual)
     sb = get_supabase()
 
     result = sb.table("fiscal_companies").select(
         "id,cnpj,nome,sync_portal_nfse_ativo,cert_pfx_encrypted,cert_password_encrypted,"
-        "ultimo_nsu_nfse_nacional,portal_nfse_last_sync_at"
-    ).eq("sync_portal_nfse_ativo", True).execute()
+        "ultimo_nsu_nfse_nacional,portal_nfse_last_sync_at,portal_nfse_hora_sync"
+    ).eq("sync_portal_nfse_ativo", True).eq("portal_nfse_hora_sync", hora_atual).execute()
     companies = result.data or []
 
     if not companies:
-        _logger.info("Portal Nacional NFS-e 06:00: nenhuma empresa com sync ativo")
+        _logger.info("Portal Nacional NFS-e %02d:00: nenhuma empresa agendada para esta hora", hora_atual)
         return
 
-    _logger.info("Portal Nacional NFS-e 06:00: %d empresa(s)", len(companies))
+    _logger.info("Portal Nacional NFS-e %02d:00: %d empresa(s)", hora_atual, len(companies))
     for company in companies:
         try:
             await _sync_portal_nfse_company(company, janela="portal_06h")
