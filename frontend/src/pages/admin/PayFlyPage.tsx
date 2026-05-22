@@ -382,9 +382,9 @@ function KpiCard({ label, value, sub, accent }: {
   label: string; value: string; sub?: string; accent?: boolean
 }) {
   return (
-    <div className={`rounded-xl border ${accent ? 'border-brand-green/30 bg-brand-soft dark:bg-brand-green/10' : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900'} p-5`}>
-      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">{label}</p>
-      <p className={`mt-1 text-2xl font-bold ${accent ? 'text-brand-deep dark:text-brand-mid' : 'text-gray-900 dark:text-gray-100'}`}>{value}</p>
+    <div className={`rounded-xl border ${accent ? 'border-brand-green/30 bg-brand-soft dark:bg-brand-green/10' : 'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900'} p-4 xl:p-5`}>
+      <p className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide leading-tight">{label}</p>
+      <p className={`mt-1 text-xl xl:text-2xl font-bold leading-tight ${accent ? 'text-brand-deep dark:text-brand-mid' : 'text-gray-900 dark:text-gray-100'}`}>{value}</p>
       {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
     </div>
   )
@@ -775,7 +775,7 @@ function VendasTab({ token }: { token: string }) {
 
       {/* KPI Cards */}
       {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
           <KpiCard label="Total Geral"      value={FMT_BRL(stats.total_amount ?? 0)} accent />
           <KpiCard label="Aéreo"            value={FMT_BRL(stats.amount_flight ?? 0)} sub={`${stats.count_flight ?? 0} res.`} />
           <KpiCard label="Hotel"            value={FMT_BRL(stats.amount_hotel ?? 0)} sub={`${stats.count_hotel ?? 0} res.`} />
