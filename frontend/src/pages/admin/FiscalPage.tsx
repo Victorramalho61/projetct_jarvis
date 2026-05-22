@@ -433,8 +433,17 @@ export default function FiscalPage() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       if (!resp.ok) {
-        const err = await resp.json().catch(() => ({}));
-        setDetailFetchMsg(`Erro DANFS-e: ${(err as any).detail ?? resp.status}`);
+        if (resp.status === 404) {
+          // ADN ainda não gerou o DANFS-e — abre consulta pública como fallback
+          window.open(
+            `https://www.nfse.gov.br/consultapublica?chave=${doc.chave_acesso}`,
+            "_blank", "noopener,noreferrer"
+          );
+          setDetailFetchMsg("PDF não disponível no ADN ainda. Abrindo consulta pública…");
+        } else {
+          const err = await resp.json().catch(() => ({}));
+          setDetailFetchMsg(`Erro DANFS-e: ${(err as any).detail ?? resp.status}`);
+        }
         return;
       }
       const blob = await resp.blob();
@@ -1271,21 +1280,30 @@ export default function FiscalPage() {
                 <button
                   onClick={() => downloadDanfse(detailDoc)}
                   disabled={downloadingDanfse}
-                  title="Baixar DANFS-e em PDF via Portal Nacional (usa certificado da empresa)"
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                  title="Baixar DANFS-e em PDF via Portal Nacional ADN"
+                  className={`group relative inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold shadow-sm border transition-all duration-150 ${
+                    downloadingDanfse
+                      ? "cursor-not-allowed opacity-60"
+                      : "hover:scale-[1.02] active:scale-95"
+                  } ${
                     isDark
-                      ? "bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-40"
-                      : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40"
+                      ? "bg-gradient-to-br from-blue-600 to-blue-800 hover:from-blue-500 hover:to-blue-700 border-blue-500/40 text-white shadow-blue-900/40"
+                      : "bg-gradient-to-br from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 border-blue-300/50 text-white shadow-blue-200"
                   }`}
                 >
-                  {downloadingDanfse
-                    ? <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
-                    : "📄"}
-                  DANFS-e
+                  {downloadingDanfse ? (
+                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                        d="M12 10v6m0 0l-3-3m3 3l3-3M3 17v3a1 1 0 001 1h16a1 1 0 001-1v-3" />
+                    </svg>
+                  )}
+                  <span>{downloadingDanfse ? "Baixando…" : "Download DANFS-e"}</span>
                 </button>
                 <button
                   onClick={() => setDetailDoc(null)}
-                  className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"}`}
+                  className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-gray-800 text-gray-400 hover:text-gray-200" : "hover:bg-gray-100 text-gray-500 hover:text-gray-700"}`}
                 >
                   <Icon name="x" size={16} />
                 </button>

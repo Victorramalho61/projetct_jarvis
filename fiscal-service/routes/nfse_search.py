@@ -354,6 +354,7 @@ async def fetch_document_by_key(
                         "xml_content": xml_str,
                         "xml_hash":    _compute_hash(xml_str),
                     })
+                    parsed.pop("_items", None)
                     sb.table("fiscal_documents").upsert(parsed, on_conflict="chave_acesso").execute()
                     return {"found": True, "source": "portal_nacional", "document": parsed}
         except Exception as exc:
