@@ -422,22 +422,22 @@ export default function FiscalPage() {
     }
   };
 
-  const downloadingDanfse = false; // kept to avoid breaking disabled prop ref
+  const downloadingDanfse = false;
 
-  const downloadDanfse = (doc: NfseDoc) => {
-    // ADN /contribuintes não expõe endpoint de DANFS-e PDF.
-    // Portal público: nfse.gov.br/consultapublica permite visualizar e baixar.
+  const downloadDanfse = async (doc: NfseDoc) => {
     const chave = doc.chave_acesso ?? "";
+    // Copia a chave para o clipboard — portal gov.br não suporta pré-preenchimento via URL
+    try { await navigator.clipboard.writeText(chave); } catch { /* sem permissão, ignora */ }
+
     if (chave.length === 44) {
       window.open(
         `https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=completa&nfe=${chave}`,
         "_blank", "noopener,noreferrer"
       );
+      setDetailFetchMsg("✅ Chave copiada! Portal SEFAZ aberto — cole no campo de consulta.");
     } else {
-      window.open(
-        `https://www.nfse.gov.br/consultapublica?chave=${chave}`,
-        "_blank", "noopener,noreferrer"
-      );
+      window.open("https://www.nfse.gov.br/consultapublica", "_blank", "noopener,noreferrer");
+      setDetailFetchMsg("✅ Chave copiada! Portal NFS-e aberto — selecione 'Por Chave de Acesso' e cole.");
     }
   };
 
