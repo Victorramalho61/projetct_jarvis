@@ -71,11 +71,13 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 
 app.include_router(health_router)
 app.include_router(certificates_router)
+# nfse_search_router ANTES de sync_router: evita que /{company_id}/sync/run
+# capture "portal-nfse" como parâmetro antes de bater na rota literal
+app.include_router(nfse_search_router)
+app.include_router(fiscal_export_router)
 app.include_router(sync_router)
 app.include_router(municipalities_router)
 app.include_router(documents_router)
 app.include_router(conference_router)
 app.include_router(apuration_router)
 app.include_router(ndd_auth_router)
-app.include_router(nfse_search_router)
-app.include_router(fiscal_export_router)
