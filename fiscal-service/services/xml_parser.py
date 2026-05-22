@@ -1,26 +1,91 @@
+import hashlib
 import logging
 from typing import Optional
 import xml.etree.ElementTree as ET
 
 _logger = logging.getLogger(__name__)
 
-NS_NFE = "http://www.portalfiscal.inf.br/nfe"
-NS_CTE = "http://www.portalfiscal.inf.br/cte"
+NS_NFE  = "http://www.portalfiscal.inf.br/nfe"
+NS_CTE  = "http://www.portalfiscal.inf.br/cte"
+NS_NFSE = "http://www.sped.fazenda.gov.br/nfse"
 
 
 def parse_xml_auto(xml_str: str) -> Optional[dict]:
     if not xml_str or not xml_str.strip().startswith("<"):
         return None
     try:
-        root = ET.fromstring(xml_str)
+        # Strip UTF-8 BOM if present
+        clean = xml_str.lstrip("﻿")
+        root = ET.fromstring(clean)
         tag = root.tag.lower()
+        if f"{{{NS_NFSE}}}" in root.tag or "nfse" in tag:
+            return parse_nfse_portal(clean)
         if "nfe" in tag or f"{{{NS_NFE}}}" in root.tag:
-            return parse_nfe(xml_str)
+            return parse_nfe(clean)
         if "cte" in tag or f"{{{NS_CTE}}}" in root.tag:
-            return parse_cte(xml_str)
+            return parse_cte(clean)
         return None
     except ET.ParseError as e:
         _logger.warning("XML parse error: %s", e)
+        return None
+
+
+def _compute_hash(xml_str: str) -> str:
+    """SHA-256 do XML original (UTF-8 sem BOM) — requisito compliance fiscal 5+ anos."""
+    return hashlib.sha256(xml_str.encode("utf-8")).hexdigest()
+
+
+def parse_nfse_portal(xml_str: str) -> Optional[dict]:
+    """Parse NFS-e do Portal Nacional ADN. Namespace: http://www.sped.fazenda.gov.br/nfse"""
+    try:
+        clean = xml_str.lstrip("﻿")
+        root = ET.fromstring(clean)
+
+        inf = root.find(f".//{{{NS_NFSE}}}InfNFSe") or root.find(".//InfNFSe")
+        if inf is None:
+            return None
+
+        def txt(path):
+            el = inf.find(path)
+            return el.text.strip() if el is not None and el.text else ""
+
+        def ptxt(el, tag):
+            if el is None:
+                return ""
+            child = el.find(f".//{{{NS_NFSE}}}{tag}")
+            if child is None:
+                child = el.find(f".//{tag}")
+            return child.text.strip() if child is not None and child.text else ""
+
+        prest = inf.find(f"{{{NS_NFSE}}}Prestador") or inf.find("Prestador")
+        tomad = inf.find(f"{{{NS_NFSE}}}Tomador")   or inf.find("Tomador")
+        vals  = inf.find(f".//{{{NS_NFSE}}}Valores") or inf.find(".//Valores")
+
+        data_raw = txt(f"{{{NS_NFSE}}}DataEmissao") or txt(f"{{{NS_NFSE}}}DhEmi")
+
+        return {
+            "tipo":              "NFSe",
+            "chave_acesso":      inf.get("Id") or txt(f"{{{NS_NFSE}}}ChaveAcesso"),
+            "numero":            txt(f"{{{NS_NFSE}}}Numero") or txt(f"{{{NS_NFSE}}}NumeroNFSe"),
+            "serie":             txt(f"{{{NS_NFSE}}}Serie") or None,
+            "data_emissao":      data_raw[:10] if data_raw else None,
+            "emitente_cnpj":     ptxt(prest, "Cnpj"),
+            "emitente_nome":     ptxt(prest, "RazaoSocial") or ptxt(prest, "NomePrestador"),
+            "destinatario_cnpj": ptxt(tomad, "Cnpj"),
+            "destinatario_nome": ptxt(tomad, "RazaoSocial") or ptxt(tomad, "NomeTomador"),
+            "valor_total":       _decimal(ptxt(vals, "ValorServicos")),
+            "valor_iss":         _decimal(ptxt(vals, "ValorIss")),
+            "valor_pis":         _decimal(ptxt(vals, "ValorPis")),
+            "valor_cofins":      _decimal(ptxt(vals, "ValorCofins")),
+            "valor_icms":        0.0,
+            "valor_produtos":    _decimal(ptxt(vals, "ValorServicos")),
+            "municipio_ibge":    txt(f"{{{NS_NFSE}}}CodigoMunicipio") or None,
+            "status":            "pendente",
+            "fonte":             "portal_nacional",
+            "_items":            [],
+        }
+    except Exception as e:
+        _logger.warning("parse_nfse_portal erro: %s", e)
         return None
 
 

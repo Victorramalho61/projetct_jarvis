@@ -18,6 +18,8 @@ from typing import Generator
 
 import requests
 
+from services.retry_utils import with_backoff
+
 _logger = logging.getLogger(__name__)
 
 NDD_BASE = "https://spaceportalprod.e-datacenter.nddigital.com.br"
@@ -62,22 +64,29 @@ def fetch_all_xml(
     total_xml = 0
 
     while True:
-        try:
-            resp = requests.get(
+        _skip = skip  # captura para closure
+        def _list_page():
+            r = requests.get(
                 NDD_API,
                 headers=headers,
                 params={
                     "$filter": odata_filter,
                     "$top": PAGE_SIZE,
-                    "$skip": skip,
+                    "$skip": _skip,
                     "$orderby": "dataEmissao asc",
                 },
                 timeout=30,
             )
-            resp.raise_for_status()
-        except requests.HTTPError as e:
-            if e.response is not None and e.response.status_code == 401:
+            if r.status_code == 401:
                 raise RuntimeError("NDD Digital: token expirado — reconecte via /api/fiscal/{id}/ndd/token")
+            r.raise_for_status()
+            return r
+
+        try:
+            resp = with_backoff(_list_page)
+        except RuntimeError:
+            raise
+        except Exception:
             raise
 
         data = resp.json()
@@ -144,12 +153,16 @@ def fetch_all_xml(
 
 
 def _fetch_xml(ndd_id: int, headers: dict) -> str:
-    resp = requests.get(
-        f"{NDD_API}/xml/{ndd_id}",
-        headers=headers,
-        timeout=20,
-    )
-    resp.raise_for_status()
+    def _get():
+        resp = requests.get(
+            f"{NDD_API}/xml/{ndd_id}",
+            headers=headers,
+            timeout=20,
+        )
+        resp.raise_for_status()
+        return resp
+
+    resp = with_backoff(_get)
     data = resp.json()
     return data.get("documento") or data.get("xml") or data.get("xmlNfse") or ""
 

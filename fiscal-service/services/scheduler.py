@@ -38,8 +38,19 @@ async def start_scheduler():
         id="sync_nfse_ndd",
         misfire_grace_time=600,
     )
+    _scheduler.add_job(
+        _sync_portal_nfse,
+        "cron",
+        hour=6,
+        minute=0,
+        id="sync_portal_nfse",
+        misfire_grace_time=600,
+    )
     _scheduler.start()
-    _logger.info("Scheduler fiscal iniciado: 02:00 (NFe/CTe) + 04:00 (retry) + 05:00 (NFSe NDD incremental)")
+    _logger.info(
+        "Scheduler fiscal iniciado: 02:00 (NFe/CTe) + 04:00 (retry) "
+        "+ 05:00 (NFSe NDD) + 06:00 (NFSe Portal Nacional)"
+    )
 
 
 async def stop_scheduler():
@@ -56,7 +67,8 @@ async def _sync_all_companies():
     try:
         result = sb.table("fiscal_companies").select(
             "id,cnpj,nome,sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
-            "cert_pfx_encrypted,cert_password_encrypted,ultimo_nsu_nfe,ultimo_nsu_cte"
+            "cert_pfx_encrypted,cert_password_encrypted,ultimo_nsu_nfe,ultimo_nsu_cte,"
+            "sefaz_nfe_bloqueado_ate,sefaz_nfe_ultima_consulta_hb,sefaz_usar_svc_an,cert_expiry"
         ).or_("sync_nfe_ativo.eq.true,sync_cte_ativo.eq.true,sync_nfse_ativo.eq.true").execute()
         companies = result.data or []
     except Exception:
@@ -126,18 +138,17 @@ async def _run_sync(company: dict, janela: str = "manual"):
 
     # NFSe NDD é tratada exclusivamente pelo job das 05:00 (_sync_nfse_ndd_incremental)
 
-    # Alerta cert expirando
-    cert_expiry_res = sb.table("fiscal_companies").select("cert_expiry").eq(
-        "id", company_id
-    ).execute()
-    if cert_expiry_res.data:
-        expiry_str = cert_expiry_res.data[0].get("cert_expiry")
-        if expiry_str:
+    # Alerta cert expirando — usa cert_expiry já carregado no company dict
+    expiry_str = company.get("cert_expiry")
+    if expiry_str:
+        try:
             dias = (date.fromisoformat(expiry_str) - date.today()).days
             if dias < 30:
                 _logger.critical(
                     "[%s] CERTIFICADO DIGITAL expira em %d dia(s)! Renove urgente.", cnpj, dias
                 )
+        except ValueError:
+            pass
 
 
 async def _sync_nfe(sb, settings, company, janela):
@@ -151,14 +162,52 @@ async def _sync_nfe(sb, settings, company, janela):
     docs_novos = 0
     docs_cancelados = 0
 
+    # Guard cStat 656: pula se ainda dentro do período de bloqueio
+    bloqueado_ate = company.get("sefaz_nfe_bloqueado_ate")
+    if bloqueado_ate:
+        try:
+            if datetime.fromisoformat(bloqueado_ate) > datetime.now(timezone.utc):
+                _logger.warning("[%s] NFe: bloqueada pela SEFAZ (cStat 656) até %s — sync ignorado",
+                                cnpj, bloqueado_ate)
+                _log_sync(sb, company_id, "NFe", None, ultimo_nsu, ultimo_nsu,
+                          0, 0, "bloqueado", f"cStat 656 — bloqueado até {bloqueado_ate}", janela)
+                return
+        except ValueError:
+            pass
+
+    # Alerta heartbeat: 60 dias sem consultar = perda permanente de documentos
+    ultima_hb = company.get("sefaz_nfe_ultima_consulta_hb")
+    if ultima_hb:
+        try:
+            dias = (datetime.now(timezone.utc) - datetime.fromisoformat(ultima_hb)).days
+            if dias > 55:
+                _logger.error(
+                    "[%s] NFe: %d dias sem consulta — NSU em risco de perda permanente (limite: 60d)!",
+                    cnpj, dias
+                )
+        except ValueError:
+            pass
+
     try:
         with extract_pem_for_requests(
             company["cert_pfx_encrypted"],
             company["cert_password_encrypted"],
             settings.cert_encryption_key,
         ) as (cert_path, key_path):
-            fetcher = NFeDistribuicaoDFe(cnpj, cert_path, key_path, settings.sefaz_ambiente)
-            docs = fetcher.dist_dfe_interesse(ultimo_nsu)
+            fetcher = NFeDistribuicaoDFe(
+                cnpj, cert_path, key_path,
+                settings.sefaz_ambiente,
+                usar_svc_an=company.get("sefaz_usar_svc_an", False),
+            )
+            docs, flags = fetcher.dist_dfe_interesse(ultimo_nsu)
+
+        # Prepara campos para UPDATE único no final
+        company_update: dict = {}
+        if flags.get("bloqueado"):
+            company_update["sefaz_nfe_bloqueado_ate"] = flags["bloqueado_ate"]
+            _logger.error("[%s] NFe: cStat 656 gravado — bloqueado até %s", cnpj, flags["bloqueado_ate"])
+        if flags.get("ultima_consulta"):
+            company_update["sefaz_nfe_ultima_consulta_hb"] = flags["ultima_consulta"]
 
         for doc in docs:
             parsed = parse_xml_auto(doc["xml"])
@@ -174,7 +223,11 @@ async def _sync_nfe(sb, settings, company, janela):
                 docs_cancelados += 1
                 continue
 
-            parsed["company_id"] = company_id
+            parsed["company_id"]  = company_id
+            parsed["fonte"]       = "sefaz"
+            parsed["tipo_schema"] = doc.get("tipo_schema", "completo")
+            parsed["xml_hash"]    = doc.get("xml_hash")
+            parsed["xml_content"] = doc.get("xml", "")
             _ensure_period(sb, company_id, parsed.get("data_emissao"), parsed)
             try:
                 sb.table("fiscal_documents").upsert(
@@ -187,9 +240,9 @@ async def _sync_nfe(sb, settings, company, janela):
             if doc.get("nsu"):
                 ultimo_nsu = max(ultimo_nsu, int(doc["nsu"]))
 
-        sb.table("fiscal_companies").update({"ultimo_nsu_nfe": ultimo_nsu}).eq(
-            "id", company_id
-        ).execute()
+        # 1 único UPDATE: NSU + heartbeat + bloqueio (se aplicável)
+        company_update["ultimo_nsu_nfe"] = ultimo_nsu
+        sb.table("fiscal_companies").update(company_update).eq("id", company_id).execute()
 
         _log_sync(sb, company_id, "NFe", None, company.get("ultimo_nsu_nfe"), ultimo_nsu,
                   docs_novos, docs_cancelados, "ok", None, janela)
@@ -412,6 +465,123 @@ async def _sync_nfse_ndd_incremental():
         _log_sync(sb, token_company["id"], "NFSe", None, None, None,
                   0, 0, "erro", str(e), "ndd_05h")
         _logger.error("NFSe NDD 05:00 ERRO: %s", e)
+
+
+async def _sync_portal_nfse():
+    """06:00 — Portal Nacional NFS-e (ADN) para todas as empresas com sync ativo e certificado."""
+    from db import get_supabase, get_settings
+
+    _logger.info("Portal Nacional NFS-e 06:00 — iniciando sync")
+    sb = get_supabase()
+
+    result = sb.table("fiscal_companies").select(
+        "id,cnpj,nome,sync_portal_nfse_ativo,cert_pfx_encrypted,cert_password_encrypted,"
+        "ultimo_nsu_nfse_nacional,portal_nfse_last_sync_at"
+    ).eq("sync_portal_nfse_ativo", True).execute()
+    companies = result.data or []
+
+    if not companies:
+        _logger.info("Portal Nacional NFS-e 06:00: nenhuma empresa com sync ativo")
+        return
+
+    _logger.info("Portal Nacional NFS-e 06:00: %d empresa(s)", len(companies))
+    for company in companies:
+        try:
+            await _sync_portal_nfse_company(company, janela="portal_06h")
+        except Exception:
+            _logger.exception("Erro no sync Portal NFS-e para CNPJ %s", company.get("cnpj"))
+
+
+async def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
+    """Sync Portal Nacional NFS-e (ADN) para uma empresa."""
+    from db import get_supabase, get_settings
+    from services.portal_nfse_fetcher import PortalNFSeFetcher
+    from services.xml_parser import parse_nfse_portal, _compute_hash
+    from services.cert_manager import extract_pem_for_requests
+
+    sb       = get_supabase()
+    settings = get_settings()
+    company_id = company["id"]
+    cnpj       = company["cnpj"]
+    ultimo_nsu = company.get("ultimo_nsu_nfse_nacional") or 0
+    docs_novos = 0
+    docs_cancelados = 0
+
+    if not company.get("cert_pfx_encrypted") or not company.get("cert_password_encrypted"):
+        motivo = "Sem certificado digital" if not company.get("cert_pfx_encrypted") else "Sem senha do certificado"
+        _logger.warning("[%s] Portal NFS-e: %s — sync ignorado", cnpj, motivo)
+        _log_sync(sb, company_id, "NFSe_Portal", None, ultimo_nsu, ultimo_nsu,
+                  0, 0, "erro", motivo, janela)
+        return
+
+    try:
+        with extract_pem_for_requests(
+            company["cert_pfx_encrypted"],
+            company["cert_password_encrypted"],
+            settings.cert_encryption_key,
+        ) as (cert_path, key_path):
+            fetcher = PortalNFSeFetcher(
+                cnpj, cert_path, key_path,
+                getattr(settings, "portal_nfse_ambiente", "1"),
+            )
+            docs = fetcher.dist_dfe_interesse(ultimo_nsu)
+
+        nsu_maximo = ultimo_nsu
+        for doc in docs:
+            if doc.get("tipo") == "cancelamento":
+                # Tenta cancelar pelo XML da nota se disponível
+                parsed = parse_nfse_portal(doc["xml"]) if doc.get("xml") else None
+                if parsed and parsed.get("chave_acesso"):
+                    sb.table("fiscal_documents").update(
+                        {"status": "cancelado"}
+                    ).eq("chave_acesso", parsed["chave_acesso"]).execute()
+                docs_cancelados += 1
+                if doc.get("nsu"):
+                    nsu_maximo = max(nsu_maximo, int(doc["nsu"]))
+                continue
+
+            parsed = parse_nfse_portal(doc["xml"]) if doc.get("xml") else None
+            if not parsed:
+                continue
+
+            parsed.update({
+                "company_id":   company_id,
+                "fonte":        "portal_nacional",
+                "nsu_nacional": doc.get("nsu"),
+                "tipo_schema":  doc.get("tipo_schema", "completo"),
+                "xml_hash":     doc.get("xml_hash") or _compute_hash(doc.get("xml", "")),
+                "xml_content":  doc.get("xml", ""),
+            })
+            _ensure_period(sb, company_id, parsed.get("data_emissao"), parsed)
+
+            try:
+                sb.table("fiscal_documents").upsert(
+                    parsed, on_conflict="chave_acesso"
+                ).execute()
+                docs_novos += 1
+            except Exception as exc:
+                _logger.warning("[%s] Portal NFS-e upsert erro: %s", cnpj, exc)
+
+            if doc.get("nsu"):
+                nsu_maximo = max(nsu_maximo, int(doc["nsu"]))
+
+        # Atualiza watermark NSU e timestamp do último sync
+        sb.table("fiscal_companies").update({
+            "ultimo_nsu_nfse_nacional": nsu_maximo,
+            "portal_nfse_last_sync_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", company_id).execute()
+
+        _log_sync(sb, company_id, "NFSe_Portal", None,
+                  company.get("ultimo_nsu_nfse_nacional"), nsu_maximo,
+                  docs_novos, docs_cancelados, "ok", None, janela)
+        _logger.info("[%s] Portal NFS-e OK: +%d docs, %d cancelados (NSU %d→%d)",
+                     cnpj, docs_novos, docs_cancelados, ultimo_nsu, nsu_maximo)
+
+    except Exception as exc:
+        _log_sync(sb, company_id, "NFSe_Portal", None, ultimo_nsu, ultimo_nsu,
+                  0, 0, "erro", str(exc), janela)
+        _logger.error("[%s] Portal NFS-e ERRO: %s", cnpj, exc)
+        raise
 
 
 def _ensure_period(sb, company_id: str, data_emissao, doc: dict):

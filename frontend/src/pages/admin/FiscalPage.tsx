@@ -17,10 +17,46 @@ interface FiscalCompany {
   sync_nfe_ativo: boolean;
   sync_cte_ativo: boolean;
   sync_nfse_ativo: boolean;
+  sync_portal_nfse_ativo?: boolean;
   ndd_last_sync_at: string | null;
   ndd_access_token: string | null;
   ndd_refresh_token: string | null;
   ndd_token_expires_at: string | null;
+  cert_expiry?: string | null;
+}
+
+interface CertStatus {
+  has_certificate: boolean;
+  cert_expiry: string | null;
+  dias_para_vencer: number | null;
+  status: "ok" | "expirando" | "expirado" | "sem_certificado";
+}
+
+interface SyncInfo {
+  status?: string;
+  documentos_novos?: number;
+  executado_em?: string;
+  erro_msg?: string | null;
+  ativo?: boolean;
+  ultimo_nsu?: number | null;
+  ultimo_sync?: string | null;
+  bloqueado_ate?: string | null;
+  ultima_consulta_hb?: string | null;
+  is_stuck?: boolean;
+}
+
+interface SyncStatusEntry {
+  company_id: string;
+  cnpj: string;
+  nome: string;
+  grupo: string | null;
+  cert_expiry: string | null;
+  syncs: {
+    NFe: SyncInfo;
+    CTe: SyncInfo;
+    NFSe_NDD: SyncInfo;
+    NFSe_Portal: SyncInfo;
+  };
 }
 
 interface NfseStats {
@@ -48,6 +84,9 @@ interface NfseDoc {
   valor_iss_retido: number | null;
   municipio_nome: string;
   status: string;
+  fonte?: string | null;
+  tipo_schema?: string | null;
+  tipo?: string;
   ndd_id: number | null;
   ndd_sync_at: string | null;
   xml_content?: string | null;
@@ -117,7 +156,27 @@ function KPICard({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-type Tab = "dashboard" | "nfse" | "sync";
+const FONTE_LABEL: Record<string, string> = {
+  ndd: "NDD Digital",
+  portal_nacional: "Portal Nacional ADN",
+  sefaz: "SEFAZ",
+};
+
+const CERT_STATUS_CLS: Record<string, string> = {
+  ok:             "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  expirando:      "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  expirado:       "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  sem_certificado:"bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400",
+};
+
+const SYNC_STATUS_CLS: Record<string, string> = {
+  ok:       "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+  parcial:  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300",
+  erro:     "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
+  bloqueado:"bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300",
+};
+
+type Tab = "dashboard" | "nfse" | "nfe" | "sync" | "certificados";
 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const DOCS_LIMIT = 50;
 
@@ -157,6 +216,9 @@ export default function FiscalPage() {
   const [filterCnpj, setFilterCnpj]         = useState("");
   const [filterTomadorCnpj, setFilterTomadorCnpj] = useState("");
 
+  // nfse / nfe filters
+  const [filterFonte, setFilterFonte]   = useState("");
+
   // drill-down
   const [detailDoc, setDetailDoc]       = useState<NfseDoc | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -166,6 +228,39 @@ export default function FiscalPage() {
   const [syncLoading, setSyncLoading]   = useState(false);
   const [syncing, setSyncing]           = useState(false);
   const [syncMsg, setSyncMsg]           = useState("");
+
+  // sync status dashboard
+  const [syncStatus, setSyncStatus]           = useState<SyncStatusEntry[]>([]);
+  const [syncStatusLoading, setSyncStatusLoading] = useState(false);
+  const [syncingPortal, setSyncingPortal]     = useState(false);
+
+  // nfe tab (reusa loadDocs com tipo=NFe)
+  const [nfeDocs, setNfeDocs]           = useState<NfseDoc[]>([]);
+  const [nfeLoading, setNfeLoading]     = useState(false);
+  const [nfeOffset, setNfeOffset]       = useState(0);
+  const [nfeQ, setNfeQ]                 = useState("");
+  const [nfeFonte, setNfeFonte]         = useState("");
+  const [nfeStatus, setNfeStatus]       = useState("");
+
+  // export
+  const [exportingCsv, setExportingCsv] = useState(false);
+  const [exportingXml, setExportingXml] = useState(false);
+  const [exportingNfeCsv, setExportingNfeCsv] = useState(false);
+  const [exportingNfeXml, setExportingNfeXml] = useState(false);
+
+  // busca por chave
+  const [showFetchKey, setShowFetchKey]   = useState(false);
+  const [fetchKey, setFetchKey]           = useState("");
+  const [fetchKeyLoading, setFetchKeyLoading] = useState(false);
+  const [fetchKeyResult, setFetchKeyResult]   = useState<{found:boolean;source:string;document:NfseDoc}|null>(null);
+  const [fetchKeyError, setFetchKeyError]     = useState("");
+
+  // certificados
+  const [certStatus, setCertStatus]     = useState<CertStatus | null>(null);
+  const [certFile, setCertFile]         = useState<File | null>(null);
+  const [certPassword, setCertPassword] = useState("");
+  const [certUploading, setCertUploading] = useState(false);
+  const [certMsg, setCertMsg]           = useState("");
 
   // ── Load companies ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -216,10 +311,11 @@ export default function FiscalPage() {
   // ── Load docs ───────────────────────────────────────────────────────────────
   const loadDocs = useCallback(() => {
     if (!token) return;
-    const p = new URLSearchParams({ limit: String(DOCS_LIMIT), offset: String(docsOffset) });
+    const p = new URLSearchParams({ limit: String(DOCS_LIMIT), offset: String(docsOffset), tipo: "NFSe" });
     if (selectedId)      p.set("company_id", selectedId);
     if (q)               p.set("q", q);
     if (filterStatus)    p.set("status", filterStatus);
+    if (filterFonte)     p.set("fonte", filterFonte);
     if (filterMunicipio) p.set("municipio", filterMunicipio);
     if (filterCnpj)        p.set("emitente_cnpj", filterCnpj);
     if (filterTomadorCnpj) p.set("destinatario_cnpj", filterTomadorCnpj);
@@ -231,7 +327,7 @@ export default function FiscalPage() {
       .then((r) => { const d = r.data ?? []; setDocs(d); setCache(key, d); })
       .catch(() => setDocs([]))
       .finally(() => setDocsLoading(false));
-  }, [token, selectedId, q, filterStatus, filterMunicipio, filterCnpj, filterTomadorCnpj, docsOffset]);
+  }, [token, selectedId, q, filterStatus, filterFonte, filterMunicipio, filterCnpj, filterTomadorCnpj, docsOffset]);
 
   useEffect(() => { if (tab === "nfse") loadDocs(); }, [tab, loadDocs]);
 
@@ -323,6 +419,164 @@ export default function FiscalPage() {
     }
   };
 
+  // ── Sync Status ─────────────────────────────────────────────────────────────
+  const loadSyncStatus = useCallback(() => {
+    if (!token) return;
+    setSyncStatusLoading(true);
+    apiFetch<SyncStatusEntry[]>("/api/fiscal/sync/status", { token })
+      .then(setSyncStatus)
+      .catch(() => {})
+      .finally(() => setSyncStatusLoading(false));
+  }, [token]);
+
+  // Carrega na abertura da tab
+  useEffect(() => {
+    if (tab === "sync") loadSyncStatus();
+  }, [tab, loadSyncStatus]);
+
+  // Polling 30s: reavalia depois que syncStatus é populado
+  useEffect(() => {
+    if (tab !== "sync") return;
+    const hasRunning = syncStatus.some((e) =>
+      Object.values(e.syncs).some((s) => s.status === "running")
+    );
+    if (!hasRunning) return;
+    const timer = setInterval(loadSyncStatus, 30_000);
+    return () => clearInterval(timer);
+  }, [tab, syncStatus, loadSyncStatus]);
+
+  const triggerPortalSync = async (companyId?: string) => {
+    if (!token || syncingPortal) return;
+    setSyncingPortal(true);
+    try {
+      const url = companyId
+        ? `/api/fiscal/portal-nfse/sync/run?company_id=${companyId}`
+        : "/api/fiscal/portal-nfse/sync/run";
+      await apiFetch(url, { token, method: "POST" });
+      setTimeout(loadSyncStatus, 3000);
+    } catch { /* silent */ } finally {
+      setSyncingPortal(false);
+    }
+  };
+
+  // ── NFe tab ─────────────────────────────────────────────────────────────────
+  const loadNfeDocs = useCallback(() => {
+    if (!token) return;
+    const p = new URLSearchParams({ limit: String(DOCS_LIMIT), offset: String(nfeOffset), tipo: "NFe,CTe" });
+    if (selectedId)  p.set("company_id", selectedId);
+    if (nfeQ)        p.set("q", nfeQ);
+    if (nfeStatus)   p.set("status", nfeStatus);
+    if (nfeFonte)    p.set("fonte", nfeFonte);
+    setNfeLoading(true);
+    apiFetch<{ data: NfseDoc[] }>(`/api/fiscal/nfse?${p}`, { token })
+      .then((r) => setNfeDocs(r.data ?? []))
+      .catch(() => setNfeDocs([]))
+      .finally(() => setNfeLoading(false));
+  }, [token, selectedId, nfeQ, nfeStatus, nfeFonte, nfeOffset]);
+
+  useEffect(() => { if (tab === "nfe") loadNfeDocs(); }, [tab, loadNfeDocs]);
+
+  // ── Export ───────────────────────────────────────────────────────────────────
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportCsv = async (tipo: string) => {
+    if (!token || !selectedId) return;
+    const setter = tipo === "NFSe" ? setExportingCsv : setExportingNfeCsv;
+    setter(true);
+    try {
+      const p = new URLSearchParams({ company_id: selectedId, tipo });
+      if (filterFonte) p.set("fonte", filterFonte);
+      const resp = await fetch(`/api/fiscal/nfse/export/csv?${p}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      downloadBlob(await resp.blob(), `fiscal_${tipo.toLowerCase()}.csv`);
+    } catch { /* silent */ } finally { setter(false); }
+  };
+
+  const exportXml = async (tipo: string) => {
+    if (!token || !selectedId) return;
+    const setter = tipo === "NFSe" ? setExportingXml : setExportingNfeXml;
+    setter(true);
+    try {
+      const p = new URLSearchParams({ company_id: selectedId, tipo });
+      if (filterFonte) p.set("fonte", filterFonte);
+      const resp = await fetch(`/api/fiscal/nfse/export/xml?${p}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      downloadBlob(await resp.blob(), `xmls_${tipo.toLowerCase()}.zip`);
+    } catch { /* silent */ } finally { setter(false); }
+  };
+
+  // ── Busca por chave de acesso ────────────────────────────────────────────────
+  const fetchByKey = async () => {
+    if (!token || fetchKey.length !== 44 || !selectedId) return;
+    setFetchKeyLoading(true);
+    setFetchKeyError("");
+    setFetchKeyResult(null);
+    try {
+      const r = await apiFetch<{found:boolean;source:string;document:NfseDoc}>(
+        "/api/fiscal/fetch-by-key",
+        { token, method: "POST", json: { company_id: selectedId, chave_acesso: fetchKey } }
+      );
+      setFetchKeyResult(r);
+    } catch (e) {
+      setFetchKeyError(e instanceof Error ? e.message : "Documento não encontrado nos portais.");
+    } finally {
+      setFetchKeyLoading(false);
+    }
+  };
+
+  // ── Certificados ─────────────────────────────────────────────────────────────
+  const loadCertStatus = useCallback(() => {
+    if (!token || !selectedId) return;
+    apiFetch<CertStatus>(`/api/fiscal/${selectedId}/certificates/status`, { token })
+      .then(setCertStatus)
+      .catch(() => setCertStatus(null));
+  }, [token, selectedId]);
+
+  useEffect(() => { if (tab === "certificados") loadCertStatus(); }, [tab, loadCertStatus]);
+
+  const uploadCert = async () => {
+    if (!token || !certFile || !certPassword || !selectedId) return;
+    setCertUploading(true);
+    setCertMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("arquivo", certFile);
+      fd.append("senha", certPassword);
+      const resp = await fetch(`/api/fiscal/${selectedId}/certificates`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      setCertMsg("✅ Certificado salvo com sucesso.");
+      setCertFile(null); setCertPassword("");
+      loadCertStatus();
+      apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token }).then(setCompanies).catch(() => {});
+    } catch (e) {
+      setCertMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCertUploading(false);
+    }
+  };
+
+  const deleteCert = async () => {
+    if (!token || !selectedId || !confirm("Remover certificado digital desta empresa?")) return;
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/certificates`, { token, method: "DELETE" });
+      setCertMsg("Certificado removido.");
+      loadCertStatus();
+    } catch (e) {
+      setCertMsg(`Erro ao remover: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
   // ── Estilos compartilhados ──────────────────────────────────────────────────
   const card = isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200";
   const inp  = `border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
@@ -331,7 +585,7 @@ export default function FiscalPage() {
       : "bg-white border-gray-300 text-gray-900 placeholder-gray-400"
   }`;
   const tabCls = (t: Tab) =>
-    `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+    `px-3 py-1.5 text-sm font-medium rounded-lg transition-colors whitespace-nowrap ${
       tab === t
         ? isDark ? "bg-gray-700 text-white" : "bg-white text-gray-900 shadow"
         : isDark ? "text-gray-400 hover:text-gray-200" : "text-gray-500 hover:text-gray-700"
@@ -410,10 +664,12 @@ export default function FiscalPage() {
       </div>
 
       {/* ── Tabs ── */}
-      <div className={`flex gap-1 p-1 rounded-xl w-fit ${isDark ? "bg-gray-800" : "bg-gray-100"}`}>
-        <button className={tabCls("dashboard")} onClick={() => setTab("dashboard")}>Dashboard</button>
-        <button className={tabCls("nfse")}      onClick={() => setTab("nfse")}>NFSe</button>
-        <button className={tabCls("sync")}      onClick={() => setTab("sync")}>Sync</button>
+      <div className={`flex gap-1 p-1 rounded-xl w-fit flex-wrap ${isDark ? "bg-gray-800" : "bg-gray-100"}`}>
+        <button className={tabCls("dashboard")}    onClick={() => setTab("dashboard")}>Dashboard</button>
+        <button className={tabCls("nfse")}         onClick={() => setTab("nfse")}>NFSe</button>
+        <button className={tabCls("nfe")}          onClick={() => setTab("nfe")}>NFe / CTe</button>
+        <button className={tabCls("sync")}         onClick={() => setTab("sync")}>Sync</button>
+        <button className={tabCls("certificados")} onClick={() => setTab("certificados")}>Certificados</button>
       </div>
 
       {/* ════ TAB: DASHBOARD ════ */}
@@ -577,12 +833,46 @@ export default function FiscalPage() {
                 <option value="divergencia">Divergência</option>
                 <option value="cancelado">Cancelado</option>
               </select>
+              <select
+                value={filterFonte}
+                onChange={(e) => { setFilterFonte(e.target.value); setDocsOffset(0); }}
+                className={`${inp} w-40`}
+              >
+                <option value="">Todas as fontes</option>
+                <option value="ndd">NDD Digital</option>
+                <option value="portal_nacional">Portal Nacional</option>
+                <option value="sefaz">SEFAZ</option>
+              </select>
               <button
                 onClick={() => { setDocsOffset(0); loadDocs(); }}
                 className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Buscar
               </button>
+              <div className="flex gap-2 ml-auto">
+                <button
+                  onClick={() => exportCsv("NFSe")}
+                  disabled={exportingCsv || !selectedId}
+                  title={!selectedId ? "Selecione uma empresa" : "Exportar CSV"}
+                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                >
+                  {exportingCsv ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} CSV
+                </button>
+                <button
+                  onClick={() => exportXml("NFSe")}
+                  disabled={exportingXml || !selectedId}
+                  title={!selectedId ? "Selecione uma empresa" : "Baixar XMLs"}
+                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                >
+                  {exportingXml ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} XMLs
+                </button>
+                <button
+                  onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); }}
+                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}
+                >
+                  🔍 Buscar por chave
+                </button>
+              </div>
             </div>
           </div>
 
@@ -625,6 +915,9 @@ export default function FiscalPage() {
                             {fmtDay(doc.data_emissao)}
                           </span>
                           <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600"} />
+                          {doc.fonte && doc.fonte !== "ndd" && (
+                            <Badge label={FONTE_LABEL[doc.fonte] ?? doc.fonte} cls="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" />
+                          )}
                           {doc.municipio_nome && (
                             <span className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
                               · {doc.municipio_nome}
@@ -680,6 +973,54 @@ export default function FiscalPage() {
                   }`}
                 >Próximo →</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ MODAL BUSCA POR CHAVE ════ */}
+      {showFetchKey && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={() => setShowFetchKey(false)}>
+          <div
+            className={`rounded-2xl border shadow-2xl w-full max-w-lg ${isDark ? "bg-gray-900 border-gray-700 text-gray-200" : "bg-white border-gray-200 text-gray-900"}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b" style={{background: isDark ? "#111827" : "#fff"}}>
+              <h2 className="font-bold text-base">Buscar NFS-e / NF-e por chave de acesso</h2>
+              <button onClick={() => setShowFetchKey(false)} className={`p-2 rounded-lg ${isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"}`}>
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <input
+                value={fetchKey}
+                onChange={(e) => setFetchKey(e.target.value.replace(/\D/g, "").slice(0, 44))}
+                placeholder="Chave de acesso (44 dígitos numéricos)"
+                className={`w-full font-mono text-sm rounded-lg border px-3 py-2 ${isDark ? "bg-gray-800 border-gray-600 text-white" : "bg-white border-gray-300"}`}
+                maxLength={44}
+              />
+              <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                Busca: banco local → Portal Nacional ADN (NFS-e) → SEFAZ NF-e. Salva automaticamente se encontrado.
+              </p>
+              {!selectedId && <p className="text-xs text-amber-500">Selecione uma empresa no topo da página.</p>}
+              <button
+                onClick={fetchByKey}
+                disabled={fetchKey.length !== 44 || fetchKeyLoading || !selectedId}
+                className="w-full px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-40 flex items-center justify-center gap-2 transition-colors"
+              >
+                {fetchKeyLoading ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "🔍 Buscar nos portais"}
+              </button>
+              {fetchKeyError && <p className="text-sm text-red-500">{fetchKeyError}</p>}
+              {fetchKeyResult?.found && (
+                <div className={`rounded-xl border p-4 space-y-2 ${isDark ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-gray-50"}`}>
+                  <div className="flex items-center gap-2">
+                    <Badge label={`Encontrado: ${fetchKeyResult.source}`} cls="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" />
+                  </div>
+                  <p className="text-sm font-semibold">{fetchKeyResult.document.emitente_nome}</p>
+                  <p className={`text-xs font-mono ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fetchKeyResult.document.chave_acesso}</p>
+                  <p className="text-sm">{FMT_BRL.format(fetchKeyResult.document.valor_total)} · {fmtDay(fetchKeyResult.document.data_emissao)}</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -970,6 +1311,64 @@ export default function FiscalPage() {
             )}
           </div>
 
+          {/* Status por empresa */}
+          <div className={`rounded-xl border p-5 space-y-4 ${card}`}>
+            <div className="flex items-center justify-between">
+              <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                Status por Empresa e Tipo
+              </h2>
+              <button onClick={loadSyncStatus} className={`text-xs px-3 py-1.5 rounded border transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
+                Atualizar
+              </button>
+            </div>
+            {syncStatusLoading && <div className={`h-20 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />}
+            {syncStatus.filter(e => !selectedId || e.company_id === selectedId).map((entry) => (
+              <div key={entry.company_id} className={`rounded-lg border p-4 space-y-3 ${isDark ? "border-gray-700" : "border-gray-200"}`}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-semibold">{entry.nome}</p>
+                    <p className={`text-xs font-mono ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtCnpj(entry.cnpj)}</p>
+                  </div>
+                  {entry.cert_expiry && (() => {
+                    const dias = Math.round((new Date(entry.cert_expiry).getTime() - Date.now()) / 86400000);
+                    return dias < 30 ? <Badge label={`Cert. expira em ${dias}d`} cls={dias < 7 ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"} /> : null;
+                  })()}
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {(["NFe","CTe","NFSe_NDD","NFSe_Portal"] as const).map((tipo) => {
+                    const s = entry.syncs[tipo as keyof typeof entry.syncs];
+                    const label = { NFe: "NF-e", CTe: "CT-e", NFSe_NDD: "NFS-e NDD", NFSe_Portal: "NFS-e ADN" }[tipo];
+                    return (
+                      <div key={tipo} className={`rounded-lg p-3 space-y-1.5 ${isDark ? "bg-gray-700/60" : "bg-gray-50"}`}>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-xs font-medium">{label}</span>
+                          {s.ativo ? <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> : <span className="w-1.5 h-1.5 rounded-full bg-gray-400" />}
+                        </div>
+                        {s.status && <Badge label={s.is_stuck ? "preso" : s.status} cls={s.is_stuck ? "bg-orange-100 text-orange-800" : SYNC_STATUS_CLS[s.status] ?? "bg-gray-100 text-gray-600"} />}
+                        {s.documentos_novos != null && s.documentos_novos > 0 && (
+                          <p className="text-xs text-green-500">+{s.documentos_novos} docs</p>
+                        )}
+                        {s.executado_em && <p className={`text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>{fmtDate(s.executado_em)}</p>}
+                        {s.ultimo_nsu != null && <p className={`text-xs font-mono ${isDark ? "text-gray-500" : "text-gray-400"}`}>NSU {s.ultimo_nsu}</p>}
+                        {s.bloqueado_ate && <p className="text-xs text-orange-500">⛔ Bloq. até {fmtDate(s.bloqueado_ate)}</p>}
+                        {s.erro_msg && <p className="text-xs text-red-400 truncate" title={s.erro_msg}>{s.erro_msg.slice(0, 40)}</p>}
+                        {tipo === "NFSe_Portal" && s.ativo && (
+                          <button
+                            onClick={() => triggerPortalSync(entry.company_id)}
+                            disabled={syncingPortal}
+                            className="text-xs px-2 py-0.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-40 transition-colors"
+                          >
+                            Sync agora
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
           {/* Logs */}
           <div className={`rounded-xl border overflow-hidden ${card}`}>
             <div className={`flex items-center justify-between px-5 py-4 border-b ${isDark ? "border-gray-700" : "border-gray-200"}`}>
@@ -1049,6 +1448,202 @@ export default function FiscalPage() {
               </table>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ════ TAB: NFe / CTe ════ */}
+      {tab === "nfe" && (
+        <div className="space-y-4">
+          <div className={`rounded-xl border p-4 ${card}`}>
+            <div className="flex flex-wrap gap-3">
+              <input type="text" placeholder="Busca (emitente, chave...)" value={nfeQ}
+                onChange={(e) => { setNfeQ(e.target.value); setNfeOffset(0); }}
+                className={`${inp} flex-1 min-w-[200px]`} />
+              <select value={nfeStatus} onChange={(e) => { setNfeStatus(e.target.value); setNfeOffset(0); }} className={`${inp} w-36`}>
+                <option value="">Todos status</option>
+                <option value="pendente">Pendente</option>
+                <option value="conferido">Conferido</option>
+                <option value="cancelado">Cancelado</option>
+              </select>
+              <select value={nfeFonte} onChange={(e) => { setNfeFonte(e.target.value); setNfeOffset(0); }} className={`${inp} w-36`}>
+                <option value="">Todas as fontes</option>
+                <option value="sefaz">SEFAZ</option>
+                <option value="portal_nacional">Portal Nacional</option>
+              </select>
+              <button onClick={loadNfeDocs} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
+                Buscar
+              </button>
+              <div className="flex gap-2 ml-auto">
+                <button onClick={() => exportCsv("NFe,CTe")} disabled={exportingNfeCsv || !selectedId}
+                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 disabled:opacity-40 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
+                  {exportingNfeCsv ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} CSV
+                </button>
+                <button onClick={() => exportXml("NFe,CTe")} disabled={exportingNfeXml || !selectedId}
+                  className={`px-3 py-2 text-xs border rounded-lg flex items-center gap-1 disabled:opacity-40 transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
+                  {exportingNfeXml ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> : "⬇"} XMLs
+                </button>
+                <button onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); }}
+                  className={`px-3 py-2 text-xs border rounded-lg transition-colors ${isDark ? "border-gray-600 hover:bg-gray-700" : "border-gray-300 hover:bg-gray-50"}`}>
+                  🔍 Buscar por chave
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className={`rounded-xl border overflow-hidden ${card}`}>
+            {nfeLoading ? (
+              [...Array(5)].map((_, i) => (
+                <div key={i} className="p-4 space-y-2">
+                  <div className={`h-3 w-24 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                  <div className={`h-4 w-2/3 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-200"}`} />
+                </div>
+              ))
+            ) : nfeDocs.length === 0 ? (
+              <p className={`px-4 py-12 text-center text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                Nenhuma NF-e/CT-e encontrada.{!selectedId && " Selecione uma empresa."}
+              </p>
+            ) : (
+              <div className={`divide-y ${isDark ? "divide-gray-700" : "divide-gray-100"}`}>
+                {nfeDocs.map((doc) => (
+                  <div key={doc.id} onClick={() => openDetail(doc)}
+                    className={`p-4 cursor-pointer transition-colors ${isDark ? "hover:bg-gray-700/50" : "hover:bg-blue-50/60"}`}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center flex-wrap gap-2 mb-1">
+                          <span className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtDay(doc.data_emissao)}</span>
+                          <Badge label={doc.tipo ?? "NFe"} cls="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" />
+                          <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600"} />
+                        </div>
+                        <p className={`font-semibold text-base leading-tight truncate ${isDark ? "text-white" : "text-gray-900"}`}>
+                          {doc.emitente_nome || doc.emitente_cnpj}
+                        </p>
+                        {doc.destinatario_nome && (
+                          <p className={`text-xs mt-0.5 truncate ${isDark ? "text-gray-500" : "text-gray-400"}`}>→ {doc.destinatario_nome}</p>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`font-bold text-base tabular-nums ${isDark ? "text-white" : "text-gray-900"}`}>
+                          {FMT_BRL.format(doc.valor_total ?? 0)}
+                        </p>
+                        <p className={`text-xs mt-1 font-mono ${isDark ? "text-gray-600" : "text-gray-400"}`}>
+                          {doc.chave_acesso?.slice(0, 12)}…
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className={`flex items-center justify-between px-4 py-3 border-t text-sm ${isDark ? "border-gray-700" : "border-gray-200"}`}>
+              <span className={isDark ? "text-gray-400" : "text-gray-500"}>{nfeDocs.length} registros</span>
+              <div className="flex gap-2">
+                <button disabled={nfeOffset === 0} onClick={() => setNfeOffset(Math.max(0, nfeOffset - DOCS_LIMIT))}
+                  className={`px-3 py-1 rounded border text-sm disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-50 text-gray-700"}`}>
+                  ← Anterior
+                </button>
+                <button disabled={nfeDocs.length < DOCS_LIMIT} onClick={() => setNfeOffset(nfeOffset + DOCS_LIMIT)}
+                  className={`px-3 py-1 rounded border text-sm disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-50 text-gray-700"}`}>
+                  Próximo →
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ TAB: CERTIFICADOS ════ */}
+      {tab === "certificados" && (
+        <div className="space-y-4">
+          {!selectedId ? (
+            <div className={`rounded-xl border p-8 text-center ${card}`}>
+              <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                Selecione uma empresa no topo da página para gerenciar o certificado digital.
+              </p>
+            </div>
+          ) : (
+            <div className={`rounded-xl border p-5 space-y-5 ${card}`}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                    Certificado Digital e-CNPJ A1
+                  </h2>
+                  <p className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    Necessário para sync Portal Nacional NFS-e (ADN) e busca por chave na SEFAZ.
+                  </p>
+                </div>
+                {certStatus && (
+                  <Badge
+                    label={{ ok: "Válido", expirando: "Expirando em breve", expirado: "Expirado", sem_certificado: "Sem certificado" }[certStatus.status] ?? certStatus.status}
+                    cls={CERT_STATUS_CLS[certStatus.status] ?? "bg-gray-100 text-gray-600"}
+                  />
+                )}
+              </div>
+
+              {certStatus?.cert_expiry && (
+                <div className={`rounded-lg p-3 text-sm ${isDark ? "bg-gray-700/60" : "bg-gray-50"}`}>
+                  <span className={isDark ? "text-gray-400" : "text-gray-500"}>Validade: </span>
+                  <span className="font-mono font-medium">{fmtDay(certStatus.cert_expiry)}</span>
+                  {certStatus.dias_para_vencer != null && (
+                    <span className={`ml-2 text-xs ${certStatus.dias_para_vencer < 7 ? "text-red-500" : certStatus.dias_para_vencer < 30 ? "text-yellow-500" : isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      ({certStatus.dias_para_vencer} dias restantes)
+                    </span>
+                  )}
+                </div>
+              )}
+
+              <div className={`rounded-lg border p-4 space-y-4 ${isDark ? "border-gray-700 bg-gray-900/30" : "border-gray-200 bg-gray-50"}`}>
+                <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  {certStatus?.has_certificate ? "Substituir certificado" : "Fazer upload do certificado"}
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? "text-gray-400" : "text-gray-600"}`}>Arquivo PFX / P12</label>
+                    <input type="file" accept=".pfx,.p12"
+                      onChange={(e) => setCertFile(e.target.files?.[0] ?? null)}
+                      className="block w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-blue-600 file:text-white file:text-xs cursor-pointer" />
+                  </div>
+                  <div>
+                    <label className={`block text-xs font-medium mb-1 ${isDark ? "text-gray-400" : "text-gray-600"}`}>Senha do certificado</label>
+                    <input type="password" value={certPassword} onChange={(e) => setCertPassword(e.target.value)}
+                      placeholder="••••••••" className={`${inp} w-full font-mono`} />
+                    <p className={`text-xs mt-1 ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                      Criptografada (AES-256 Fernet). Após salvar, impossível recuperar — apenas substituir.
+                    </p>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <button onClick={uploadCert} disabled={!certFile || !certPassword || certUploading}
+                      className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-40 flex items-center gap-2 transition-colors">
+                      {certUploading && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                      {certStatus?.has_certificate ? "Substituir" : "Fazer upload"}
+                    </button>
+                    {certStatus?.has_certificate && (
+                      <button onClick={deleteCert}
+                        className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition-colors">
+                        Remover certificado
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {certMsg && (
+                <p className={`text-sm p-3 rounded-lg ${certMsg.startsWith("✅") ? "bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400" : "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400"}`}>
+                  {certMsg}
+                </p>
+              )}
+
+              {!certStatus?.has_certificate && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-900/20 dark:border-amber-700 p-3 text-xs text-amber-700 dark:text-amber-300">
+                  <p className="font-semibold mb-1">Pré-requisitos para o Portal Nacional NFS-e (ADN)</p>
+                  <ol className="list-decimal list-inside space-y-0.5">
+                    <li>Registro em <span className="font-mono">gov.br/nfse</span> com o CNPJ desta empresa</li>
+                    <li>Verificar adesão do município em <a href="https://www.gov.br/nfse/pt-br/municipios/monitoramento-adesoes" target="_blank" className="underline">gov.br/nfse/municipios</a></li>
+                    <li>Certificado e-CNPJ A1 carregado aqui</li>
+                    <li>Habilitar: <span className="font-mono">sync_portal_nfse_ativo = true</span> no banco</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

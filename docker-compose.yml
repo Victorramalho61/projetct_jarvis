@@ -587,6 +587,8 @@ services:
       NDD_CLIENT_ID: ${NDD_CLIENT_ID:-}
       NDD_USERNAME: ${NDD_USERNAME:-}
       NDD_PASSWORD: ${NDD_PASSWORD:-}
+      PORTAL_NFSE_AMBIENTE: ${PORTAL_NFSE_AMBIENTE:-1}
+      PORTAL_NFSE_BASE_URL: ${PORTAL_NFSE_BASE_URL:-https://adn.nfse.gov.br}
     networks:
       - app_net
     healthcheck:

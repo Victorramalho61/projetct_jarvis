@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     ndd_client_id: str = ""          # OAuth client_id — capturar do DevTools Network
     ndd_username: str = ""           # login do portal NDD
     ndd_password: str = ""           # senha do portal NDD
+    # Portal Nacional NFS-e (ADN — adn.nfse.gov.br)
+    portal_nfse_ambiente: str = "1"  # 1=produção, 2=homologação
+    portal_nfse_base_url: str = "https://adn.nfse.gov.br"
     model_config = {"env_file": ".env"}
 
 
