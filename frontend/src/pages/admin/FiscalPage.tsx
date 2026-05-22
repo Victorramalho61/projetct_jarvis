@@ -242,6 +242,8 @@ export default function FiscalPage() {
   // drill-down
   const [detailDoc, setDetailDoc]       = useState<NfseDoc | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailFetching, setDetailFetching] = useState(false);
+  const [detailFetchMsg, setDetailFetchMsg] = useState("");
 
   // sync
   const [syncLogs, setSyncLogs]         = useState<SyncLog[]>([]);
@@ -387,6 +389,7 @@ export default function FiscalPage() {
   // ── Drill-down ──────────────────────────────────────────────────────────────
   const openDetail = async (doc: NfseDoc) => {
     setDetailDoc(doc);
+    setDetailFetchMsg("");
     if (doc.xml_content) return;
     setDetailLoading(true);
     try {
@@ -394,6 +397,57 @@ export default function FiscalPage() {
       setDetailDoc(full);
     } catch {/* mostra o que temos */} finally {
       setDetailLoading(false);
+    }
+  };
+
+  const fetchDetailByKey = async () => {
+    if (!detailDoc || !token || detailFetching) return;
+    setDetailFetching(true);
+    setDetailFetchMsg("");
+    try {
+      const r = await apiFetch<{ found: boolean; source: string; document: NfseDoc }>(
+        "/api/fiscal/fetch-by-key",
+        { token, method: "POST", json: { company_id: detailDoc.company_id, chave_acesso: detailDoc.chave_acesso } }
+      );
+      if (r.found) {
+        setDetailDoc(r.document);
+        setDetailFetchMsg("✅ Documento atualizado do portal.");
+      } else {
+        setDetailFetchMsg("⚠️ Não encontrado nos portais.");
+      }
+    } catch (e) {
+      setDetailFetchMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDetailFetching(false);
+    }
+  };
+
+  const [downloadingDanfse, setDownloadingDanfse] = useState(false);
+
+  const downloadDanfse = async (doc: NfseDoc) => {
+    if (!token || downloadingDanfse) return;
+    setDownloadingDanfse(true);
+    try {
+      const resp = await fetch(
+        `/api/fiscal/${doc.company_id}/danfse/${doc.chave_acesso}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setDetailFetchMsg(`Erro DANFS-e: ${(err as any).detail ?? resp.status}`);
+        return;
+      }
+      const blob = await resp.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = `DANFSe_${doc.numero ?? doc.chave_acesso?.slice(0, 12)}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      setDetailFetchMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setDownloadingDanfse(false);
     }
   };
 
@@ -569,7 +623,7 @@ export default function FiscalPage() {
 
   // ── Busca por chave de acesso ────────────────────────────────────────────────
   const fetchByKey = async () => {
-    if (!token || fetchKey.length !== 44 || !fetchKeyCompanyId) return;
+    if (!token || (fetchKey.length !== 44 && fetchKey.length !== 50) || !fetchKeyCompanyId) return;
     setFetchKeyLoading(true);
     setFetchKeyError("");
     setFetchKeyResult(null);
@@ -1159,18 +1213,18 @@ export default function FiscalPage() {
                 <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-600"}`}>Chave de acesso</label>
                 <input
                   value={fetchKey}
-                  onChange={(e) => setFetchKey(e.target.value.replace(/\D/g, "").slice(0, 44))}
+                  onChange={(e) => setFetchKey(e.target.value.replace(/\D/g, "").slice(0, 50))}
                   placeholder="44 dígitos numéricos"
                   className={`w-full font-mono text-sm rounded-lg border px-3 py-2 ${isDark ? "bg-gray-800 border-gray-600 text-white" : "bg-white border-gray-300"}`}
                   maxLength={44}
                 />
                 <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                  {fetchKey.length}/44 dígitos · Busca: banco local → Portal ADN (NFS-e) → SEFAZ NF-e. Salva automaticamente.
+                  {fetchKey.length}/{fetchKey.length <= 44 ? "44" : "50"} dígitos · NF-e/CT-e = 44 dígitos · NFS-e Portal Nacional = 50 dígitos · Salva automaticamente.
                 </p>
               </div>
               <button
                 onClick={fetchByKey}
-                disabled={fetchKey.length !== 44 || fetchKeyLoading || !fetchKeyCompanyId}
+                disabled={(fetchKey.length !== 44 && fetchKey.length !== 50) || fetchKeyLoading || !fetchKeyCompanyId}
                 className="w-full px-4 py-2 bg-emerald-600 text-white text-sm rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 transition-colors"
               >
                 {fetchKeyLoading ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> : "🔍 Buscar nos portais"}
@@ -1213,12 +1267,29 @@ export default function FiscalPage() {
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => setDetailDoc(null)}
-                className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"}`}
-              >
-                <Icon name="x" size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => downloadDanfse(detailDoc)}
+                  disabled={downloadingDanfse}
+                  title="Baixar DANFS-e em PDF via Portal Nacional (usa certificado da empresa)"
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors ${
+                    isDark
+                      ? "bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-40"
+                      : "bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40"
+                  }`}
+                >
+                  {downloadingDanfse
+                    ? <span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" />
+                    : "📄"}
+                  DANFS-e
+                </button>
+                <button
+                  onClick={() => setDetailDoc(null)}
+                  className={`p-2 rounded-lg transition-colors ${isDark ? "hover:bg-gray-800" : "hover:bg-gray-100"}`}
+                >
+                  <Icon name="x" size={16} />
+                </button>
+              </div>
             </div>
 
             <div className="p-5 space-y-5">
@@ -1281,8 +1352,30 @@ export default function FiscalPage() {
 
               <div className={`grid grid-cols-2 gap-3 text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
                 <div>
-                  <span className="font-semibold">Chave de Acesso</span>
-                  <p className="font-mono mt-0.5 break-all">{detailDoc.chave_acesso}</p>
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-semibold">Chave de Acesso</span>
+                    <button
+                      onClick={fetchDetailByKey}
+                      disabled={detailFetching}
+                      title="Buscar NFS-e completa nos portais"
+                      className={`px-2 py-0.5 rounded text-xs flex items-center gap-1 transition-colors ${
+                        isDark
+                          ? "bg-gray-700 hover:bg-gray-600 text-gray-200 disabled:opacity-40"
+                          : "bg-gray-100 hover:bg-gray-200 text-gray-700 disabled:opacity-40"
+                      }`}
+                    >
+                      {detailFetching
+                        ? <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                        : "🔍"}
+                      <span>Buscar</span>
+                    </button>
+                  </div>
+                  <p className="font-mono break-all">{detailDoc.chave_acesso}</p>
+                  {detailFetchMsg && (
+                    <p className={`mt-1 text-xs ${detailFetchMsg.startsWith("✅") ? "text-emerald-500" : "text-red-400"}`}>
+                      {detailFetchMsg}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <span className="font-semibold">NDD ID</span>

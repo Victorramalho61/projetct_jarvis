@@ -536,50 +536,88 @@ def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
                 cnpj, cert_path, key_path,
                 getattr(settings, "portal_nfse_ambiente", "1"),
             )
-            docs = fetcher.dist_dfe_interesse(ultimo_nsu)   # sync — OK, estamos em thread pool
 
-        nsu_maximo = ultimo_nsu
-        for doc in docs:
-            if doc.get("tipo") == "cancelamento":
-                # Tenta cancelar pelo XML da nota se disponível
-                parsed = parse_nfse_portal(doc["xml"]) if doc.get("xml") else None
-                if parsed and parsed.get("chave_acesso"):
-                    sb.table("fiscal_documents").update(
-                        {"status": "cancelado"}
-                    ).eq("chave_acesso", parsed["chave_acesso"]).execute()
-                docs_cancelados += 1
-                if doc.get("nsu"):
-                    nsu_maximo = max(nsu_maximo, int(doc["nsu"]))
-                continue
+            # Incremental: processa e salva cada página ADN (~50 docs) imediatamente.
+            # Evita acumular 100k docs em RAM e torna o sync resumível por NSU.
+            nsu_maximo     = ultimo_nsu
+            periods_seen: set = set()
 
-            parsed = parse_nfse_portal(doc["xml"]) if doc.get("xml") else None
-            if not parsed:
-                continue
+            for page_docs, nsu_pagina in fetcher.iter_dfe_interesse(ultimo_nsu):
+                nsu_maximo = max(nsu_maximo, nsu_pagina)
 
-            parsed.update({
-                "company_id":   company_id,
-                "fonte":        "portal_nacional",
-                "nsu_nacional": doc.get("nsu"),
-                "tipo_schema":  doc.get("tipo_schema", "completo"),
-                "xml_hash":     doc.get("xml_hash") or _compute_hash(doc.get("xml", "")),
-                "xml_content":  doc.get("xml", ""),
-            })
-            _ensure_period(sb, company_id, parsed.get("data_emissao"), parsed)
+                cancelamentos = [d for d in page_docs if d.get("tipo") == "cancelamento"]
+                novos_raw     = [d for d in page_docs if d.get("tipo") != "cancelamento"]
 
-            try:
-                sb.table("fiscal_documents").upsert(
-                    parsed, on_conflict="chave_acesso"
-                ).execute()
-                docs_novos += 1
-            except Exception as exc:
-                _logger.warning("[%s] Portal NFS-e upsert erro: %s", cnpj, exc)
+                for doc in cancelamentos:
+                    parsed = parse_nfse_portal(doc["xml"]) if doc.get("xml") else None
+                    if parsed and parsed.get("chave_acesso"):
+                        sb.table("fiscal_documents").update(
+                            {"status": "cancelado"}
+                        ).eq("chave_acesso", parsed["chave_acesso"]).execute()
+                    docs_cancelados += 1
 
-            if doc.get("nsu"):
-                nsu_maximo = max(nsu_maximo, int(doc["nsu"]))
+                # Filtro de data: só salva NFS-e com emissão >= 2026-01-01
+                DATA_INICIO_PORTAL = date(2026, 1, 1)
 
-        # Atualiza watermark NSU e timestamp do último sync
+                parsed_page: list[dict] = []
+                for doc in novos_raw:
+                    parsed = parse_nfse_portal(doc["xml"]) if doc.get("xml") else None
+                    if not parsed:
+                        continue
+                    emissao_str = parsed.get("data_emissao") or ""
+                    if emissao_str:
+                        try:
+                            if date.fromisoformat(emissao_str[:10]) < DATA_INICIO_PORTAL:
+                                continue  # ignora docs antigos — só salva a partir de 2026
+                        except ValueError:
+                            pass
+                    parsed.update({
+                        "company_id":   company_id,
+                        "fonte":        "portal_nacional",
+                        "nsu_nacional": doc.get("nsu"),
+                        "tipo_schema":  doc.get("tipo_schema", "completo"),
+                        "xml_hash":     doc.get("xml_hash") or _compute_hash(doc.get("xml", "")),
+                        "xml_content":  doc.get("xml", ""),
+                    })
+                    # chave_acesso da API ADN é autoritativa — usa como fallback se parser não extraiu
+                    if not parsed.get("chave_acesso") and doc.get("chave_acesso"):
+                        parsed["chave_acesso"] = doc["chave_acesso"]
+                    parsed.pop("_items", None)  # campo interno do parser, não existe na tabela
+                    emissao = parsed.get("data_emissao")
+                    if emissao:
+                        try:
+                            from datetime import date as _date
+                            d = _date.fromisoformat(str(emissao)[:10])
+                            pk = (company_id, d.year, d.month)
+                            if pk not in periods_seen:
+                                periods_seen.add(pk)
+                                _ensure_period(sb, company_id, emissao, parsed)
+                        except ValueError:
+                            pass
+                    parsed_page.append(parsed)
+
+                if parsed_page:
+                    try:
+                        sb.table("fiscal_documents").upsert(
+                            parsed_page, on_conflict="chave_acesso"
+                        ).execute()
+                        docs_novos += len(parsed_page)
+                    except Exception as exc:
+                        _logger.warning("[%s] Portal NFS-e batch upsert erro: %s", cnpj, exc)
+                        for pdoc in parsed_page:
+                            try:
+                                sb.table("fiscal_documents").upsert(pdoc, on_conflict="chave_acesso").execute()
+                                docs_novos += 1
+                            except Exception as exc2:
+                                _logger.warning("[%s] Portal NFS-e upsert individual erro: %s", cnpj, exc2)
+
+                # Salva NSU após cada página — sync é resumível se interrompido
+                sb.table("fiscal_companies").update({
+                    "ultimo_nsu_nfse_nacional": nsu_maximo,
+                }).eq("id", company_id).execute()
+
+        # Atualiza timestamp do último sync completo
         sb.table("fiscal_companies").update({
-            "ultimo_nsu_nfse_nacional": nsu_maximo,
             "portal_nfse_last_sync_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", company_id).execute()
 

@@ -86,6 +86,10 @@ class PortalNFSeFetcher:
                     "Verifique certificado e registro em gov.br/nfse."
                 )
 
+            if resp.status_code == 404:
+                _logger.info("[%s] ADN HTTP 404 — fim da fila, NSU=%d", self.cnpj, nsu_atual)
+                break
+
             if resp.status_code == 429:
                 retry_after = resp.headers.get("Retry-After", "3600")
                 _logger.warning(
@@ -152,6 +156,113 @@ class PortalNFSeFetcher:
             self.cnpj, len(docs), ultimo_nsu, nsu_atual,
         )
         return docs
+
+    # ------------------------------------------------------------------
+    # Distribuição incremental por NSU — versão generator (save-as-you-go)
+    # ------------------------------------------------------------------
+    def iter_dfe_interesse(self, ultimo_nsu: int):
+        """
+        Generator: baixa uma página por vez do ADN e yield (batch, nsu_atual).
+        Permite save incremental sem acumular tudo em RAM.
+        """
+        if not self._cert:
+            raise RuntimeError(
+                f"[{self.cnpj}] Certificado digital ausente. "
+                "Faça upload via POST /api/fiscal/{id}/certificates"
+            )
+
+        nsu_atual = ultimo_nsu
+        req_count = 0
+
+        while True:
+            nsu_snap = nsu_atual
+
+            def _get():
+                return requests.get(
+                    f"{self._base}/DFe/{nsu_snap:015d}",
+                    cert=self._cert,
+                    verify=True,
+                    timeout=30,
+                    headers={"Accept": "application/json"},
+                )
+
+            try:
+                resp = with_backoff(_get)
+            except requests.exceptions.SSLError as exc:
+                _logger.error("[%s] ADN SSL error: %s", self.cnpj, exc)
+                raise
+
+            if resp.status_code in (401, 403):
+                raise RuntimeError(
+                    f"[{self.cnpj}] ADN acesso negado (HTTP {resp.status_code}). "
+                    "Verifique certificado e registro em gov.br/nfse."
+                )
+
+            if resp.status_code == 404:
+                _logger.info(
+                    "[%s] ADN HTTP 404 — fim da fila, NSU=%d",
+                    self.cnpj, nsu_atual,
+                )
+                return
+
+            if resp.status_code == 429:
+                retry_after = resp.headers.get("Retry-After", "3600")
+                _logger.warning(
+                    "[%s] ADN HTTP 429 — limite de req/hora atingido (Retry-After: %ss). "
+                    "Interrompendo em NSU=%d.",
+                    self.cnpj, retry_after, nsu_atual,
+                )
+                return
+
+            resp.raise_for_status()
+            payload = resp.json()
+
+            status_proc = payload.get("StatusProcessamento", "")
+            lote_dfe    = payload.get("LoteDFe") or []
+
+            if status_proc != STATUS_LOCALIZADOS or not lote_dfe:
+                _logger.info(
+                    "[%s] ADN StatusProcessamento=%r (fim da fila), NSU=%d",
+                    self.cnpj, status_proc, nsu_atual,
+                )
+                return
+
+            req_count += 1
+            if req_count % 10 == 1 or req_count <= 3:
+                _logger.info("[%s] ADN req #%d NSU=%d", self.cnpj, req_count, nsu_atual)
+
+            nsu_antes = nsu_atual
+            batch: list[dict] = []
+            for item in lote_dfe:
+                nsu        = int(item.get("NSU", nsu_atual))
+                tipo_doc   = str(item.get("TipoDocumento", ""))
+                chave      = str(item.get("ChaveAcesso", ""))
+                xml_str    = _decompress(item.get("ArquivoXml") or "")
+
+                if not xml_str:
+                    _logger.warning("[%s] ADN NSU=%d ArquivoXml vazio/inválido", self.cnpj, nsu)
+                    continue
+
+                tipo        = "cancelamento" if "CANCEL" in tipo_doc.upper() else "documento"
+                tipo_schema = "completo"
+
+                batch.append({
+                    "nsu":          nsu,
+                    "schema":       tipo_doc,
+                    "tipo":         tipo,
+                    "tipo_schema":  tipo_schema,
+                    "xml":          xml_str,
+                    "xml_hash":     hashlib.sha256(xml_str.encode("utf-8")).hexdigest(),
+                    "fonte":        "portal_nacional",
+                    "chave_acesso": chave,
+                })
+                nsu_atual = max(nsu_atual, nsu)
+
+            if nsu_atual <= nsu_antes:
+                return
+
+            yield batch, nsu_atual
+            time.sleep(2)
 
     # ------------------------------------------------------------------
     # Busca on-demand por chave de acesso

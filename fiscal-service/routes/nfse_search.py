@@ -308,8 +308,8 @@ async def fetch_document_by_key(
 
     if not company_id or not chave:
         raise HTTPException(400, "company_id e chave_acesso são obrigatórios")
-    if len(chave) != 44 or not chave.isdigit():
-        raise HTTPException(400, "chave_acesso deve conter exatamente 44 dígitos numéricos")
+    if len(chave) not in (44, 50) or not chave.isdigit():
+        raise HTTPException(400, "chave_acesso deve ter 44 dígitos (NF-e/CT-e) ou 50 dígitos (NFS-e Portal Nacional)")
 
     sb = get_supabase()
 
@@ -391,3 +391,70 @@ async def fetch_document_by_key(
             _logger.warning("fetch_by_key SEFAZ erro: %s", exc)
 
     raise HTTPException(404, f"Documento com chave {chave[:20]}... não encontrado em nenhum portal")
+
+
+@router.get("/{company_id}/danfse/{chave_acesso}")
+def download_danfse(
+    company_id: str,
+    chave_acesso: str,
+    _user: dict = Depends(get_current_user),
+):
+    """
+    Baixa o DANFS-e em PDF diretamente do ADN (gov.br/nfse) usando o certificado da empresa.
+    Endpoint ADN: GET /contribuintes/danfse/{chaveAcesso}  → application/pdf
+    """
+    import requests
+    from fastapi.responses import Response
+    from services.cert_manager import extract_pem_for_requests
+    from services.portal_nfse_fetcher import ADN_PROD, ADN_HOM
+
+    chave = chave_acesso.strip()
+    if not chave.isdigit() or len(chave) not in (44, 50):
+        raise HTTPException(400, "chave_acesso inválida")
+
+    sb = get_supabase()
+    co = sb.table("fiscal_companies").select(
+        "id,cnpj,cert_pfx_encrypted,cert_password_encrypted"
+    ).eq("id", company_id).execute()
+    if not co.data:
+        raise HTTPException(404, "Empresa não encontrada")
+
+    company  = co.data[0]
+    settings = get_settings()
+
+    if not company.get("cert_pfx_encrypted"):
+        raise HTTPException(400, "Empresa sem certificado digital cadastrado")
+
+    try:
+        with extract_pem_for_requests(
+            company["cert_pfx_encrypted"],
+            company["cert_password_encrypted"],
+            settings.cert_encryption_key,
+        ) as (cert_path, key_path):
+            base = ADN_PROD if getattr(settings, "portal_nfse_ambiente", "1") == "1" else ADN_HOM
+            resp = requests.get(
+                f"{base}/danfse/{chave}",
+                cert=(cert_path, key_path),
+                verify=True,
+                timeout=30,
+                headers={"Accept": "application/pdf"},
+            )
+
+        if resp.status_code == 404:
+            raise HTTPException(404, "DANFS-e não encontrado no portal para esta chave")
+        if resp.status_code in (401, 403):
+            raise HTTPException(403, "Acesso negado ao ADN — verifique o certificado")
+        resp.raise_for_status()
+
+        content_type = resp.headers.get("Content-Type", "application/pdf")
+        filename = f"DANFSe_{chave[:12]}.pdf"
+        return Response(
+            content=resp.content,
+            media_type=content_type,
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        _logger.warning("download_danfse erro: %s", exc)
+        raise HTTPException(500, f"Erro ao buscar DANFS-e: {exc}")

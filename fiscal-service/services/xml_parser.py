@@ -36,50 +36,72 @@ def _compute_hash(xml_str: str) -> str:
 
 
 def parse_nfse_portal(xml_str: str) -> Optional[dict]:
-    """Parse NFS-e do Portal Nacional ADN. Namespace: http://www.sped.fazenda.gov.br/nfse"""
+    """Parse NFS-e do Portal Nacional ADN (gov.br/nfse).
+    Estrutura real: <NFSe><infNFSe Id="NFS..."><emit>...<DPS><infDPS><toma>...
+    """
     try:
         clean = xml_str.lstrip("﻿")
         root = ET.fromstring(clean)
+        ns = NS_NFSE
 
-        inf = root.find(f".//{{{NS_NFSE}}}InfNFSe") or root.find(".//InfNFSe")
+        # Elemento raiz da nota: infNFSe (i minúsculo)
+        inf = (root.find(f"{{{ns}}}infNFSe")
+               or root.find(f".//{{{ns}}}infNFSe")
+               or root.find("infNFSe")
+               or root.find(".//infNFSe"))
         if inf is None:
+            # <evento> é documento de cancelamento — silencioso, tratado pelo scheduler
+            tag_local = root.tag.split("}")[-1] if "}" in root.tag else root.tag
+            if tag_local != "evento":
+                _logger.warning("parse_nfse_portal: infNFSe não encontrado. root.tag=%r", root.tag)
             return None
 
-        def txt(path):
-            el = inf.find(path)
-            return el.text.strip() if el is not None and el.text else ""
+        def _t(el, *tags):
+            for tag in tags:
+                child = el.find(f"{{{ns}}}{tag}")
+                if child is None:
+                    child = el.find(tag)
+                if child is not None and child.text:
+                    return child.text.strip()
+            return ""
 
-        def ptxt(el, tag):
-            if el is None:
-                return ""
-            child = el.find(f".//{{{NS_NFSE}}}{tag}")
-            if child is None:
-                child = el.find(f".//{tag}")
-            return child.text.strip() if child is not None and child.text else ""
+        # Emitente: <emit><CNPJ>...</CNPJ><xNome>...</xNome></emit>
+        emit = inf.find(f"{{{ns}}}emit") or inf.find("emit")
 
-        prest = inf.find(f"{{{NS_NFSE}}}Prestador") or inf.find("Prestador")
-        tomad = inf.find(f"{{{NS_NFSE}}}Tomador")   or inf.find("Tomador")
-        vals  = inf.find(f".//{{{NS_NFSE}}}Valores") or inf.find(".//Valores")
+        # Tomador e data de emissão ficam dentro de DPS/infDPS
+        inf_dps = inf.find(f".//{{{ns}}}infDPS") or inf.find(".//infDPS")
+        toma, data_raw, serie = None, "", None
+        if inf_dps is not None:
+            toma = inf_dps.find(f"{{{ns}}}toma") or inf_dps.find("toma")
+            data_raw = _t(inf_dps, "dhEmi", "dEmi")
+            serie_val = _t(inf_dps, "serie")
+            serie = serie_val or None
 
-        data_raw = txt(f"{{{NS_NFSE}}}DataEmissao") or txt(f"{{{NS_NFSE}}}DhEmi")
+        # Valores: <valores><vLiq>|<vBC> e <vISSQN>
+        vals = inf.find(f"{{{ns}}}valores") or inf.find("valores")
+
+        # chave_acesso = Id do infNFSe sem o prefixo "NFS"
+        inf_id = inf.get("Id") or ""
+        chave = inf_id[3:] if inf_id.startswith("NFS") else inf_id or None
 
         return {
             "tipo":              "NFSe",
-            "chave_acesso":      inf.get("Id") or txt(f"{{{NS_NFSE}}}ChaveAcesso"),
-            "numero":            txt(f"{{{NS_NFSE}}}Numero") or txt(f"{{{NS_NFSE}}}NumeroNFSe"),
-            "serie":             txt(f"{{{NS_NFSE}}}Serie") or None,
+            "chave_acesso":      chave,
+            "numero":            _t(inf, "nNFSe", "nDFSe", "nDPS"),
+            "serie":             serie,
             "data_emissao":      data_raw[:10] if data_raw else None,
-            "emitente_cnpj":     ptxt(prest, "Cnpj"),
-            "emitente_nome":     ptxt(prest, "RazaoSocial") or ptxt(prest, "NomePrestador"),
-            "destinatario_cnpj": ptxt(tomad, "Cnpj"),
-            "destinatario_nome": ptxt(tomad, "RazaoSocial") or ptxt(tomad, "NomeTomador"),
-            "valor_total":       _decimal(ptxt(vals, "ValorServicos")),
-            "valor_iss":         _decimal(ptxt(vals, "ValorIss")),
-            "valor_pis":         _decimal(ptxt(vals, "ValorPis")),
-            "valor_cofins":      _decimal(ptxt(vals, "ValorCofins")),
+            "emitente_cnpj":     _t(emit, "CNPJ") if emit is not None else "",
+            "emitente_nome":     _t(emit, "xNome") if emit is not None else "",
+            "destinatario_cnpj": _t(toma, "CNPJ") if toma is not None else "",
+            "destinatario_nome": _t(toma, "xNome") if toma is not None else "",
+            "valor_total":       _decimal(_t(vals, "vLiq", "vBC") if vals is not None else ""),
+            "valor_iss":         _decimal(_t(vals, "vISSQN") if vals is not None else ""),
+            "valor_pis":         0.0,
+            "valor_cofins":      0.0,
             "valor_icms":        0.0,
-            "valor_produtos":    _decimal(ptxt(vals, "ValorServicos")),
-            "municipio_ibge":    txt(f"{{{NS_NFSE}}}CodigoMunicipio") or None,
+            "valor_produtos":    _decimal(_t(vals, "vLiq", "vBC") if vals is not None else ""),
+            "municipio_ibge":    _t(inf, "cLocIncid") or None,
+            "municipio_nome":    _t(inf, "xLocIncid") or None,
             "status":            "pendente",
             "fonte":             "portal_nacional",
             "_items":            [],
