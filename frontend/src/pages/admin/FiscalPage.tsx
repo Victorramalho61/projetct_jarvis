@@ -422,41 +422,22 @@ export default function FiscalPage() {
     }
   };
 
-  const [downloadingDanfse, setDownloadingDanfse] = useState(false);
+  const downloadingDanfse = false; // kept to avoid breaking disabled prop ref
 
-  const downloadDanfse = async (doc: NfseDoc) => {
-    if (!token || downloadingDanfse) return;
-    setDownloadingDanfse(true);
-    try {
-      const resp = await fetch(
-        `/api/fiscal/${doc.company_id}/danfse/${doc.chave_acesso}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+  const downloadDanfse = (doc: NfseDoc) => {
+    // ADN /contribuintes não expõe endpoint de DANFS-e PDF.
+    // Portal público: nfse.gov.br/consultapublica permite visualizar e baixar.
+    const chave = doc.chave_acesso ?? "";
+    if (chave.length === 44) {
+      window.open(
+        `https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=completa&nfe=${chave}`,
+        "_blank", "noopener,noreferrer"
       );
-      if (!resp.ok) {
-        if (resp.status === 404) {
-          // ADN ainda não gerou o DANFS-e — abre consulta pública como fallback
-          window.open(
-            `https://www.nfse.gov.br/consultapublica?chave=${doc.chave_acesso}`,
-            "_blank", "noopener,noreferrer"
-          );
-          setDetailFetchMsg("PDF não disponível no ADN ainda. Abrindo consulta pública…");
-        } else {
-          const err = await resp.json().catch(() => ({}));
-          setDetailFetchMsg(`Erro DANFS-e: ${(err as any).detail ?? resp.status}`);
-        }
-        return;
-      }
-      const blob = await resp.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a");
-      a.href     = url;
-      a.download = `DANFSe_${doc.numero ?? doc.chave_acesso?.slice(0, 12)}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setDetailFetchMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setDownloadingDanfse(false);
+    } else {
+      window.open(
+        `https://www.nfse.gov.br/consultapublica?chave=${chave}`,
+        "_blank", "noopener,noreferrer"
+      );
     }
   };
 
@@ -1291,15 +1272,11 @@ export default function FiscalPage() {
                       : "bg-gradient-to-br from-blue-500 to-blue-700 hover:from-blue-400 hover:to-blue-600 border-blue-300/50 text-white shadow-blue-200"
                   }`}
                 >
-                  {downloadingDanfse ? (
-                    <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  ) : (
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                        d="M12 10v6m0 0l-3-3m3 3l3-3M3 17v3a1 1 0 001 1h16a1 1 0 001-1v-3" />
-                    </svg>
-                  )}
-                  <span>{downloadingDanfse ? "Baixando…" : "Download DANFS-e"}</span>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  <span>DANFS-e</span>
                 </button>
                 <button
                   onClick={() => setDetailDoc(null)}
