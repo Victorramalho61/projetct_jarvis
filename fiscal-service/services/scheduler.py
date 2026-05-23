@@ -39,17 +39,11 @@ async def start_scheduler():
         id="sync_nfse_ndd",
         misfire_grace_time=600,
     )
-    _scheduler.add_job(
-        _sync_portal_nfse,
-        "cron",
-        minute=0,                # toda hora cheia; filtra por portal_nfse_hora_sync na função
-        id="sync_portal_nfse",
-        misfire_grace_time=300,
-    )
+    _schedule_portal_nfse_jobs(_scheduler)
     _scheduler.start()
     _logger.info(
         "Scheduler fiscal iniciado: 02:00 (NFe/CTe) + 04:00 (retry) "
-        "+ 05:00 (NFSe NDD) + 06:00 (NFSe Portal Nacional)"
+        "+ 05:00 (NFSe NDD) + Portal NFS-e no(s) horário(s) configurado(s)"
     )
 
 
@@ -58,6 +52,41 @@ async def stop_scheduler():
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         _logger.info("Scheduler fiscal encerrado")
+
+
+def _schedule_portal_nfse_jobs(scheduler):
+    """Cria um cron job por hora distinta configurada em portal_nfse_hora_sync.
+    Roda apenas nas horas das empresas ativas — sem disparos desnecessários.
+    Para aplicar mudanças de horário reinicie o serviço."""
+    from db import get_supabase
+    sb = get_supabase()
+    try:
+        res = sb.table("fiscal_companies").select("portal_nfse_hora_sync").eq(
+            "sync_portal_nfse_ativo", True
+        ).execute()
+        horas = sorted({
+            r["portal_nfse_hora_sync"]
+            for r in (res.data or [])
+            if r.get("portal_nfse_hora_sync") is not None
+        })
+    except Exception:
+        _logger.warning("Erro ao ler portal_nfse_hora_sync — usando fallback 06:00")
+        horas = [6]
+
+    if not horas:
+        horas = [6]
+
+    for hora in horas:
+        scheduler.add_job(
+            _sync_portal_nfse,
+            "cron",
+            hour=hora,
+            minute=0,
+            id=f"sync_portal_nfse_{hora:02d}h",
+            misfire_grace_time=300,
+            replace_existing=True,
+        )
+        _logger.info("Portal NFS-e agendado: %02d:00 (Brasília)", hora)
 
 
 async def _sync_all_companies():
@@ -468,7 +497,7 @@ async def _sync_nfse_ndd_incremental():
 
 
 async def _sync_portal_nfse():
-    """Toda hora cheia — Portal Nacional NFS-e (ADN). Filtra empresas pela hora configurada."""
+    """Portal Nacional NFS-e (ADN) — dispara no horário configurado por empresa (portal_nfse_hora_sync)."""
     from db import get_supabase, get_settings
 
     hora_atual = datetime.now(TZ_BR).hour
@@ -481,14 +510,10 @@ async def _sync_portal_nfse():
     ).eq("sync_portal_nfse_ativo", True).eq("portal_nfse_hora_sync", hora_atual).execute()
     companies = result.data or []
 
-    if not companies:
-        _logger.info("Portal Nacional NFS-e %02d:00: nenhuma empresa agendada para esta hora", hora_atual)
-        return
-
     _logger.info("Portal Nacional NFS-e %02d:00: %d empresa(s)", hora_atual, len(companies))
     for company in companies:
         try:
-            await asyncio.to_thread(_sync_portal_nfse_company, company, "portal_06h")
+            await asyncio.to_thread(_sync_portal_nfse_company, company, f"portal_{hora_atual:02d}h")
         except Exception:
             _logger.exception("Erro no sync Portal NFS-e para CNPJ %s", company.get("cnpj"))
 
