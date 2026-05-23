@@ -200,6 +200,19 @@ type Tab = "dashboard" | "nfse" | "nfe" | "sync" | "certificados";
 const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
 const DOCS_LIMIT = 50;
 
+function NoCompanyPrompt({ isDark, card }: { isDark: boolean; card: string }) {
+  return (
+    <div className={`rounded-xl border p-12 text-center ${card}`}>
+      <svg className="w-8 h-8 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+      </svg>
+      <p className={`text-sm font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+        Selecione uma empresa no topo da página
+      </p>
+    </div>
+  );
+}
+
 export default function FiscalPage() {
   const { token } = useAuth();
   const { theme } = useTheme();
@@ -770,7 +783,7 @@ export default function FiscalPage() {
               </label>
               <select
                 value={selectedId}
-                onChange={(e) => { setSelectedId(e.target.value); setDocsOffset(0); }}
+                onChange={(e) => { setSelectedId(e.target.value); setDocsOffset(0); setNfeOffset(0); }}
                 className={`${inp} min-w-[240px]`}
               >
                 <option value="">Todas as empresas</option>
@@ -831,6 +844,9 @@ export default function FiscalPage() {
       {/* ════ TAB: DASHBOARD ════ */}
       {tab === "dashboard" && (
         <div className="space-y-5">
+          {!selectedId ? (
+            <NoCompanyPrompt isDark={isDark} card={card} />
+          ) : (<>
 
           {/* Cards resumo da empresa selecionada (ano corrente) */}
           {currentCompany && stats && (
@@ -941,12 +957,14 @@ export default function FiscalPage() {
               Nenhum dado para o período selecionado.
             </p>
           )}
+          </>)}
         </div>
       )}
 
       {/* ════ TAB: NFSe ════ */}
       {tab === "nfse" && (
         <div className="space-y-4">
+          {!selectedId ? <NoCompanyPrompt isDark={isDark} card={card} /> : (<>
           {/* Filtros */}
           <div className={`rounded-xl border p-4 ${card}`}>
             <div className="flex flex-wrap gap-3">
@@ -1382,6 +1400,7 @@ export default function FiscalPage() {
               ) : null}
             </div>
           </div>
+          </>)}
         </div>
       )}
 
@@ -1686,12 +1705,14 @@ export default function FiscalPage() {
               </table>
             </div>
           </div>
+          </>)}
         </div>
       )}
 
       {/* ════ TAB: NFe / CTe ════ */}
       {tab === "nfe" && (
         <div className="space-y-4">
+          {!selectedId ? <NoCompanyPrompt isDark={isDark} card={card} /> : (<>
           <div className={`rounded-xl border p-4 ${card}`}>
             <div className="flex flex-wrap gap-3">
               <input type="text" placeholder="Busca (emitente, chave...)" value={nfeQ}
