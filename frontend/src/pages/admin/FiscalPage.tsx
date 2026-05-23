@@ -293,10 +293,18 @@ export default function FiscalPage() {
   // busca por chave — seletor próprio de empresa
   const [fetchKeyCompanyId, setFetchKeyCompanyId] = useState("");
 
-  // export — filtros de data
-  const [exportDateInicio, setExportDateInicio] = useState("");
+  // filtros de data — NFSe (usados na busca E no export)
+  const [exportDateInicio, setExportDateInicio] = useState(() => {
+    const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  });
   const [exportDateFim, setExportDateFim]       = useState(() => new Date().toISOString().slice(0, 10));
   const [exportError, setExportError]           = useState("");
+
+  // filtros de data — NFe/CTe
+  const [nfeDataInicio, setNfeDataInicio] = useState(() => {
+    const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  });
+  const [nfeDataFim, setNfeDataFim]       = useState(() => new Date().toISOString().slice(0, 10));
 
   // ── Load companies ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -348,13 +356,15 @@ export default function FiscalPage() {
   const loadDocs = useCallback(() => {
     if (!token) return;
     const p = new URLSearchParams({ limit: String(DOCS_LIMIT), offset: String(docsOffset), tipo: "NFSe" });
-    if (selectedId)      p.set("company_id", selectedId);
-    if (q)               p.set("q", q);
-    if (filterStatus)    p.set("status", filterStatus);
-    if (filterFonte)     p.set("fonte", filterFonte);
-    if (filterMunicipio) p.set("municipio", filterMunicipio);
+    if (selectedId)        p.set("company_id", selectedId);
+    if (q)                 p.set("q", q);
+    if (filterStatus)      p.set("status", filterStatus);
+    if (filterFonte)       p.set("fonte", filterFonte);
+    if (filterMunicipio)   p.set("municipio", filterMunicipio);
     if (filterCnpj)        p.set("emitente_cnpj", filterCnpj);
     if (filterTomadorCnpj) p.set("destinatario_cnpj", filterTomadorCnpj);
+    if (exportDateInicio)  p.set("data_inicio", exportDateInicio);
+    if (exportDateFim)     p.set("data_fim", exportDateFim);
     const key = `docs:${p}`;
     const hit = cached<NfseDoc[]>(key, 60_000);
     if (hit) { setDocs(hit); return; }
@@ -363,7 +373,7 @@ export default function FiscalPage() {
       .then((r) => { const d = r.data ?? []; setDocs(d); setCache(key, d); })
       .catch(() => setDocs([]))
       .finally(() => setDocsLoading(false));
-  }, [token, selectedId, q, filterStatus, filterFonte, filterMunicipio, filterCnpj, filterTomadorCnpj, docsOffset]);
+  }, [token, selectedId, q, filterStatus, filterFonte, filterMunicipio, filterCnpj, filterTomadorCnpj, exportDateInicio, exportDateFim, docsOffset]);
 
   useEffect(() => { if (tab === "nfse") loadDocs(); }, [tab, loadDocs]);
 
@@ -520,16 +530,18 @@ export default function FiscalPage() {
   const loadNfeDocs = useCallback(() => {
     if (!token) return;
     const p = new URLSearchParams({ limit: String(DOCS_LIMIT), offset: String(nfeOffset), tipo: "NFe,CTe" });
-    if (selectedId)  p.set("company_id", selectedId);
-    if (nfeQ)        p.set("q", nfeQ);
-    if (nfeStatus)   p.set("status", nfeStatus);
-    if (nfeFonte)    p.set("fonte", nfeFonte);
+    if (selectedId)    p.set("company_id", selectedId);
+    if (nfeQ)          p.set("q", nfeQ);
+    if (nfeStatus)     p.set("status", nfeStatus);
+    if (nfeFonte)      p.set("fonte", nfeFonte);
+    if (nfeDataInicio) p.set("data_inicio", nfeDataInicio);
+    if (nfeDataFim)    p.set("data_fim", nfeDataFim);
     setNfeLoading(true);
     apiFetch<{ data: NfseDoc[] }>(`/api/fiscal/nfse?${p}`, { token })
       .then((r) => setNfeDocs(r.data ?? []))
       .catch(() => setNfeDocs([]))
       .finally(() => setNfeLoading(false));
-  }, [token, selectedId, nfeQ, nfeStatus, nfeFonte, nfeOffset]);
+  }, [token, selectedId, nfeQ, nfeStatus, nfeFonte, nfeDataInicio, nfeDataFim, nfeOffset]);
 
   useEffect(() => { if (tab === "nfe") loadNfeDocs(); }, [tab, loadNfeDocs]);
 
@@ -987,6 +999,16 @@ export default function FiscalPage() {
                 <option value="portal_nacional">Portal Nacional</option>
                 <option value="sefaz">SEFAZ</option>
               </select>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>De</label>
+                <input type="date" value={exportDateInicio} onChange={(e) => { setExportDateInicio(e.target.value); setDocsOffset(0); }}
+                  className={`${inp} w-32 text-xs py-1.5`} />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>Até</label>
+                <input type="date" value={exportDateFim} onChange={(e) => { setExportDateFim(e.target.value); setDocsOffset(0); }}
+                  className={`${inp} w-32 text-xs py-1.5`} />
+              </div>
               <button
                 onClick={() => { setDocsOffset(0); loadDocs(); }}
                 className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors"
@@ -994,19 +1016,6 @@ export default function FiscalPage() {
                 Buscar
               </button>
               <div className="flex flex-wrap items-end gap-2 ml-auto">
-                {/* Filtros de período para export */}
-                <div className="flex items-end gap-1">
-                  <div className="flex flex-col gap-0.5">
-                    <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>De</label>
-                    <input type="date" value={exportDateInicio} onChange={(e) => setExportDateInicio(e.target.value)}
-                      className={`${inp} w-32 text-xs py-1.5`} />
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>Até</label>
-                    <input type="date" value={exportDateFim} onChange={(e) => setExportDateFim(e.target.value)}
-                      className={`${inp} w-32 text-xs py-1.5`} />
-                  </div>
-                </div>
                 <button
                   onClick={() => exportCsv("NFSe")}
                   disabled={exportingCsv || !selectedId}
@@ -1699,6 +1708,16 @@ export default function FiscalPage() {
                 <option value="sefaz">SEFAZ</option>
                 <option value="portal_nacional">Portal Nacional</option>
               </select>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>De</label>
+                <input type="date" value={nfeDataInicio} onChange={(e) => { setNfeDataInicio(e.target.value); setNfeOffset(0); }}
+                  className={`${inp} w-32 text-xs py-1.5`} />
+              </div>
+              <div className="flex flex-col gap-0.5">
+                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>Até</label>
+                <input type="date" value={nfeDataFim} onChange={(e) => { setNfeDataFim(e.target.value); setNfeOffset(0); }}
+                  className={`${inp} w-32 text-xs py-1.5`} />
+              </div>
               <button onClick={loadNfeDocs} className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition-colors">
                 Buscar
               </button>
