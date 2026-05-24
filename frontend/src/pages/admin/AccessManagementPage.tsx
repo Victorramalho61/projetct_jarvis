@@ -14,7 +14,7 @@ const ALL_MODULES = [
   { id: "payfly",      label: "PayFly" },
 ];
 
-const PERF_ROLES = new Set(["rh", "gestor", "coordenador", "supervisor", "colaborador", "gestor_ciclo"]);
+const PERF_ROLES = new Set(["rh", "gerente", "coordenador_supervisor", "administrativo_operacional"]);
 
 function ModulesPanel({
   token,
@@ -27,7 +27,7 @@ function ModulesPanel({
 }) {
   const { toast, showToast } = useToast();
   const [selected, setSelected] = useState<string[]>([]);
-  const [perfRole, setPerfRole] = useState(PERF_ROLES.has(role) ? role : "colaborador");
+  const [perfRole, setPerfRole] = useState(PERF_ROLES.has(role) ? role : "administrativo_operacional");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -40,7 +40,7 @@ function ModulesPanel({
   }, [username, token]);
 
   useEffect(() => {
-    if (PERF_ROLES.has(role)) setPerfRole(role);
+    setPerfRole(PERF_ROLES.has(role) ? role : "administrativo_operacional");
   }, [role]);
 
   function toggle(id: string) {
@@ -110,15 +110,13 @@ function ModulesPanel({
                     onChange={(e) => setPerfRole(e.target.value)}
                     className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-voetur-500"
                   >
-                    <option value="colaborador">Colaborador</option>
-                    <option value="supervisor">Supervisor</option>
-                    <option value="coordenador">Coordenador</option>
-                    <option value="gestor">Gestor</option>
-                    <option value="gestor_ciclo">Gestor do Ciclo (RH operacional)</option>
+                    <option value="administrativo_operacional">Operacional / Administrativo (L3)</option>
+                    <option value="coordenador_supervisor">Coordenador / Supervisor (L2)</option>
+                    <option value="gerente">Gerente (L1)</option>
                     <option value="rh">RH (administrador do módulo)</option>
                   </select>
                   <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
-                    colaborador → supervisor → coordenador → gestor → gestor_ciclo → rh → admin
+                    administrativo_operacional → coordenador_supervisor → gerente → rh → admin
                   </p>
                 </div>
               )}
@@ -137,12 +135,81 @@ function ModulesPanel({
   );
 }
 
+function ResetPasswordPanel({
+  token,
+  username,
+  isSelf,
+}: {
+  token: string | null;
+  username: string;
+  isSelf: boolean;
+}) {
+  const { toast, showToast } = useToast();
+  const [newPassword, setNewPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleReset(e: FormEvent) {
+    e.preventDefault();
+    if (newPassword.length < 8) {
+      showToast("Senha deve ter no mínimo 8 caracteres.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiFetch(`/api/users/${username}/reset-password`, {
+        method: "POST",
+        token,
+        json: { new_password: newPassword },
+      });
+      setNewPassword("");
+      showToast("Senha redefinida com sucesso.");
+    } catch (err) {
+      showToast(err instanceof ApiError ? err.message : "Erro ao redefinir senha.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleReset} className="mt-4 rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-6 shadow-sm">
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-gray-900 px-4 py-3 text-sm text-white shadow-lg">
+          {toast}
+        </div>
+      )}
+      <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+        Redefinir senha
+        {isSelf && <span className="ml-2 text-xs font-normal text-gray-400 dark:text-gray-500">(sua própria conta)</span>}
+      </p>
+      <div className="flex gap-3 items-end">
+        <div className="flex-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nova senha</label>
+          <input
+            type="password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            placeholder="Mínimo 8 caracteres"
+            className="block w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 shadow-sm focus:border-voetur-500 focus:outline-none focus:ring-1 focus:ring-voetur-500"
+          />
+        </div>
+        <button
+          type="submit"
+          disabled={saving || newPassword.length < 8}
+          className="rounded-lg bg-amber-600 px-5 py-2 text-sm font-semibold text-white hover:bg-amber-700 disabled:opacity-50 transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2"
+        >
+          {saving ? "Salvando..." : "Redefinir"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 type Profile = {
   id: string;
   username: string;
   display_name: string;
   email: string;
-  role: "admin" | "user" | "rh" | "gestor" | "coordenador" | "supervisor" | "colaborador" | "gestor_ciclo";
+  role: "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional";
   active: boolean;
   created_at: string;
 };
@@ -406,11 +473,9 @@ export default function AccessManagementPage() {
                         <option value="user">Usuário</option>
                         <option value="admin">Admin</option>
                         <option value="rh">RH</option>
-                        <option value="gestor">Gestor</option>
-                        <option value="coordenador">Coordenador</option>
-                        <option value="supervisor">Supervisor</option>
-                        <option value="colaborador">Colaborador</option>
-                        <option value="gestor_ciclo">Gestor Ciclo</option>
+                        <option value="gerente">Gerente (L1)</option>
+                        <option value="coordenador_supervisor">Coordenador / Supervisor (L2)</option>
+                        <option value="administrativo_operacional">Operacional / Administrativo (L3)</option>
                       </select>
                     </td>
                     <td className="px-6 py-4">
@@ -447,6 +512,11 @@ export default function AccessManagementPage() {
             token={token}
             username={selectedUsername}
             role={selectedProfile.role}
+          />
+          <ResetPasswordPanel
+            token={token}
+            username={selectedUsername}
+            isSelf={selectedUsername === currentUser?.username}
           />
         </div>
       )}

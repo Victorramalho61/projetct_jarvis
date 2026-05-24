@@ -20,37 +20,13 @@ class CalibrationCreate(BaseModel):
     justification: str
 
 
-@router.get("/employees")
-def list_employees(
-    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
-    active: bool = True,
-    department_id: str | None = None,
-) -> list[dict]:
-    db = get_supabase()
-    query = db.table("performance_employees").select("*, performance_departments(name)").eq("active", active)
-    if department_id:
-        query = query.eq("department_id", department_id)
-    return query.order("name").execute().data
-
-
-@router.post("/sync-benner")
-def sync_benner(
-    request: Request,
-    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
-) -> dict:
-    from services.benner_sync import sync_benner as _sync
-    result = _sync()
-    log_action("system", "benner_sync", "sync", None, result, current_user["username"], request)
-    return result
-
-
 @router.get("/dashboard")
 def dashboard(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
     cycle_id: str | None = None,
 ) -> dict:
     db = get_supabase()
-    query = db.table("performance_reviews").select("status, final_score, blocked_by")
+    query = db.table("performance_reviews").select("status, final_score")
     if cycle_id:
         query = query.eq("cycle_id", cycle_id)
     reviews = query.execute().data
@@ -58,7 +34,6 @@ def dashboard(
     total = len(reviews)
     by_status: dict[str, int] = {}
     score_distribution: dict[str, int] = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
-    blocked_count = 0
 
     for r in reviews:
         s = r.get("status", "unknown")
@@ -66,23 +41,18 @@ def dashboard(
         if r.get("final_score") is not None:
             bucket = str(min(5, max(1, round(r["final_score"]))))
             score_distribution[bucket] = score_distribution.get(bucket, 0) + 1
-        if r.get("blocked_by"):
-            blocked_count += 1
 
     completed = by_status.get("completed", 0)
     completude_pct = round((completed / total * 100), 1) if total else 0
 
-    pending_ack = db.table("performance_reviews").select("id,employee_id").eq("status", "pending_ack").execute().data
-    pending_goals = db.table("performance_goals").select("id,owner_id,title").eq("status", "draft").execute().data
+    pending_ack = db.table("performance_review_acknowledgments").select("id").is_("acknowledged_at", "null").execute().data
 
     return {
         "total_reviews": total,
         "by_status": by_status,
         "score_distribution": score_distribution,
-        "blocked_by_compliance": blocked_count,
         "completude_pct": completude_pct,
         "pending_acknowledgments": len(pending_ack),
-        "pending_goal_acknowledgments": len(pending_goals),
     }
 
 
@@ -109,19 +79,6 @@ def audit_log(
     return query.order("ts", desc=True).range(offset, offset + limit - 1).execute().data
 
 
-@router.get("/pending-acknowledgments")
-def pending_acknowledgments(
-    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
-) -> dict:
-    db = get_supabase()
-    reviews = db.table("performance_reviews").select("id,employee_id,cycle_id,status").eq("status", "pending_ack").execute().data
-    goals = db.table("performance_goals").select("id,owner_id,title,status").eq("status", "draft").execute().data
-    return {
-        "pending_review_acknowledgments": reviews,
-        "pending_goal_acknowledgments": goals,
-    }
-
-
 @router.post("/calibrations", status_code=status.HTTP_201_CREATED)
 def create_calibration(
     body: CalibrationCreate,
@@ -129,13 +86,12 @@ def create_calibration(
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
     db = get_supabase()
-    rev = db.table("performance_reviews").select("final_score").eq("id", body.review_id).execute()
+    rev = db.table("performance_reviews").select("final_score,cycle_id").eq("id", body.review_id).execute()
     if not rev.data:
         raise HTTPException(status_code=404, detail="Avaliação não encontrada")
 
     original_score = rev.data[0].get("final_score")
-    cycle_result = db.table("performance_reviews").select("cycle_id").eq("id", body.review_id).execute()
-    cycle_id = cycle_result.data[0]["cycle_id"] if cycle_result.data else None
+    cycle_id = rev.data[0].get("cycle_id")
 
     calib = db.table("performance_calibrations").insert({
         "cycle_id": cycle_id,

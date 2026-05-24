@@ -29,6 +29,9 @@ const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const FiscalPage = lazy(() => import("./pages/admin/FiscalPage"));
 const HermesPage = lazy(() => import("./pages/admin/HermesPage"));
+const PublicEvaluationPage = lazy(() => import("./pages/PublicEvaluationPage"));
+const PublicCienciaPage = lazy(() => import("./pages/PublicCienciaPage"));
+const PublicCienciaPresencialPage = lazy(() => import("./pages/PublicCienciaPresencialPage"));
 
 function PageLoader() {
   return (
@@ -50,6 +53,9 @@ export default function App() {
           <Route path="/definir-senha" element={<InitializePasswordPage />} />
           <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
           <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
+          <Route path="/avaliar/:token" element={<PublicEvaluationPage />} />
+          <Route path="/ciencia/:token" element={<PublicCienciaPage />} />
+          <Route path="/ciencia-presencial" element={<PublicCienciaPresencialPage />} />
 
           <Route
             element={

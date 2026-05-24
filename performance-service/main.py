@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import uuid
 from contextlib import asynccontextmanager
@@ -20,25 +19,30 @@ _logger = logging.getLogger(__name__)
 from db import get_settings
 from limiter import limiter
 from routes.health import router as health_router
-from routes.goals import router as goals_router
 from routes.evaluations import router as evaluations_router
-from routes.competencies import router as competencies_router
-from routes.evidences import router as evidences_router
-from routes.kpis import router as kpis_router
 from routes.admin import router as admin_router
 from routes.notifications import router as notifications_router
 from routes.management import router as management_router
+from routes.indicators import router as indicators_router
+from routes.hierarchy import router as hierarchy_router
+from routes.public import router as public_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from services.benner_sync import start as _sync_start, stop as _sync_stop
-    from services.sla_scheduler import start as _sla_start, stop as _sla_stop
-    _sync_start()
-    _sla_start()
+    _logger.info("Performance Service starting up")
+    try:
+        from services.sla_scheduler import start as _sla_start
+        _sla_start()
+    except Exception as exc:
+        _logger.warning("SLA scheduler não iniciado: %s", exc)
     yield
-    _sla_stop()
-    _sync_stop()
+    _logger.info("Performance Service shutting down")
+    try:
+        from services.sla_scheduler import stop as _sla_stop
+        _sla_stop()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Jarvis Performance Service", lifespan=lifespan)
@@ -73,11 +77,10 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 
 
 app.include_router(health_router)
-app.include_router(goals_router)
 app.include_router(evaluations_router)
-app.include_router(competencies_router)
-app.include_router(evidences_router)
-app.include_router(kpis_router)
 app.include_router(admin_router)
 app.include_router(notifications_router)
 app.include_router(management_router)
+app.include_router(indicators_router)
+app.include_router(hierarchy_router)
+app.include_router(public_router)

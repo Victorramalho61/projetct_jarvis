@@ -1,6 +1,7 @@
 import logging
 from typing import Annotated
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -12,8 +13,7 @@ logger = logging.getLogger(__name__)
 
 _VALID_ROLES = {
     "admin", "user",
-    "rh", "gestor", "coordenador", "supervisor", "colaborador",
-    "gestor_ciclo",
+    "rh", "gerente", "coordenador_supervisor", "administrativo_operacional",
 }
 
 
@@ -106,6 +106,28 @@ async def update_active(
 
     logger.info("Usuário %s %s por %s", username, "ativado" if body.active else "desativado", current_user["username"])
     return result.data[0]
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
+
+
+@router.post("/{username}/reset-password")
+async def admin_reset_password(
+    username: str,
+    body: ResetPasswordRequest,
+    _: Annotated[dict, Depends(require_role("admin"))],
+) -> dict:
+    if len(body.new_password) < 8:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Senha deve ter no mínimo 8 caracteres.")
+    db = get_supabase()
+    result = db.table("profiles").select("id,display_name").eq("username", username).execute()
+    if not result.data:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    new_hash = bcrypt.hashpw(body.new_password.encode(), bcrypt.gensalt()).decode()
+    db.table("profiles").update({"password_hash": new_hash}).eq("id", result.data[0]["id"]).execute()
+    logger.info("Senha de %s redefinida por admin", username)
+    return {"ok": True}
 
 
 class UpdateModulesRequest(BaseModel):

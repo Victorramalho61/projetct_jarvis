@@ -1,48 +1,43 @@
 import logging
+import secrets
 from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from auth import get_current_user, require_role
-from db import get_supabase
+from auth import require_role
+from db import get_supabase, get_settings
 from services.audit import log_action
-from services.notification_worker import notify
-from services.score_engine import calculate_scores
 
 router = APIRouter(prefix="/api/performance/evaluations")
 _logger = logging.getLogger(__name__)
 
-_PERF_ROLES = ("admin", "rh", "gestor", "coordenador", "supervisor", "colaborador")
-_MANAGER_ROLES = ("admin", "rh", "gestor", "coordenador", "supervisor")
+_PERF_ROLES = ("admin", "rh", "gerente", "coordenador_supervisor")
 _RH_ADMIN = ("admin", "rh")
 
+
+# ── Models ────────────────────────────────────────────────────────────────────
 
 class CycleCreate(BaseModel):
     name: str
     period_start: date
     period_end: date
+    company_id: str | None = None
 
 
-class ReviewUpdate(BaseModel):
-    goals_score: float | None = None
-    competencies_score: float | None = None
-    behavior_score: float | None = None
-    compliance_score: float | None = None
-    comments: str | None = None
+class ReopenBody(BaseModel):
+    justification: str
+    company_id: str | None = None
+    period_start: date | None = None
+    period_end: date | None = None
 
 
-class SignRequest(BaseModel):
-    signature_text: str | None = None
+class SendTokensBody(BaseModel):
+    company_id: str | None = None
 
 
-class AcknowledgeRequest(BaseModel):
-    action: str  # acknowledged | disputed
-    comments: str | None = None
-
-
-# ── Cycles ───────────────────────────────────────────────────────────────────
+# ── Cycles ────────────────────────────────────────────────────────────────────
 
 @router.get("/cycles")
 def list_cycles(
@@ -59,6 +54,15 @@ def create_cycle(
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
     db = get_supabase()
+
+    # Guard: não pode criar se já existe ciclo 'open'
+    open_cycles = db.table("performance_cycles").select("id,name").eq("status", "open").execute().data
+    if open_cycles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Já existe um ciclo em aberto: '{open_cycles[0]['name']}'. Encerre-o antes de criar um novo.",
+        )
+
     payload = {
         "name": body.name,
         "period_start": body.period_start.isoformat(),
@@ -66,6 +70,9 @@ def create_cycle(
         "status": "draft",
         "created_by": current_user["username"],
     }
+    if body.company_id:
+        payload["company_id"] = body.company_id
+
     result = db.table("performance_cycles").insert(payload).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Erro ao criar ciclo")
@@ -80,31 +87,265 @@ def open_cycle(
     request: Request,
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
-    """Abre o ciclo e cria reviews pending_self para todos os employees ativos."""
     db = get_supabase()
     cycle = db.table("performance_cycles").select("*").eq("id", cycle_id).execute()
     if not cycle.data:
         raise HTTPException(status_code=404, detail="Ciclo não encontrado")
     if cycle.data[0]["status"] != "draft":
-        raise HTTPException(status_code=400, detail="Ciclo já foi aberto")
-
-    employees = db.table("performance_employees").select("id,manager_id").eq("active", True).execute()
-    reviews = []
-    for emp in employees.data:
-        reviews.append({
-            "cycle_id": cycle_id,
-            "employee_id": emp["id"],
-            "reviewer_id": emp.get("manager_id"),
-            "step": "self",
-            "status": "pending_self",
-        })
-
-    if reviews:
-        db.table("performance_reviews").insert(reviews).execute()
+        raise HTTPException(status_code=400, detail="Apenas ciclos em rascunho podem ser abertos")
 
     db.table("performance_cycles").update({"status": "open"}).eq("id", cycle_id).execute()
     log_action("cycle", cycle_id, "open", {"status": "draft"}, {"status": "open"}, current_user["username"], request)
-    return {"ok": True, "reviews_created": len(reviews)}
+    return {"ok": True, "cycle_id": cycle_id, "status": "open"}
+
+
+@router.post("/cycles/{cycle_id}/close")
+def close_cycle(
+    cycle_id: str,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+    cycle = db.table("performance_cycles").select("*").eq("id", cycle_id).execute()
+    if not cycle.data:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    if cycle.data[0]["status"] != "open":
+        raise HTTPException(status_code=400, detail="Apenas ciclos abertos podem ser encerrados")
+
+    # Invalidar todos os tokens não utilizados
+    db.table("performance_evaluation_tokens").update({
+        "invalidated_at": "now()",
+    }).eq("cycle_id", cycle_id).eq("is_used", False).is_("invalidated_at", "null").execute()
+
+    db.table("performance_cycles").update({"status": "closed"}).eq("id", cycle_id).execute()
+    log_action("cycle", cycle_id, "close", {"status": "open"}, {"status": "closed"}, current_user["username"], request)
+    return {"ok": True, "cycle_id": cycle_id, "status": "closed"}
+
+
+@router.post("/cycles/{cycle_id}/reopen")
+def reopen_cycle(
+    cycle_id: str,
+    body: ReopenBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    if not body.justification.strip():
+        raise HTTPException(400, detail="Justificativa é obrigatória para reabrir o ciclo")
+
+    db = get_supabase()
+    cycle = db.table("performance_cycles").select("*").eq("id", cycle_id).execute()
+    if not cycle.data:
+        raise HTTPException(status_code=404, detail="Ciclo não encontrado")
+    if cycle.data[0]["status"] != "closed":
+        raise HTTPException(status_code=400, detail="Apenas ciclos encerrados podem ser reabertos")
+
+    # Salvar registro de reabertura
+    reopen_payload: dict = {
+        "cycle_id": cycle_id,
+        "justification": body.justification.strip(),
+        "reopened_by": current_user["username"],
+    }
+    if body.company_id:
+        reopen_payload["company_id"] = body.company_id
+    if body.period_start:
+        reopen_payload["period_start"] = body.period_start.isoformat()
+    if body.period_end:
+        reopen_payload["period_end"] = body.period_end.isoformat()
+
+    db.table("performance_cycle_reopens").insert(reopen_payload).execute()
+
+    # Atualizar ciclo
+    cycle_updates: dict = {"status": "open"}
+    if body.period_start:
+        cycle_updates["period_start"] = body.period_start.isoformat()
+    if body.period_end:
+        cycle_updates["period_end"] = body.period_end.isoformat()
+
+    db.table("performance_cycles").update(cycle_updates).eq("id", cycle_id).execute()
+    log_action("cycle", cycle_id, "reopen", {"status": "closed"}, {"status": "open"}, current_user["username"], request)
+    return {"ok": True, "cycle_id": cycle_id, "status": "open"}
+
+
+@router.post("/cycles/{cycle_id}/send-tokens")
+def send_tokens(
+    cycle_id: str,
+    body: SendTokensBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+    cycle = db.table("performance_cycles").select("*").eq("id", cycle_id).execute()
+    if not cycle.data:
+        raise HTTPException(404, detail="Ciclo não encontrado")
+    if cycle.data[0]["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para enviar tokens")
+
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+    cycle_name = cycle.data[0]["name"]
+
+    # Buscar avaliadores: hierarchy_level 1 (Gerente) e 2 (Coordenador-Supervisor)
+    query = db.table("performance_employees").select(
+        "*, performance_branches(name), performance_companies(name)"
+    ).in_("hierarchy_level", [1, 2]).eq("active", True)
+
+    if body.company_id:
+        query = query.eq("company_id", body.company_id)
+
+    evaluators = query.execute().data
+
+    sent_emails = 0
+    no_email_count = 0
+    tokens_created = 0
+
+    from services.email import send_evaluation_token_email
+
+    for ev in evaluators:
+        # Verificar se tem subordinados
+        subs = db.table("performance_employees").select("id").eq("manager_id", ev["id"]).eq("active", True).execute()
+        if not subs.data:
+            continue
+
+        # Verificar token existente não utilizado
+        existing_token = (
+            db.table("performance_evaluation_tokens")
+            .select("*")
+            .eq("cycle_id", cycle_id)
+            .eq("evaluator_id", ev["id"])
+            .eq("is_used", False)
+            .is_("invalidated_at", "null")
+            .execute()
+        )
+
+        if existing_token.data:
+            token_value = existing_token.data[0]["token"]
+        else:
+            # Criar novo token
+            token_value = secrets.token_urlsafe(32)
+            token_res = db.table("performance_evaluation_tokens").insert({
+                "cycle_id": cycle_id,
+                "evaluator_id": ev["id"],
+                "token": token_value,
+                "is_used": False,
+                "resend_count": 0,
+            }).execute()
+            if not token_res.data:
+                continue
+            tokens_created += 1
+
+        # Enviar e-mail se tem e-mail corporativo
+        if ev.get("has_corporate_email") and ev.get("email"):
+            branch_name = ev.get("performance_branches", {}).get("name", "") if isinstance(ev.get("performance_branches"), dict) else ""
+            company_name = ev.get("performance_companies", {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
+
+            ok = send_evaluation_token_email(
+                evaluator_name=ev["name"],
+                evaluator_email=ev["email"],
+                company_name=company_name,
+                branch_name=branch_name,
+                cycle_name=cycle_name,
+                token=token_value,
+                frontend_url=frontend_url,
+            )
+            if ok:
+                sent_emails += 1
+        else:
+            no_email_count += 1
+
+    log_action(
+        "cycle", cycle_id, "send_tokens", None,
+        {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created},
+        current_user["username"], request,
+    )
+    return {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created}
+
+
+@router.post("/cycles/{cycle_id}/resend-token/{evaluator_id}")
+def resend_token(
+    cycle_id: str,
+    evaluator_id: str,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+
+    cycle = db.table("performance_cycles").select("name,status").eq("id", cycle_id).execute()
+    if not cycle.data:
+        raise HTTPException(404, detail="Ciclo não encontrado")
+    if cycle.data[0]["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para reenviar tokens")
+
+    token_row = (
+        db.table("performance_evaluation_tokens")
+        .select("*")
+        .eq("cycle_id", cycle_id)
+        .eq("evaluator_id", evaluator_id)
+        .eq("is_used", False)
+        .is_("invalidated_at", "null")
+        .execute()
+    )
+    if not token_row.data:
+        raise HTTPException(404, detail="Token não encontrado ou já utilizado")
+
+    t = token_row.data[0]
+    token_value = t["token"]
+
+    ev = db.table("performance_employees").select(
+        "*, performance_branches(name), performance_companies(name)"
+    ).eq("id", evaluator_id).execute()
+    if not ev.data:
+        raise HTTPException(404, detail="Avaliador não encontrado")
+    ev_data = ev.data[0]
+
+    if not ev_data.get("has_corporate_email") or not ev_data.get("email"):
+        raise HTTPException(400, detail="Avaliador não possui e-mail corporativo")
+
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+    cycle_name = cycle.data[0]["name"]
+
+    branch_name = ev_data.get("performance_branches", {}).get("name", "") if isinstance(ev_data.get("performance_branches"), dict) else ""
+    company_name = ev_data.get("performance_companies", {}).get("name", "") if isinstance(ev_data.get("performance_companies"), dict) else ""
+
+    from services.email import send_evaluation_token_email
+    ok = send_evaluation_token_email(
+        evaluator_name=ev_data["name"],
+        evaluator_email=ev_data["email"],
+        company_name=company_name,
+        branch_name=branch_name,
+        cycle_name=cycle_name,
+        token=token_value,
+        frontend_url=frontend_url,
+    )
+
+    if ok:
+        new_count = (t.get("resend_count") or 0) + 1
+        db.table("performance_evaluation_tokens").update({
+            "resend_count": new_count,
+            "last_resent_at": "now()",
+        }).eq("id", t["id"]).execute()
+
+    log_action("token", t["id"], "resend", None, {"evaluator_id": evaluator_id}, current_user["username"], request)
+    return {"ok": ok, "evaluator_id": evaluator_id}
+
+
+# ── Tokens ────────────────────────────────────────────────────────────────────
+
+@router.get("/tokens")
+def list_tokens(
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    cycle_id: str,
+) -> list[dict]:
+    db = get_supabase()
+    tokens = (
+        db.table("performance_evaluation_tokens")
+        .select("*, performance_employees(name, email, has_corporate_email, hierarchy_level)")
+        .eq("cycle_id", cycle_id)
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+    return tokens
 
 
 # ── Reviews ───────────────────────────────────────────────────────────────────
@@ -119,10 +360,18 @@ def list_reviews(
     query = db.table("performance_reviews").select("*")
 
     role = current_user.get("role")
-    if role == "colaborador":
-        emp = db.table("performance_employees").select("id").eq("email", current_user.get("email", "")).execute()
+    if role in ("gerente", "coordenador_supervisor"):
+        # Filtra pelo manager_id do usuário logado
+        emp = db.table("performance_employees").select("id").eq("jarvis_username", current_user.get("username")).execute()
         if emp.data:
-            query = query.eq("employee_id", emp.data[0]["id"])
+            manager_id = emp.data[0]["id"]
+            # Busca subordinados diretos
+            subs = db.table("performance_employees").select("id").eq("manager_id", manager_id).execute()
+            sub_ids = [s["id"] for s in subs.data] if subs.data else []
+            if sub_ids:
+                query = query.in_("employee_id", sub_ids)
+            else:
+                return []
         else:
             return []
     elif employee_id:
@@ -132,202 +381,3 @@ def list_reviews(
         query = query.eq("cycle_id", cycle_id)
 
     return query.order("created_at", desc=True).execute().data
-
-
-@router.get("/reviews/{review_id}")
-def get_review(
-    review_id: str,
-    _: Annotated[dict, Depends(require_role(*_PERF_ROLES))],
-) -> dict:
-    db = get_supabase()
-    result = db.table("performance_reviews").select("*").eq("id", review_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-    return result.data[0]
-
-
-@router.put("/reviews/{review_id}")
-def update_review(
-    review_id: str,
-    body: ReviewUpdate,
-    request: Request,
-    current_user: Annotated[dict, Depends(require_role(*_PERF_ROLES))],
-) -> dict:
-    db = get_supabase()
-    existing = db.table("performance_reviews").select("*").eq("id", review_id).execute()
-    if not existing.data:
-        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-
-    old = existing.data[0]
-    updates = body.model_dump(exclude_none=True)
-
-    # Recalcular scores se houver notas
-    goals = updates.get("goals_score", old.get("goals_score"))
-    comps = updates.get("competencies_score", old.get("competencies_score"))
-    behav = updates.get("behavior_score", old.get("behavior_score"))
-    comp_score = updates.get("compliance_score", old.get("compliance_score"))
-
-    if any(v is not None for v in [goals, comps, behav, comp_score]):
-        scores = calculate_scores(goals, comps, behav, comp_score)
-        updates.update(scores)
-
-    updates["updated_at"] = "now()"
-
-    # Versionar antes de atualizar
-    _save_version(db, review_id, old, current_user["username"])
-
-    result = db.table("performance_reviews").update(updates).eq("id", review_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=500, detail="Erro ao atualizar avaliação")
-
-    new = result.data[0]
-    log_action("review", review_id, "update", old, new, current_user["username"], request)
-    return new
-
-
-@router.post("/reviews/{review_id}/submit")
-def submit_review(
-    review_id: str,
-    request: Request,
-    current_user: Annotated[dict, Depends(require_role(*_PERF_ROLES))],
-) -> dict:
-    """Avança o step da avaliação e notifica o próximo responsável."""
-    db = get_supabase()
-    rev = db.table("performance_reviews").select("*").eq("id", review_id).execute()
-    if not rev.data:
-        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-
-    review = rev.data[0]
-    old_status = review["status"]
-
-    next_status = {
-        "pending_self": "pending_manager",
-        "pending_manager": "pending_hr",
-    }.get(old_status)
-
-    if not next_status:
-        raise HTTPException(status_code=400, detail=f"Não é possível submeter avaliação com status '{old_status}'")
-
-    updates = {
-        "status": next_status,
-        "submitted_at": "now()",
-        "updated_at": "now()",
-    }
-    if old_status == "pending_self":
-        updates["step"] = "manager"
-
-    _save_version(db, review_id, review, current_user["username"])
-    result = db.table("performance_reviews").update(updates).eq("id", review_id).execute()
-    log_action("review", review_id, "submit", {"status": old_status}, {"status": next_status}, current_user["username"], request)
-
-    # Notificar gestor quando autoavaliação submetida
-    if next_status == "pending_manager" and review.get("reviewer_id"):
-        reviewer = db.table("performance_employees").select("email").eq("id", review["reviewer_id"]).execute()
-        if reviewer.data and reviewer.data[0].get("email"):
-            prof = db.table("profiles").select("username").eq("email", reviewer.data[0]["email"]).execute()
-            if prof.data:
-                notify("review_pending", prof.data[0]["username"])
-
-    return result.data[0]
-
-
-@router.post("/reviews/{review_id}/sign")
-def sign_review(
-    review_id: str,
-    body: SignRequest,
-    request: Request,
-    current_user: Annotated[dict, Depends(require_role(*_MANAGER_ROLES))],
-) -> dict:
-    """Gestor assina o resultado — Momento 2."""
-    db = get_supabase()
-    rev = db.table("performance_reviews").select("*").eq("id", review_id).execute()
-    if not rev.data:
-        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-
-    review = rev.data[0]
-    if review["status"] not in ("pending_manager", "pending_hr"):
-        raise HTTPException(status_code=400, detail="Avaliação não está em estado de assinatura")
-
-    _save_version(db, review_id, review, current_user["username"])
-    updates = {
-        "status": "pending_ack",
-        "manager_signed_at": "now()",
-        "manager_signature": body.signature_text or current_user["username"],
-        "updated_at": "now()",
-    }
-    result = db.table("performance_reviews").update(updates).eq("id", review_id).execute()
-    log_action("review", review_id, "sign", {"status": review["status"]}, {"status": "pending_ack"}, current_user["username"], request)
-
-    # Notificar colaborador
-    employee = db.table("performance_employees").select("email").eq("id", review["employee_id"]).execute()
-    if employee.data and employee.data[0].get("email"):
-        prof = db.table("profiles").select("username").eq("email", employee.data[0]["email"]).execute()
-        if prof.data:
-            notify("review_result_available", prof.data[0]["username"])
-
-    return result.data[0]
-
-
-@router.post("/reviews/{review_id}/acknowledge")
-def acknowledge_review(
-    review_id: str,
-    body: AcknowledgeRequest,
-    request: Request,
-    current_user: Annotated[dict, Depends(require_role(*_PERF_ROLES))],
-) -> dict:
-    """Colaborador toma ciência ou contesta — Momento 2."""
-    if body.action not in ("acknowledged", "disputed"):
-        raise HTTPException(status_code=400, detail="action deve ser 'acknowledged' ou 'disputed'")
-    if body.action == "disputed" and not body.comments:
-        raise HTTPException(status_code=400, detail="Comentário obrigatório ao contestar")
-
-    db = get_supabase()
-    rev = db.table("performance_reviews").select("*").eq("id", review_id).execute()
-    if not rev.data:
-        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-
-    review = rev.data[0]
-    if review["status"] != "pending_ack":
-        raise HTTPException(status_code=400, detail="Avaliação não está aguardando ciência")
-
-    emp = db.table("performance_employees").select("id").eq("email", current_user.get("email", "")).execute()
-    if not emp.data:
-        raise HTTPException(status_code=400, detail="Funcionário não encontrado para este usuário")
-    employee_id = emp.data[0]["id"]
-
-    existing = db.table("performance_review_acknowledgments").select("id").eq("review_id", review_id).eq("employee_id", employee_id).execute()
-    if existing.data:
-        raise HTTPException(status_code=409, detail="Avaliação já respondida por este colaborador")
-
-    db.table("performance_review_acknowledgments").insert({
-        "review_id": review_id,
-        "employee_id": employee_id,
-        "action": body.action,
-        "comments": body.comments,
-    }).execute()
-
-    new_status = "disputed" if body.action == "disputed" else "completed"
-    _save_version(db, review_id, review, current_user["username"])
-    db.table("performance_reviews").update({"status": new_status, "updated_at": "now()"}).eq("id", review_id).execute()
-    log_action("review", review_id, f"acknowledge_{body.action}", {"status": "pending_ack"}, {"status": new_status}, current_user["username"], request)
-
-    # Notificar RH se contestado
-    if body.action == "disputed":
-        rh_profiles = db.table("profiles").select("username").eq("role", "rh").execute()
-        for p in (rh_profiles.data or []):
-            notify("review_disputed", p["username"], {"review_id": review_id})
-
-    return {"ok": True, "review_id": review_id, "status": new_status}
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _save_version(db, review_id: str, snapshot: dict, changed_by: str) -> None:
-    existing_versions = db.table("performance_review_versions").select("version").eq("review_id", review_id).order("version", desc=True).limit(1).execute()
-    next_version = (existing_versions.data[0]["version"] + 1) if existing_versions.data else 1
-    db.table("performance_review_versions").insert({
-        "review_id": review_id,
-        "version": next_version,
-        "snapshot": snapshot,
-        "changed_by": changed_by,
-    }).execute()
