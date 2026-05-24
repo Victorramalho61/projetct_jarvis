@@ -178,11 +178,11 @@ function KPICard({
         isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200"
       }`}
     >
-      <span className={`text-xs font-medium uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+      <span className={`text-xs font-medium uppercase tracking-wide ${isDark ? "text-gray-300" : "text-gray-500"}`}>
         {label}
       </span>
       <span className={`text-2xl font-bold ${isDark ? "text-white" : "text-gray-900"}`}>{value}</span>
-      {sub && <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>{sub}</span>}
+      {sub && <span className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>{sub}</span>}
     </div>
   );
 }
@@ -219,7 +219,7 @@ function NoCompanyPrompt({ isDark, card }: { isDark: boolean; card: string }) {
       <svg className="w-8 h-8 mx-auto mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
       </svg>
-      <p className={`text-sm font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+      <p className={`text-sm font-medium ${isDark ? "text-gray-300" : "text-gray-500"}`}>
         Selecione uma empresa no topo da página
       </p>
     </div>
@@ -896,7 +896,7 @@ export default function FiscalPage() {
             <h1 className={`text-lg font-bold ${isDark ? "text-white" : "text-gray-900"}`}>
               Validação NFe / NFSe
             </h1>
-            <p className={`text-sm mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+            <p className={`text-sm mt-0.5 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
               Documentos fiscais sincronizados via NDD Digital
             </p>
           </div>
@@ -904,7 +904,7 @@ export default function FiscalPage() {
           <div className="flex flex-wrap items-end gap-3">
             {/* Seletor de empresa */}
             <div className="flex flex-col gap-1">
-              <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                 Empresa
               </label>
               <select
@@ -997,7 +997,7 @@ export default function FiscalPage() {
           {/* Filtro de período */}
           <div className={`rounded-xl border p-4 flex flex-wrap gap-3 items-end ${card}`}>
             <div className="flex flex-col gap-1">
-              <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>Ano</label>
+              <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-500"}`}>Ano</label>
               <select value={ano} onChange={(e) => setAno(+e.target.value)} className={`${inp} w-24`}>
                 {Array.from({ length: now.getFullYear() - 2025 }, (_, i) => 2026 + i).map((y) => (
                   <option key={y} value={y}>{y}</option>
@@ -1005,7 +1005,7 @@ export default function FiscalPage() {
               </select>
             </div>
             <div className="flex flex-col gap-1">
-              <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>Mês</label>
+              <label className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-500"}`}>Mês</label>
               <select value={mes} onChange={(e) => setMes(+e.target.value)} className={`${inp} w-32`}>
                 <option value={0}>Todos os meses</option>
                 {MONTHS.map((m, i) => (
@@ -1048,7 +1048,7 @@ export default function FiscalPage() {
                     Por Status
                   </h2>
                   {Object.keys(stats.por_status).length === 0 ? (
-                    <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>Sem dados.</p>
+                    <p className={`text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>Sem dados.</p>
                   ) : (
                     Object.entries(stats.por_status).map(([s, n]) => (
                       <div key={s} className="flex items-center justify-between gap-3 mb-2">
@@ -1074,13 +1074,13 @@ export default function FiscalPage() {
                       </div>
                     ))}
                   {Object.keys(stats.por_municipio).length === 0 && (
-                    <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>Sem dados.</p>
+                    <p className={`text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>Sem dados.</p>
                   )}
                 </div>
               </div>
             </>
           ) : (
-            <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+            <p className={`text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
               Nenhum dado para o período selecionado.
             </p>
           )}
@@ -1145,12 +1145,12 @@ export default function FiscalPage() {
                 <option value="sefaz">SEFAZ</option>
               </select>
               <div className="flex flex-col gap-0.5">
-                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>De</label>
+                <label className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>De</label>
                 <input type="date" value={exportDateInicio} onChange={(e) => { setExportDateInicio(e.target.value); setDocsOffset(0); }}
                   className={`${inp} w-32 text-xs py-1.5`} />
               </div>
               <div className="flex flex-col gap-0.5">
-                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>Até</label>
+                <label className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>Até</label>
                 <input type="date" value={exportDateFim} onChange={(e) => { setExportDateFim(e.target.value); setDocsOffset(0); }}
                   className={`${inp} w-32 text-xs py-1.5`} />
               </div>
@@ -1214,7 +1214,7 @@ export default function FiscalPage() {
                 ))}
               </div>
             ) : docs.length === 0 ? (
-              <p className={`px-4 py-12 text-center text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              <p className={`px-4 py-12 text-center text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                 Nenhuma NFSe encontrada.
               </p>
             ) : (
@@ -1230,7 +1230,7 @@ export default function FiscalPage() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center flex-wrap gap-2 mb-1">
-                          <span className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                          <span className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                             {fmtDay(doc.data_emissao)}
                           </span>
                           <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
@@ -1247,7 +1247,7 @@ export default function FiscalPage() {
                           title={doc.emitente_nome}>
                           {doc.emitente_nome || doc.emitente_cnpj}
                         </p>
-                        <p className={`text-xs font-mono mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                        <p className={`text-xs font-mono mt-0.5 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                           {fmtCnpj(doc.emitente_cnpj)}
                         </p>
                         {doc.destinatario_nome && (
@@ -1261,7 +1261,7 @@ export default function FiscalPage() {
                           {FMT_BRL.format(doc.valor_total ?? 0)}
                         </p>
                         {doc.valor_iss != null && (
-                          <p className={`text-xs mt-0.5 tabular-nums ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                          <p className={`text-xs mt-0.5 tabular-nums ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                             ISS {FMT_BRL.format(doc.valor_iss)}
                           </p>
                         )}
@@ -1275,7 +1275,7 @@ export default function FiscalPage() {
               </div>
             )}
             <div className={`flex items-center justify-between px-4 py-3 border-t text-sm ${isDark ? "border-gray-700" : "border-gray-200"}`}>
-              <span className={isDark ? "text-gray-400" : "text-gray-500"}>{docs.length} registros · clique para detalhar</span>
+              <span className={isDark ? "text-gray-300" : "text-gray-500"}>{docs.length} registros · clique para detalhar</span>
               <div className="flex gap-2">
                 <button
                   disabled={docsOffset === 0}
@@ -1340,7 +1340,7 @@ export default function FiscalPage() {
                   className={`w-full font-mono text-sm rounded-lg border px-3 py-2 ${isDark ? "bg-gray-800 border-gray-600 text-white" : "bg-white border-gray-300"}`}
                   maxLength={44}
                 />
-                <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                <p className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                   {fetchKey.length}/{fetchKey.length <= 44 ? "44" : "50"} dígitos · NF-e/CT-e = 44 dígitos · NFS-e Portal Nacional = 50 dígitos · Salva automaticamente.
                 </p>
               </div>
@@ -1373,7 +1373,7 @@ export default function FiscalPage() {
                     <Badge label={`Encontrado: ${fetchKeyResult.source}`} cls="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300" />
                   </div>
                   <p className="text-sm font-semibold">{fetchKeyResult.document.emitente_nome}</p>
-                  <p className={`text-xs font-mono ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fetchKeyResult.document.chave_acesso}</p>
+                  <p className={`text-xs font-mono ${isDark ? "text-gray-300" : "text-gray-500"}`}>{fetchKeyResult.document.chave_acesso}</p>
                   <p className="text-sm">{FMT_BRL.format(fetchKeyResult.document.valor_total)} · {fmtDay(fetchKeyResult.document.data_emissao)}</p>
                 </div>
               )}
@@ -1399,7 +1399,7 @@ export default function FiscalPage() {
               <div>
                 <h2 className="font-bold text-base">NFSe — Detalhes</h2>
                 {detailDoc.numero && (
-                  <p className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  <p className={`text-xs mt-0.5 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                     Nº {detailDoc.numero}{detailDoc.serie ? ` · Série ${detailDoc.serie}` : ""}
                   </p>
                 )}
@@ -1438,11 +1438,11 @@ export default function FiscalPage() {
               {/* Status + Data */}
               <div className="flex items-center gap-3">
                 <Badge label={detailDoc.status} cls={STATUS_BADGE[detailDoc.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
-                <span className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                <span className={`text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                   Emitida em {fmtDay(detailDoc.data_emissao)}
                 </span>
                 {detailDoc.municipio_nome && (
-                  <span className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  <span className={`text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                     · {detailDoc.municipio_nome}
                   </span>
                 )}
@@ -1453,12 +1453,12 @@ export default function FiscalPage() {
                 <div className={`rounded-xl p-4 ${isDark ? "bg-gray-800" : "bg-gray-50"}`}>
                   <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDark ? "text-gray-500" : "text-gray-400"}`}>Emitente (Prestador)</p>
                   <p className="font-semibold leading-snug">{detailDoc.emitente_nome || "—"}</p>
-                  <p className={`text-xs font-mono mt-1 ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtCnpj(detailDoc.emitente_cnpj)}</p>
+                  <p className={`text-xs font-mono mt-1 ${isDark ? "text-gray-300" : "text-gray-500"}`}>{fmtCnpj(detailDoc.emitente_cnpj)}</p>
                 </div>
                 <div className={`rounded-xl p-4 ${isDark ? "bg-gray-800" : "bg-gray-50"}`}>
                   <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${isDark ? "text-gray-500" : "text-gray-400"}`}>Destinatário (Tomador)</p>
                   <p className="font-semibold leading-snug">{detailDoc.destinatario_nome || "—"}</p>
-                  <p className={`text-xs font-mono mt-1 ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtCnpj(detailDoc.destinatario_cnpj)}</p>
+                  <p className={`text-xs font-mono mt-1 ${isDark ? "text-gray-300" : "text-gray-500"}`}>{fmtCnpj(detailDoc.destinatario_cnpj)}</p>
                 </div>
               </div>
 
@@ -1492,7 +1492,7 @@ export default function FiscalPage() {
                 </div>
               )}
 
-              <div className={`grid grid-cols-2 gap-3 text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              <div className={`grid grid-cols-2 gap-3 text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                 <div>
                   <span className="font-semibold">Chave de Acesso</span>
                   <p className="font-mono break-all mt-0.5">{detailDoc.chave_acesso}</p>
@@ -1547,7 +1547,7 @@ export default function FiscalPage() {
                     <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
                       Token NDD Digital
                     </h2>
-                    <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <p className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                       {!hasToken && "Sem token configurado."}
                       {hasToken && hasRefresh && "✅ Renovação automática ativa (refresh_token configurado)."}
                       {hasToken && !hasRefresh && "⚠️ access_token ativo, mas sem refresh_token — expira em 30 min."}
@@ -1567,7 +1567,7 @@ export default function FiscalPage() {
                 {showTokenForm && (
                   <div className={`rounded-lg border p-4 space-y-4 ${isDark ? "border-gray-700 bg-gray-900/40" : "border-gray-200 bg-gray-50"}`}>
                     {/* Instruções */}
-                    <div className={`text-xs space-y-1 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <div className={`text-xs space-y-1 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                       <p className="font-semibold text-blue-500">Como obter os tokens do portal NDD:</p>
                       <ol className="list-decimal list-inside space-y-0.5 pl-1">
                         <li>Abra <span className="font-mono">spaceportalprod.e-datacenter.nddigital.com.br</span> e faça login</li>
@@ -1650,7 +1650,7 @@ export default function FiscalPage() {
                 </h2>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-5 text-sm">
                   <div>
-                    <span className={isDark ? "text-gray-400" : "text-gray-500"}>Cobertura</span>
+                    <span className={isDark ? "text-gray-300" : "text-gray-500"}>Cobertura</span>
                     <p className="mt-0.5 font-medium">
                       {selectedId
                         ? (currentCompany?.nome ?? "Empresa selecionada")
@@ -1658,12 +1658,12 @@ export default function FiscalPage() {
                     </p>
                   </div>
                   <div>
-                    <span className={isDark ? "text-gray-400" : "text-gray-500"}>Agendado às</span>
+                    <span className={isDark ? "text-gray-300" : "text-gray-500"}>Agendado às</span>
                     <p className="mt-0.5">05:00 diário</p>
                   </div>
                   {currentCompany && (
                     <div>
-                      <span className={isDark ? "text-gray-400" : "text-gray-500"}>Último sync NFSe</span>
+                      <span className={isDark ? "text-gray-300" : "text-gray-500"}>Último sync NFSe</span>
                       <p className="mt-0.5">{fmtDate(currentCompany.ndd_last_sync_at)}</p>
                     </div>
                   )}
@@ -1711,7 +1711,7 @@ export default function FiscalPage() {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-semibold">{entry.nome}</p>
-                    <p className={`text-xs font-mono ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtCnpj(entry.cnpj)}</p>
+                    <p className={`text-xs font-mono ${isDark ? "text-gray-300" : "text-gray-500"}`}>{fmtCnpj(entry.cnpj)}</p>
                   </div>
                   {entry.cert_expiry && (() => {
                     const dias = Math.round((new Date(entry.cert_expiry).getTime() - Date.now()) / 86400000);
@@ -1791,7 +1791,7 @@ export default function FiscalPage() {
                     ))
                   ) : syncLogs.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className={`px-4 py-10 text-center text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      <td colSpan={6} className={`px-4 py-10 text-center text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                         Nenhum log de sync ainda.
                       </td>
                     </tr>
@@ -1857,12 +1857,12 @@ export default function FiscalPage() {
                 <option value="portal_nacional">Portal Nacional</option>
               </select>
               <div className="flex flex-col gap-0.5">
-                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>De</label>
+                <label className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>De</label>
                 <input type="date" value={nfeDataInicio} onChange={(e) => { setNfeDataInicio(e.target.value); setNfeOffset(0); }}
                   className={`${inp} w-32 text-xs py-1.5`} />
               </div>
               <div className="flex flex-col gap-0.5">
-                <label className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>Até</label>
+                <label className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>Até</label>
                 <input type="date" value={nfeDataFim} onChange={(e) => { setNfeDataFim(e.target.value); setNfeOffset(0); }}
                   className={`${inp} w-32 text-xs py-1.5`} />
               </div>
@@ -1901,7 +1901,7 @@ export default function FiscalPage() {
                 </div>
               ))
             ) : nfeDocs.length === 0 ? (
-              <p className={`px-4 py-12 text-center text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              <p className={`px-4 py-12 text-center text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                 Nenhuma NF-e/CT-e encontrada.{!selectedId && " Selecione uma empresa."}
               </p>
             ) : (
@@ -1912,7 +1912,7 @@ export default function FiscalPage() {
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center flex-wrap gap-2 mb-1">
-                          <span className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>{fmtDay(doc.data_emissao)}</span>
+                          <span className={`text-xs font-medium ${isDark ? "text-gray-300" : "text-gray-500"}`}>{fmtDay(doc.data_emissao)}</span>
                           <Badge label={doc.tipo ?? "NFe"} cls="bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300" />
                           <Badge label={doc.status} cls={STATUS_BADGE[doc.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
                         </div>
@@ -1937,7 +1937,7 @@ export default function FiscalPage() {
               </div>
             )}
             <div className={`flex items-center justify-between px-4 py-3 border-t text-sm ${isDark ? "border-gray-700" : "border-gray-200"}`}>
-              <span className={isDark ? "text-gray-400" : "text-gray-500"}>{nfeDocs.length} registros</span>
+              <span className={isDark ? "text-gray-300" : "text-gray-500"}>{nfeDocs.length} registros</span>
               <div className="flex gap-2">
                 <button disabled={nfeOffset === 0} onClick={() => setNfeOffset(Math.max(0, nfeOffset - DOCS_LIMIT))}
                   className={`px-3 py-1 rounded border text-sm disabled:opacity-40 ${isDark ? "border-gray-600 hover:bg-gray-700 text-gray-300" : "border-gray-300 hover:bg-gray-50 text-gray-700"}`}>
@@ -1958,7 +1958,7 @@ export default function FiscalPage() {
         <div className="space-y-4">
           {!selectedId ? (
             <div className={`rounded-xl border p-8 text-center ${card}`}>
-              <p className={`text-sm ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+              <p className={`text-sm ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                 Selecione uma empresa no topo da página para gerenciar o certificado digital.
               </p>
             </div>
@@ -1970,7 +1970,7 @@ export default function FiscalPage() {
                   <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
                     Certificado Digital e-CNPJ A1
                   </h2>
-                  <p className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  <p className={`text-xs mt-0.5 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                     Necessário para sync Portal Nacional NFS-e (ADN) e busca por chave na SEFAZ.
                   </p>
                 </div>
@@ -1984,10 +1984,10 @@ export default function FiscalPage() {
 
               {certStatus?.cert_expiry && (
                 <div className={`rounded-lg p-3 text-sm ${isDark ? "bg-gray-700/60" : "bg-gray-50"}`}>
-                  <span className={isDark ? "text-gray-400" : "text-gray-500"}>Validade: </span>
+                  <span className={isDark ? "text-gray-300" : "text-gray-500"}>Validade: </span>
                   <span className="font-mono font-medium">{fmtDay(certStatus.cert_expiry)}</span>
                   {certStatus.dias_para_vencer != null && (
-                    <span className={`ml-2 text-xs ${certStatus.dias_para_vencer < 7 ? "text-red-500" : certStatus.dias_para_vencer < 30 ? "text-yellow-500" : isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <span className={`ml-2 text-xs ${certStatus.dias_para_vencer < 7 ? "text-red-500" : certStatus.dias_para_vencer < 30 ? "text-yellow-500" : isDark ? "text-gray-300" : "text-gray-500"}`}>
                       ({certStatus.dias_para_vencer} dias restantes)
                     </span>
                   )}
@@ -1995,7 +1995,7 @@ export default function FiscalPage() {
               )}
 
               <div className={`rounded-lg border p-4 space-y-4 ${isDark ? "border-gray-700 bg-gray-900/30" : "border-gray-200 bg-gray-50"}`}>
-                <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                   {certStatus?.has_certificate ? "Substituir certificado" : "Fazer upload do certificado"}
                 </h3>
                 <div className="space-y-3">
@@ -2049,7 +2049,7 @@ export default function FiscalPage() {
                     <p className={`text-sm font-medium ${isDark ? "text-gray-200" : "text-gray-800"}`}>
                       Sincronização automática
                     </p>
-                    <p className={`text-xs mt-0.5 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <p className={`text-xs mt-0.5 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                       Limite: 256 req/hora · mTLS ICP-Brasil A1
                     </p>
                   </div>
@@ -2077,7 +2077,7 @@ export default function FiscalPage() {
                         <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
                       ))}
                     </select>
-                    <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <span className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                       horário de Brasília
                     </span>
                   </div>
@@ -2113,7 +2113,7 @@ export default function FiscalPage() {
                       : "▶ Sync agora"}
                   </button>
                   {certStatus.portal_nfse_last_sync_at && (
-                    <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <span className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                       Último sync: {fmtDate(certStatus.portal_nfse_last_sync_at)}
                     </span>
                   )}
@@ -2144,7 +2144,7 @@ export default function FiscalPage() {
                 <h3 className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>
                   ND Digital — Notas Fiscais de Serviço Recebidas
                 </h3>
-                <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                <p className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                   Portal centralizador privado — cobre 32 municípios com uma única conta. Sync automático diário às 05:00.
                 </p>
                 <div className="flex flex-wrap items-center gap-3">
@@ -2158,7 +2158,7 @@ export default function FiscalPage() {
                       : "▶ Sync NDD agora"}
                   </button>
                   {certStatus.ndd_last_sync_at && (
-                    <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    <span className={`text-xs ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                       Último: {fmtDate(certStatus.ndd_last_sync_at)}
                     </span>
                   )}
@@ -2173,7 +2173,7 @@ export default function FiscalPage() {
             {certStatus?.has_certificate && (
               <div className={`rounded-xl border overflow-hidden ${card}`}>
                 <div className={`px-4 py-3 border-b flex items-center justify-between ${isDark ? "border-gray-700" : "border-gray-200"}`}>
-                  <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                     Municípios — API Direta (não-NDD)
                   </h3>
                   <div className="flex items-center gap-2">
@@ -2220,7 +2220,7 @@ export default function FiscalPage() {
                         {municipalities.map(m => (
                           <tr key={m.municipio_ibge} className={`border-b last:border-0 ${isDark ? "border-gray-700" : "border-gray-100"}`}>
                             <td className={`px-4 py-2 font-medium ${isDark ? "text-gray-200" : "text-gray-800"}`}>{m.municipio_nome}</td>
-                            <td className={`px-4 py-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>{m.uf}</td>
+                            <td className={`px-4 py-2 ${isDark ? "text-gray-300" : "text-gray-500"}`}>{m.uf}</td>
                             <td className="px-4 py-2">
                               <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${
                                 m.sistema_tipo === "nddigital"
@@ -2231,7 +2231,7 @@ export default function FiscalPage() {
                             <td className={`px-4 py-2 text-right tabular-nums ${isDark ? "text-gray-300" : "text-gray-700"}`}>
                               {m.docs_total ?? 0}
                             </td>
-                            <td className={`px-4 py-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                            <td className={`px-4 py-2 ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                               {m.last_sync_at ? fmtDate(m.last_sync_at) : "—"}
                               {m.ultimo_erro && (
                                 <span className="block text-red-400 truncate max-w-[120px]" title={m.ultimo_erro}>
@@ -2305,7 +2305,7 @@ export default function FiscalPage() {
             {certStatus?.has_certificate && (
               <div className={`rounded-xl border overflow-hidden mt-0 ${card}`}>
                 <div className={`px-4 py-3 border-b flex items-center justify-between ${isDark ? "border-gray-700" : "border-gray-200"}`}>
-                  <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-300" : "text-gray-500"}`}>
                     Últimas tentativas — Portal Nacional NFS-e
                   </h3>
                   <button onClick={loadPortalLogs} className="text-xs text-blue-500 hover:underline">Atualizar</button>

@@ -496,6 +496,87 @@ async def _sync_nfse_ndd_incremental():
         _logger.error("NFSe NDD 05:00 ERRO: %s", e)
 
 
+async def sync_ndd_for_company(company_id: str, janela: str = "manual") -> dict:
+    """Sync NDD incremental para uma empresa específica. Retorna {docs_total, erros, status}."""
+    from db import get_supabase
+    from services.nfse_fetcher import _get_ndd_token
+    from services.ndd_xml_fetcher import fetch_all_xml
+
+    sb = get_supabase()
+    result = sb.table("fiscal_companies").select(
+        "id,cnpj,nome,ndd_access_token,ndd_refresh_token,ndd_token_expires_at,ndd_last_sync_at"
+    ).eq("id", company_id).execute()
+    if not result.data:
+        raise ValueError(f"Empresa {company_id} não encontrada")
+
+    company = result.data[0]
+    cnpj = company["cnpj"]
+
+    try:
+        token = _get_ndd_token(company_id)
+    except RuntimeError as e:
+        _log_sync(sb, company_id, "NFSe", None, None, None, 0, 0, "erro", str(e), janela)
+        raise
+
+    last_sync_str = company.get("ndd_last_sync_at")
+    since_dt = datetime.fromisoformat(last_sync_str) if last_sync_str else None
+    hoje = date.today()
+    data_inicio = since_dt.date() if since_dt else hoje.replace(day=1)
+
+    all_co = sb.table("fiscal_companies").select("id,cnpj").execute()
+    cnpj_map = {r["cnpj"]: r["id"] for r in (all_co.data or [])}
+
+    sync_start = datetime.now(timezone.utc)
+    docs_total = 0
+    erros = 0
+
+    try:
+        for nota in fetch_all_xml(token, data_inicio, hoje, since_dt=since_dt):
+            cnpj_tom = nota["cnpj_tomador"]
+            target_id = cnpj_map.get(cnpj_tom, company_id)
+            doc = {
+                "tipo": "NFSe",
+                "company_id": target_id,
+                "chave_acesso": nota["chave_acesso"],
+                "numero": nota.get("numero"),
+                "serie": nota.get("serie"),
+                "emitente_cnpj": nota["cnpj_prestador"],
+                "emitente_nome": nota.get("nome_prestador"),
+                "destinatario_cnpj": cnpj_tom,
+                "destinatario_nome": nota.get("nome_tomador"),
+                "data_emissao": nota["data_emissao"],
+                "valor_total": nota["valor_total"],
+                "valor_iss": nota.get("valor_iss"),
+                "valor_iss_retido": nota.get("valor_iss_retido"),
+                "municipio_nome": nota["municipio_nome"],
+                "xml_content": nota["xml"],
+                "status": "pendente",
+                "ndd_id": nota["ndd_id"],
+                "ndd_sync_at": sync_start.isoformat(),
+            }
+            _ensure_period(sb, target_id, nota["data_emissao"], doc)
+            try:
+                sb.table("fiscal_documents").upsert(doc, on_conflict="chave_acesso").execute()
+                docs_total += 1
+            except Exception as e:
+                _logger.warning("NFSe NDD upsert (chave %s): %s", nota["chave_acesso"], e)
+                erros += 1
+
+        sb.table("fiscal_companies").update(
+            {"ndd_last_sync_at": sync_start.isoformat()}
+        ).eq("id", company_id).execute()
+
+        status = "ok" if erros == 0 else "parcial"
+        _log_sync(sb, company_id, "NFSe", None, None, None, docs_total, 0, status, None, janela)
+        _logger.info("[%s] NDD manual OK: %d docs, %d erros", cnpj, docs_total, erros)
+        return {"docs_total": docs_total, "erros": erros, "status": status}
+
+    except Exception as e:
+        _log_sync(sb, company_id, "NFSe", None, None, None, 0, 0, "erro", str(e), janela)
+        _logger.error("[%s] NDD manual ERRO: %s", cnpj, e)
+        raise
+
+
 async def _sync_portal_nfse():
     """Portal Nacional NFS-e (ADN) — dispara no horário configurado por empresa (portal_nfse_hora_sync)."""
     from db import get_supabase, get_settings

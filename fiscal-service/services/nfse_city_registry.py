@@ -13,17 +13,32 @@ NDD_IDENTITY = "https://spacenddidentityprod.e-datacenter.nddigital.com.br"
 # Voetur Viagens — 30 hotéis, todos gerenciados via portal ND Digital
 NFSE_CITY_REGISTRY: dict[str, dict] = {
     # RJ
-    "3304557": {"nome": "Rio de Janeiro",          "uf": "RJ", "tipo": "nddigital", "url": NDD_BASE},
+    "3304557": {
+        "nome": "Rio de Janeiro", "uf": "RJ", "tipo": "nddigital", "url": NDD_BASE,
+        "direct_tipo": "carioca",
+        "direct_url":  "https://notacarioca.rio.gov.br/WSNFe/lo_consultanfe.asmx",
+        "sandbox_url": "https://notacariocahom.rio.gov.br/WSNFe/lo_consultanfe.asmx",
+    },
     "3303203": {"nome": "Macaé",                   "uf": "RJ", "tipo": "nddigital", "url": NDD_BASE},
     "3300001": {"nome": "Angra dos Reis",           "uf": "RJ", "tipo": "nddigital", "url": NDD_BASE},
     "3302007": {"nome": "Itaboraí",                "uf": "RJ", "tipo": "nddigital", "url": NDD_BASE},
     "3301009": {"nome": "Campos dos Goytacazes",   "uf": "RJ", "tipo": "nddigital", "url": NDD_BASE},
 
     # DF
-    "5300108": {"nome": "Brasília",                "uf": "DF", "tipo": "nddigital", "url": NDD_BASE},
+    "5300108": {
+        "nome": "Brasília", "uf": "DF", "tipo": "nddigital", "url": NDD_BASE,
+        "direct_tipo": "df",
+        "direct_url":  "https://www.nfse.iss.df.gov.br/issweb/ws/nfse.asmx",
+        "sandbox_url": "https://www.nfse.iss.df.gov.br/issweb/ws/nfse.asmx",
+    },
 
     # SP
-    "3550308": {"nome": "São Paulo",               "uf": "SP", "tipo": "nddigital", "url": NDD_BASE},
+    "3550308": {
+        "nome": "São Paulo", "uf": "SP", "tipo": "nddigital", "url": NDD_BASE,
+        "direct_tipo": "paulistana",
+        "direct_url":  "https://nfe.prefeitura.sp.gov.br/ws/lotenfe.asmx",
+        "sandbox_url": "https://nfehom.prefeitura.sp.gov.br/ws/lotenfe.asmx",
+    },
     "3548807": {"nome": "Santos",                  "uf": "SP", "tipo": "nddigital", "url": NDD_BASE},
     "3509502": {"nome": "Campinas",                "uf": "SP", "tipo": "nddigital", "url": NDD_BASE},
     "3543402": {"nome": "Ribeirão Preto",          "uf": "SP", "tipo": "nddigital", "url": NDD_BASE},

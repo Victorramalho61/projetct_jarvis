@@ -100,7 +100,12 @@ class NFSeFetcher:
                 "NFSe: município IBGE %s não mapeado. Verifique cadastro na prefeitura.", ibge
             )
             return []
+        return self.fetch_with_tipo_url(ibge, city["tipo"], city["url"], data_inicio, data_fim)
 
+    def fetch_with_tipo_url(
+        self, ibge: str, tipo: str, url: str, data_inicio: date, data_fim: date
+    ) -> list[dict]:
+        """Busca NFSe usando tipo e URL explícitos, sem consultar o registry."""
         dispatch = {
             "nacional":   self._fetch_portal_nacional,
             "abrasf":     self._fetch_abrasf,
@@ -109,7 +114,10 @@ class NFSeFetcher:
             "df":         self._fetch_df,
             "nddigital":  self._fetch_nddigital,
         }
-        return dispatch[city["tipo"]](ibge, city["url"], data_inicio, data_fim)
+        fn = dispatch.get(tipo)
+        if not fn:
+            raise ValueError(f"Tipo NFSe desconhecido: {tipo}")
+        return fn(ibge, url, data_inicio, data_fim)
 
     def _fetch_nddigital(self, ibge: str, _url: str, data_inicio: date, data_fim: date) -> list[dict]:
         # company_id é o CNPJ — não temos acesso direto aqui, então usamos o CNPJ

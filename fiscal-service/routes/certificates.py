@@ -55,7 +55,7 @@ def certificate_status(
     result = sb.table("fiscal_companies").select(
         "cert_expiry,cert_pfx_encrypted,"
         "sync_portal_nfse_ativo,portal_nfse_hora_sync,"
-        "sefaz_nfe_bloqueado_ate,portal_nfse_last_sync_at"
+        "sefaz_nfe_bloqueado_ate,portal_nfse_last_sync_at,ndd_last_sync_at"
     ).eq("id", company_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Empresa não encontrada")
@@ -81,6 +81,7 @@ def certificate_status(
         "portal_nfse_hora_sync":  row.get("portal_nfse_hora_sync", 6),
         "sefaz_nfe_bloqueado_ate":  row.get("sefaz_nfe_bloqueado_ate"),
         "portal_nfse_last_sync_at": row.get("portal_nfse_last_sync_at"),
+        "ndd_last_sync_at": row.get("ndd_last_sync_at"),
     }
 
 
