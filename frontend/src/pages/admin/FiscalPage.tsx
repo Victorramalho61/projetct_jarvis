@@ -233,7 +233,7 @@ export default function FiscalPage() {
 
   const now = new Date();
   const [ano, setAno] = useState(now.getFullYear());
-  const [mes, setMes] = useState(now.getMonth() + 1);
+  const [mes, setMes] = useState(0); // 0 = todos os meses
 
   // dashboard
   const [stats, setStats]             = useState<NfseStats | null>(null);
@@ -351,7 +351,8 @@ export default function FiscalPage() {
   // ── Load stats ──────────────────────────────────────────────────────────────
   const loadStats = useCallback(() => {
     if (!token) return;
-    const p = new URLSearchParams({ ano: String(ano), mes: String(mes) });
+    const p = new URLSearchParams({ ano: String(ano) });
+    if (mes > 0) p.set("mes", String(mes));
     if (selectedId) p.set("company_id", selectedId);
     const key = `stats:${p}`;
     const hit = cached<NfseStats>(key);
@@ -852,7 +853,7 @@ export default function FiscalPage() {
           {currentCompany && stats && (
             <div className={`rounded-xl border p-5 space-y-3 ${card}`}>
               <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
-                {currentCompany.nome} — {ano}
+                {currentCompany.nome} — {ano}{mes > 0 ? ` · ${MONTHS[mes - 1]}` : ""}
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <KPICard label="Total NFSe" value={FMT_NUM.format(stats.total_notas)} isDark={isDark} />
@@ -873,14 +874,15 @@ export default function FiscalPage() {
             <div className="flex flex-col gap-1">
               <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>Ano</label>
               <select value={ano} onChange={(e) => setAno(+e.target.value)} className={`${inp} w-24`}>
-                {[now.getFullYear() - 1, now.getFullYear()].map((y) => (
+                {Array.from({ length: now.getFullYear() - 2025 }, (_, i) => 2026 + i).map((y) => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>
             </div>
             <div className="flex flex-col gap-1">
               <label className={`text-xs font-medium ${isDark ? "text-gray-400" : "text-gray-500"}`}>Mês</label>
-              <select value={mes} onChange={(e) => setMes(+e.target.value)} className={`${inp} w-28`}>
+              <select value={mes} onChange={(e) => setMes(+e.target.value)} className={`${inp} w-32`}>
+                <option value={0}>Todos os meses</option>
                 {MONTHS.map((m, i) => (
                   <option key={i + 1} value={i + 1}>{m}</option>
                 ))}
