@@ -28,8 +28,8 @@ NFSE_CITY_REGISTRY: dict[str, dict] = {
     "5300108": {
         "nome": "Brasília", "uf": "DF", "tipo": "nddigital", "url": NDD_BASE,
         "direct_tipo": "df",
-        "direct_url":  "https://www.nfse.iss.df.gov.br/issweb/ws/nfse.asmx",
-        "sandbox_url": "https://www.nfse.iss.df.gov.br/issweb/ws/nfse.asmx",
+        "direct_url":  "https://nfse.iss.df.gov.br/issweb/ws/nfse.asmx",
+        "sandbox_url": "https://nfse.iss.df.gov.br/issweb/ws/nfse.asmx",
     },
 
     # SP

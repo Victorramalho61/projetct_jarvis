@@ -282,14 +282,14 @@ async def _sync_municipalities_background(company_id: str):
 async def _sync_ndd_background(company_id: str):
     from services.scheduler import sync_ndd_for_company
     try:
-        await sync_ndd_for_company(company_id, janela="manual")
+        await asyncio.to_thread(sync_ndd_for_company, company_id, "manual")
     except Exception as e:
         _logger.error("NDD manual ERRO empresa %s: %s", company_id, e)
 
 
 async def _sync_all_nfse_background(company_id: str):
     """Dispara NDD + Portal Nacional + Municipal Direto em paralelo."""
-    from services.scheduler import sync_ndd_for_company, _sync_portal_nfse_company
+    from services.scheduler import _sync_portal_nfse_company
     from db import get_supabase
 
     sb = get_supabase()

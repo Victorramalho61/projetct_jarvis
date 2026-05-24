@@ -1,15 +1,31 @@
 import logging
+import ssl
 import threading
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 import requests
+import urllib3
 import zeep
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 from zeep.transports import Transport
 
 from services.nfse_city_registry import NFSE_CITY_REGISTRY, NDD_BASE, NDD_IDENTITY
 
 _logger = logging.getLogger(__name__)
+
+# Adapter que aceita TLS 1.0/1.1 + desabilita verificação para APIs gov.br com certs legados
+class _LegacyTLSAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        ctx = create_urllib3_context()
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        ctx.minimum_version = ssl.TLSVersion.TLSv1
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        kwargs["ssl_context"] = ctx
+        super().init_poolmanager(*args, **kwargs)
+
 
 # ── ND Digital token — lê do banco, renova via refresh_token se disponível ────
 _ndd_token_lock = threading.Lock()
@@ -232,11 +248,11 @@ class NFSeFetcher:
         _logger.info("NDD Digital IBGE %s: %d notas importadas", ibge, len(docs))
         return docs
 
-    def _make_session(self) -> requests.Session:
+    def _make_session(self, verify: bool = True) -> requests.Session:
         session = requests.Session()
         if self.cert_path and self.key_path:
             session.cert = (self.cert_path, self.key_path)
-        session.verify = True
+        session.verify = verify
         return session
 
     def _fetch_abrasf(self, ibge: str, url: str, data_inicio: date, data_fim: date) -> list[dict]:
@@ -314,26 +330,29 @@ class NFSeFetcher:
             raise
 
     def _fetch_carioca(self, ibge: str, url: str, data_inicio: date, data_fim: date) -> list[dict]:
-        # Nota Carioca usa API REST com certificado
+        # Nota Carioca (RJ) — SOAP/ASMX com TLS legado e certificado mTLS
+        session = requests.Session()
+        session.mount("https://", _LegacyTLSAdapter())
+        if self.cert_path and self.key_path:
+            session.cert = (self.cert_path, self.key_path)
+        transport = Transport(session=session, timeout=30)
+        wsdl = f"{url}?wsdl" if "?" not in url else url
         try:
-            resp = requests.get(
-                url,
-                params={
-                    "cnpjPrestador": self.cnpj,
-                    "dataInicial": data_inicio.strftime("%d/%m/%Y"),
-                    "dataFinal": data_fim.strftime("%d/%m/%Y"),
-                },
-                cert=(self.cert_path, self.key_path) if self.cert_path else None,
-                timeout=30,
+            client = zeep.Client(wsdl=wsdl, transport=transport)
+            resp = client.service.ConsultaNFeRecebidas(
+                strCNPJ=self.cnpj,
+                dtInicio=data_inicio.strftime("%d/%m/%Y"),
+                dtFim=data_fim.strftime("%d/%m/%Y"),
+                strInscricaoMunicipal="",
             )
-            resp.raise_for_status()
-            return _parse_carioca_response(resp.json(), ibge)
+            return _parse_carioca_response(resp, ibge)
         except Exception as e:
             _logger.error("NFSe Carioca %s: erro: %s", ibge, e)
             raise
 
     def _fetch_df(self, ibge: str, url: str, data_inicio: date, data_fim: date) -> list[dict]:
-        session = self._make_session()
+        # verify=False: cert do GDF não inclui hostname intermediário correto
+        session = self._make_session(verify=False)
         transport = Transport(session=session, timeout=30)
         wsdl = f"{url}?wsdl" if "?" not in url else url
         try:
@@ -419,16 +438,35 @@ def _parse_paulistana_response(resp, ibge: str) -> list[dict]:
 
 
 def _parse_carioca_response(data, ibge: str) -> list[dict]:
+    """Processa resposta SOAP zeep do Nota Carioca (RJ)."""
     docs = []
+    if data is None:
+        return docs
     try:
-        items = data if isinstance(data, list) else data.get("nfes", [])
+        # Zeep retorna objeto com atributo — pode ser lista direta ou wrapper
+        if isinstance(data, list):
+            items = data
+        elif hasattr(data, "__iter__") and not isinstance(data, (str, bytes, dict)):
+            items = list(data)
+        elif isinstance(data, dict):
+            items = data.get("nfes", data.get("Nfse", []))
+        else:
+            items = []
+
         for item in items:
+            if item is None:
+                continue
+            get = (lambda k: item.get(k)) if isinstance(item, dict) else (lambda k: getattr(item, k, None))
+            numero = str(get("numero") or get("NumeroNfse") or get("Numero") or "")
+            cod_ver = str(get("codigoVerificacao") or get("CodigoVerificacao") or "")
+            data_em = str(get("dataEmissao") or get("DataEmissao") or "")[:10] or None
+            valor = float(get("valorServicos") or get("ValorServicos") or get("ValorLiquidoNfse") or 0)
             docs.append({
                 "tipo": "NFSe",
-                "numero": str(item.get("numero", "")),
-                "chave_acesso": item.get("codigoVerificacao", "").ljust(44, "0")[:44],
-                "data_emissao": item.get("dataEmissao", "")[:10] or None,
-                "valor_total": float(item.get("valorServicos", 0) or 0),
+                "numero": numero,
+                "chave_acesso": (cod_ver or f"{ibge}{numero}").ljust(44, "0")[:44],
+                "data_emissao": data_em,
+                "valor_total": valor,
                 "status": "pendente",
             })
     except Exception as e:

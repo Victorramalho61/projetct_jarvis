@@ -496,7 +496,7 @@ async def _sync_nfse_ndd_incremental():
         _logger.error("NFSe NDD 05:00 ERRO: %s", e)
 
 
-async def sync_ndd_for_company(company_id: str, janela: str = "manual") -> dict:
+def sync_ndd_for_company(company_id: str, janela: str = "manual") -> dict:
     """Sync NDD incremental para uma empresa específica. Retorna {docs_total, erros, status}."""
     from db import get_supabase
     from services.nfse_fetcher import _get_ndd_token
