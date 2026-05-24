@@ -2335,13 +2335,13 @@ export default function FiscalPage() {
                           </td>
                           <td className="px-4 py-2 text-right tabular-nums">
                             {(log.documentos_novos ?? 0) > 0
-                              ? <span className="text-emerald-500">+{log.documentos_novos}</span>
-                              : <span className={isDark ? "text-gray-600" : "text-gray-400"}>—</span>}
+                              ? (<span className="text-emerald-500">+{log.documentos_novos}</span>)
+                              : (<span className={isDark ? "text-gray-600" : "text-gray-400"}>—</span>)}
                           </td>
                           <td className="px-4 py-2 max-w-[200px]">
                             {log.erro_msg
-                              ? <span className="text-red-400 truncate block" title={log.erro_msg}>{log.erro_msg.slice(0, 50)}</span>
-                              : <span className={isDark ? "text-gray-600" : "text-gray-400"}>—</span>}
+                              ? (<span className="text-red-400 truncate block" title={log.erro_msg}>{log.erro_msg.slice(0, 50)}</span>)
+                              : (<span className={isDark ? "text-gray-600" : "text-gray-400"}>—</span>)}
                           </td>
                         </tr>
                       ))}
