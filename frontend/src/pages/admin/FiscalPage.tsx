@@ -34,6 +34,19 @@ interface CertStatus {
   portal_nfse_hora_sync: number;
   sefaz_nfe_bloqueado_ate: string | null;
   portal_nfse_last_sync_at: string | null;
+  ndd_last_sync_at: string | null;
+}
+
+interface Municipality {
+  municipio_ibge: string;
+  municipio_nome: string;
+  uf: string;
+  sistema_tipo: string;
+  ativo: boolean;
+  status: string;
+  last_sync_at: string | null;
+  docs_total: number | null;
+  ultimo_erro: string | null;
 }
 
 interface PortalLog {
@@ -302,6 +315,23 @@ export default function FiscalPage() {
   const [runningPortalSync, setRunningPortalSync]     = useState(false);
   const [portalSyncMsg, setPortalSyncMsg]             = useState("");
   const [portalLogs, setPortalLogs]                   = useState<PortalLog[]>([]);
+
+  // ndd manual sync
+  const [nddSyncing, setNddSyncing]   = useState(false);
+  const [nddSyncMsg, setNddSyncMsg]   = useState("");
+
+  // municipal direto
+  const [municipalities, setMunicipalities] = useState<Municipality[]>([]);
+  const [munLoading, setMunLoading]         = useState(false);
+  const [testingIbge, setTestingIbge]       = useState<string | null>(null);
+  const [testResults, setTestResults]       = useState<Record<string, {ok: boolean; docs: number; msg: string}>>({});
+  const [munSyncing, setMunSyncing]         = useState(false);
+  const [munSyncMsg, setMunSyncMsg]         = useState("");
+  const [seedingMun, setSeedingMun]         = useState(false);
+
+  // sync tudo
+  const [syncAllLoading, setSyncAllLoading] = useState(false);
+  const [syncAllMsg, setSyncAllMsg]         = useState("");
 
   // busca por chave — seletor próprio de empresa
   const [fetchKeyCompanyId, setFetchKeyCompanyId] = useState("");
@@ -649,9 +679,18 @@ export default function FiscalPage() {
       .catch(() => {});
   }, [token, selectedId]);
 
+  const loadMunicipalities = useCallback(() => {
+    if (!token || !selectedId) return;
+    setMunLoading(true);
+    apiFetch<Municipality[]>(`/api/fiscal/${selectedId}/municipalities`, { token })
+      .then(setMunicipalities)
+      .catch(() => {})
+      .finally(() => setMunLoading(false));
+  }, [token, selectedId]);
+
   useEffect(() => {
-    if (tab === "certificados") { loadCertStatus(); loadPortalLogs(); }
-  }, [tab, loadCertStatus, loadPortalLogs]);
+    if (tab === "certificados") { loadCertStatus(); loadPortalLogs(); loadMunicipalities(); }
+  }, [tab, loadCertStatus, loadPortalLogs, loadMunicipalities]);
 
   const togglePortalSync = async () => {
     if (!token || !selectedId || !certStatus || togglingPortalSync) return;
@@ -707,6 +746,92 @@ export default function FiscalPage() {
       }
     } finally {
       setRunningPortalSync(false);
+    }
+  };
+
+  const syncNdd = async () => {
+    if (!token || !selectedId || nddSyncing) return;
+    setNddSyncing(true);
+    setNddSyncMsg("");
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/ndd/sync`, { token, method: "POST" });
+      setNddSyncMsg("✅ Sync NDD iniciado — aguarde e atualize os logs em instantes.");
+      setTimeout(loadCertStatus, 8000);
+    } catch (e) {
+      setNddSyncMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setNddSyncing(false);
+    }
+  };
+
+  const seedMunicipalities = async () => {
+    if (!token || !selectedId || seedingMun) return;
+    setSeedingMun(true);
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/municipalities/seed`, { token, method: "POST" });
+      loadMunicipalities();
+    } catch (e) {
+      setMunSyncMsg(`Erro no seed: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSeedingMun(false);
+    }
+  };
+
+  const toggleMunicipality = async (m: Municipality) => {
+    if (!token || !selectedId) return;
+    const action = m.ativo ? "deactivate" : "activate";
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/municipalities/${m.municipio_ibge}/${action}`, { token, method: "PATCH" });
+      setMunicipalities(prev => prev.map(x => x.municipio_ibge === m.municipio_ibge ? { ...x, ativo: !x.ativo } : x));
+    } catch (e) {
+      setMunSyncMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  const testMunicipality = async (ibge: string) => {
+    if (!token || !selectedId || testingIbge) return;
+    setTestingIbge(ibge);
+    setTestResults(prev => { const n = { ...prev }; delete n[ibge]; return n; });
+    try {
+      const r = await apiFetch<{ok: boolean; tipo: string; docs_encontrados: number; sandbox: boolean}>(
+        `/api/fiscal/${selectedId}/municipalities/${ibge}/test?sandbox=true`, { token, method: "POST" }
+      );
+      setTestResults(prev => ({ ...prev, [ibge]: { ok: true, docs: r.docs_encontrados, msg: `✅ ${r.tipo} — ${r.docs_encontrados} docs (sandbox)` } }));
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setTestResults(prev => ({ ...prev, [ibge]: { ok: false, docs: 0, msg: `❌ ${msg.slice(0, 80)}` } }));
+    } finally {
+      setTestingIbge(null);
+    }
+  };
+
+  const syncMunicipalities = async () => {
+    if (!token || !selectedId || munSyncing) return;
+    setMunSyncing(true);
+    setMunSyncMsg("");
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/municipalities/sync`, { token, method: "POST" });
+      setMunSyncMsg("✅ Sync municipal iniciado — atualize os logs em instantes.");
+      setTimeout(loadMunicipalities, 8000);
+    } catch (e) {
+      setMunSyncMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setMunSyncing(false);
+    }
+  };
+
+  const syncAllNfse = async () => {
+    if (!token || !selectedId || syncAllLoading) return;
+    setSyncAllLoading(true);
+    setSyncAllMsg("");
+    try {
+      await apiFetch(`/api/fiscal/${selectedId}/nfse/sync/all`, { token, method: "POST" });
+      setSyncAllMsg("✅ Sync unificado iniciado (NDD + Portal + Municipal).");
+      setTimeout(() => { loadCertStatus(); loadPortalLogs(); loadMunicipalities(); }, 10000);
+    } catch (e) {
+      setSyncAllMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSyncAllLoading(false);
     }
   };
 
@@ -1044,7 +1169,7 @@ export default function FiscalPage() {
                 >
                   {exportingCsv
                     ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                    : (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>)}
                   CSV
                 </button>
                 <button
@@ -1055,7 +1180,7 @@ export default function FiscalPage() {
                 >
                   {exportingXml
                     ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                    : (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>)}
                   XML
                 </button>
                 <button
@@ -1749,14 +1874,14 @@ export default function FiscalPage() {
                   className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-emerald-900/30 border border-emerald-700/60 text-emerald-400 hover:bg-emerald-900/50" : "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100"}`}>
                   {exportingNfeCsv
                     ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                    : (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>)}
                   CSV
                 </button>
                 <button onClick={() => exportXml("NFe,CTe")} disabled={exportingNfeXml || !selectedId}
                   className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-blue-900/30 border border-blue-700/60 text-blue-400 hover:bg-blue-900/50" : "bg-blue-50 border border-blue-200 text-blue-700 hover:bg-blue-100"}`}>
                   {exportingNfeXml
                     ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>}
+                    : (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>)}
                   XML
                 </button>
                 <button onClick={() => { setShowFetchKey(true); setFetchKeyResult(null); setFetchKeyError(""); setFetchKey(""); setFetchKeyCompanyId(selectedId || ""); }}
@@ -2009,6 +2134,169 @@ export default function FiscalPage() {
                       <li>Ao ativar, o sync roda automaticamente no horário configurado</li>
                     </ol>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Seção NDD Digital ── */}
+            {certStatus?.has_certificate && (
+              <div className={`rounded-xl border p-5 space-y-4 ${isDark ? "border-gray-700 bg-gray-800/50" : "border-gray-200 bg-gray-50"}`}>
+                <h3 className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+                  ND Digital — Notas Fiscais de Serviço Recebidas
+                </h3>
+                <p className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                  Portal centralizador privado — cobre 32 municípios com uma única conta. Sync automático diário às 05:00.
+                </p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={syncNdd}
+                    disabled={nddSyncing}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2 transition-colors"
+                  >
+                    {nddSyncing
+                      ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      : "▶ Sync NDD agora"}
+                  </button>
+                  {certStatus.ndd_last_sync_at && (
+                    <span className={`text-xs ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                      Último: {fmtDate(certStatus.ndd_last_sync_at)}
+                    </span>
+                  )}
+                </div>
+                {nddSyncMsg && (
+                  <p className={`text-xs ${nddSyncMsg.startsWith("✅") ? "text-emerald-500" : "text-red-500"}`}>{nddSyncMsg}</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Seção Municípios — API Direta ── */}
+            {certStatus?.has_certificate && (
+              <div className={`rounded-xl border overflow-hidden ${card}`}>
+                <div className={`px-4 py-3 border-b flex items-center justify-between ${isDark ? "border-gray-700" : "border-gray-200"}`}>
+                  <h3 className={`text-xs font-semibold uppercase tracking-wide ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                    Municípios — API Direta (não-NDD)
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={seedMunicipalities}
+                      disabled={seedingMun}
+                      className={`text-xs hover:underline disabled:opacity-50 ${isDark ? "text-blue-400" : "text-blue-500"}`}
+                    >
+                      {seedingMun ? "Populando..." : "Seed (32 municípios)"}
+                    </button>
+                    <span className={`text-xs ${isDark ? "text-gray-600" : "text-gray-400"}`}>·</span>
+                    <button
+                      onClick={syncMunicipalities}
+                      disabled={munSyncing}
+                      className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {munSyncing ? "Sincronizando..." : "▶ Sync Municipal"}
+                    </button>
+                  </div>
+                </div>
+                {munLoading ? (
+                  <div className="p-4 space-y-2">
+                    {[1,2,3].map(i => <div key={i} className={`h-8 rounded animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-100"}`} />)}
+                  </div>
+                ) : municipalities.length === 0 ? (
+                  <p className={`px-4 py-8 text-center text-xs ${isDark ? "text-gray-500" : "text-gray-400"}`}>
+                    Nenhum município configurado. Clique em "Seed" para popular os 32 municípios do registry.
+                  </p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className={`border-b ${isDark ? "border-gray-700 text-gray-400" : "border-gray-100 text-gray-500"}`}>
+                          <th className="px-4 py-2 text-left font-medium">Município</th>
+                          <th className="px-4 py-2 text-left font-medium">UF</th>
+                          <th className="px-4 py-2 text-left font-medium">Tipo API</th>
+                          <th className="px-4 py-2 text-right font-medium">Docs</th>
+                          <th className="px-4 py-2 text-left font-medium">Último sync</th>
+                          <th className="px-4 py-2 text-center font-medium">Ativo</th>
+                          <th className="px-4 py-2 text-center font-medium">Teste</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {municipalities.map(m => (
+                          <tr key={m.municipio_ibge} className={`border-b last:border-0 ${isDark ? "border-gray-700" : "border-gray-100"}`}>
+                            <td className={`px-4 py-2 font-medium ${isDark ? "text-gray-200" : "text-gray-800"}`}>{m.municipio_nome}</td>
+                            <td className={`px-4 py-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>{m.uf}</td>
+                            <td className="px-4 py-2">
+                              <span className={`font-mono text-xs px-1.5 py-0.5 rounded ${
+                                m.sistema_tipo === "nddigital"
+                                  ? isDark ? "bg-gray-700 text-gray-400" : "bg-gray-100 text-gray-500"
+                                  : isDark ? "bg-blue-900/40 text-blue-300" : "bg-blue-50 text-blue-700"
+                              }`}>{m.sistema_tipo}</span>
+                            </td>
+                            <td className={`px-4 py-2 text-right tabular-nums ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                              {m.docs_total ?? 0}
+                            </td>
+                            <td className={`px-4 py-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                              {m.last_sync_at ? fmtDate(m.last_sync_at) : "—"}
+                              {m.ultimo_erro && (
+                                <span className="block text-red-400 truncate max-w-[120px]" title={m.ultimo_erro}>
+                                  {m.ultimo_erro.slice(0, 30)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2 text-center">
+                              <button
+                                onClick={() => toggleMunicipality(m)}
+                                className={`relative w-9 h-5 rounded-full transition-colors ${m.ativo ? "bg-emerald-500" : isDark ? "bg-gray-600" : "bg-gray-300"}`}
+                              >
+                                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${m.ativo ? "translate-x-4" : "translate-x-0.5"}`} />
+                              </button>
+                            </td>
+                            <td className="px-4 py-2 text-center">
+                              {m.sistema_tipo !== "nddigital" ? (
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <button
+                                    onClick={() => testMunicipality(m.municipio_ibge)}
+                                    disabled={testingIbge === m.municipio_ibge}
+                                    className={`text-xs hover:underline disabled:opacity-50 ${isDark ? "text-blue-400" : "text-blue-500"}`}
+                                  >
+                                    {testingIbge === m.municipio_ibge ? "..." : "Testar"}
+                                  </button>
+                                  {testResults[m.municipio_ibge] && (
+                                    <span className={`text-xs ${testResults[m.municipio_ibge].ok ? "text-emerald-500" : "text-red-400"}`}
+                                      title={testResults[m.municipio_ibge].msg}>
+                                      {testResults[m.municipio_ibge].ok ? `✅ ${testResults[m.municipio_ibge].docs}` : "❌"}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className={`text-xs ${isDark ? "text-gray-600" : "text-gray-400"}`}>NDD</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                {munSyncMsg && (
+                  <p className={`px-4 py-2 text-xs border-t ${isDark ? "border-gray-700" : "border-gray-100"} ${munSyncMsg.startsWith("✅") ? "text-emerald-500" : "text-red-500"}`}>
+                    {munSyncMsg}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* ── Botão Sync Tudo ── */}
+            {certStatus?.has_certificate && (
+              <div className="flex flex-col items-end gap-2">
+                <button
+                  onClick={syncAllNfse}
+                  disabled={syncAllLoading}
+                  className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-emerald-600 text-white text-sm font-medium rounded-lg hover:opacity-90 disabled:opacity-50 flex items-center gap-2 transition-opacity"
+                >
+                  {syncAllLoading
+                    ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : "⚡"}
+                  Sync NFS-e Completo (NDD + Portal + Municipal)
+                </button>
+                {syncAllMsg && (
+                  <p className={`text-xs ${syncAllMsg.startsWith("✅") ? "text-emerald-500" : "text-red-500"}`}>{syncAllMsg}</p>
                 )}
               </div>
             )}
