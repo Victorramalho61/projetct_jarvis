@@ -1171,6 +1171,8 @@ Validação e visualização de documentos fiscais (NFe, CTe, NFSe). Fontes: **N
 | VTC (Filial) | 24.893.687/0015-03 | Brasília fil./DF | ✓ | ✓ | — |
 | VTC (Filial) | 24.893.687/0017-67 | Campinas/SP | ✓ | ✓ | — |
 | Voetur (Matriz) | 01.017.250/0001-05 | Brasília/DF | ✓ | — | ✓ |
+| Voetur (Filial RJ) | 01.017.250/0008-73 | Rio de Janeiro/RJ | ✓ | — | ✓ |
+| Voetur (Filial SP) | 01.017.250/0013-30 | São Paulo/SP | ✓ | — | ✓ |
 | Payfly (Matriz) | 66.649.752/0001-96 | São Paulo/SP | — | — | — (sem cert A1) |
 
 ### Schema (`fiscal_documents` + `fiscal_companies`)
@@ -1246,11 +1248,29 @@ erDiagram
         int documentos_cancelados
         text erro_msg
         text janela
+        bigint nsu_inicial
+        bigint nsu_final
+        text municipio_ibge
         timestamptz executado_em
+    }
+
+    fiscal_nfse_municipalities {
+        bigserial id PK
+        uuid company_id FK
+        text municipio_ibge
+        text municipio_nome
+        text uf
+        text sistema_tipo
+        bool ativo
+        text status
+        timestamptz last_sync_at
+        text ultimo_erro
+        int docs_total
     }
 
     fiscal_companies ||--o{ fiscal_documents : "company_id"
     fiscal_companies ||--o{ fiscal_sync_logs : "company_id"
+    fiscal_companies ||--o{ fiscal_nfse_municipalities : "company_id"
 ```
 
 **Campos `fiscal_companies`:**
@@ -1267,7 +1287,15 @@ erDiagram
 
 **Full-text search:** trigger `tsvector_update_fiscal_documents` mantém `search_vector` atualizado; pesos A=nomes, B=natureza, C=município, D=número/chave. Índice GIN + `pg_trgm` para CNPJ parcial.
 
-**RPC:** `fiscal_nfse_search(p_query, p_company_id, p_limit, p_offset)` — busca com ranking por relevância via `websearch_to_tsquery('portuguese', p_query)`.
+**RPCs:**
+- `fiscal_nfse_search(p_query, p_company_id, p_limit, p_offset)` — busca full-text com ranking por relevância
+- `fiscal_nfse_stats(p_company_id, p_ano, p_mes)` — totais agregados: count, valor_total, valor_iss, por_municipio, por_status
+
+**`chave_acesso`:** coluna `text` (não `varchar(44)`) — NFSe do Portal Nacional usam chaves maiores que 44 chars.
+
+**`fiscal_nfse_municipalities`:** tabela de configuração de municípios por empresa para sync via API municipal direta (Nota Carioca RJ, Paulistana SP, ISS-DF). Seed via `POST /{id}/municipalities/seed` (popula 32 municípios do registry NDD). `sistema_tipo`: `nddigital` | `carioca` | `paulistana` | `df`.
+
+**Certificados A1:** upload via `POST /{id}/certificates` valida o PKCS12 contra a senha **antes** de salvar — erro 400 imediato se senha incorreta.
 
 ### Jobs APScheduler
 
@@ -1324,6 +1352,8 @@ erDiagram
 | POST | `/api/fiscal/nfse/sync/run` | admin | dispara sync NFSe NDD imediatamente |
 | POST | `/api/fiscal/portal-nfse/sync/run` | admin | dispara sync Portal Nacional NFS-e (empresa ou todas) |
 | GET | `/api/fiscal/{id}/portal-nfse/logs` | autenticado | últimas 5 tentativas de sync NFSe_Portal desta empresa |
+| POST | `/api/fiscal/{id}/ndd/sync` | admin | sync NDD manual imediato para esta empresa |
+| POST | `/api/fiscal/{id}/nfse/sync/all` | admin | sync unificado: NDD + Portal Nacional + Municipal Direto em paralelo |
 
 **NDD Digital:**
 | Método | Rota | Acesso | Descrição |
@@ -1335,10 +1365,20 @@ erDiagram
 | GET | `/api/fiscal/ndd/callback` | público | recebe código NDD, troca por tokens |
 | GET | `/api/fiscal/{id}/ndd/status` | autenticado | status do token NDD |
 
+**Municípios NFSe (API direta):**
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/fiscal/{id}/municipalities` | autenticado | lista municípios configurados para esta empresa |
+| POST | `/api/fiscal/{id}/municipalities/seed` | admin | popula 32 municípios do registry NDD para esta empresa |
+| PATCH | `/api/fiscal/{id}/municipalities/{ibge}/activate` | admin | ativa município para sync direto |
+| PATCH | `/api/fiscal/{id}/municipalities/{ibge}/deactivate` | admin | desativa município |
+| POST | `/api/fiscal/{id}/municipalities/{ibge}/test` | admin | testa conexão com API do município (sandbox opcional) |
+| POST | `/api/fiscal/{id}/municipalities/sync` | admin | sync direto pelos municípios ativos (não-nddigital) |
+
 **Certificados e configurações:**
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
-| POST | `/api/fiscal/{id}/certificates` | admin | upload certificado A1 (PFX + senha → Fernet-encrypted) |
+| POST | `/api/fiscal/{id}/certificates` | admin | upload certificado A1 (PFX + senha → Fernet-encrypted; valida PKCS12 antes de salvar) |
 | GET | `/api/fiscal/{id}/certificates/status` | autenticado | status: validade, sync_portal_nfse_ativo, hora_sync, bloqueado_ate |
 | DELETE | `/api/fiscal/{id}/certificates` | admin | remove certificado |
 | PATCH | `/api/fiscal/{id}/portal-nfse/settings` | admin | atualiza `sync_portal_nfse_ativo` e/ou `portal_nfse_hora_sync` |
