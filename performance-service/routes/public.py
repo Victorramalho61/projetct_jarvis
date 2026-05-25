@@ -28,25 +28,30 @@ def get_evaluation_form(token: str) -> dict:
     if t.get("invalidated_at"):
         raise HTTPException(400, detail="Este link foi invalidado. O ciclo foi encerrado.")
 
-    # Verificar ciclo aberto
     cycle = db.table("performance_cycles").select("*").eq("id", t["cycle_id"]).execute()
     if not cycle.data or cycle.data[0]["status"] != "open":
-        raise HTTPException(400, detail="O ciclo de avaliação está encerrado. Não é possível submeter avaliações.")
+        raise HTTPException(400, detail="O ciclo de avaliação está encerrado.")
 
-    # Dados do avaliador
     evaluator = db.table("performance_employees").select("*, performance_branches(name), performance_companies(name)").eq("id", t["evaluator_id"]).execute()
     if not evaluator.data:
         raise HTTPException(404, detail="Avaliador não encontrado.")
     ev = evaluator.data[0]
 
-    # Subordinados diretos
-    subordinates = db.table("performance_employees").select("id,name,matricula,cargo").eq("manager_id", t["evaluator_id"]).eq("active", True).execute().data
+    # Colaborador a ser avaliado (um por token)
+    employee_id = t.get("employee_id")
+    if not employee_id:
+        raise HTTPException(400, detail="Token sem colaborador vinculado. Gere novos tokens.")
+    employee = db.table("performance_employees").select("id,name,matricula,cargo,hierarchy_level").eq("id", employee_id).execute()
+    if not employee.data:
+        raise HTTPException(404, detail="Colaborador não encontrado.")
+    emp = employee.data[0]
 
-    # Indicadores ativos
-    indicators = db.table("performance_indicators").select("id,name,description").eq("active", True).order("created_at").execute().data
+    emp_level = emp.get("hierarchy_level") or 3
+    ind_q = db.table("performance_indicators").select("id,name,description").eq("active", True).eq("hierarchy_level", emp_level)
+    indicators = ind_q.order("created_at").execute().data
 
-    branch_name = ev.get("performance_branches", {}).get("name", "") if isinstance(ev.get("performance_branches"), dict) else ""
-    company_name = ev.get("performance_companies", {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
+    branch_name = (ev.get("performance_branches") or {}).get("name", "") if isinstance(ev.get("performance_branches"), dict) else ""
+    company_name = (ev.get("performance_companies") or {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
 
     return {
         "evaluator_name": ev["name"],
@@ -54,20 +59,19 @@ def get_evaluation_form(token: str) -> dict:
         "branch_name": branch_name,
         "cycle_name": cycle.data[0]["name"],
         "cycle_id": t["cycle_id"],
-        "subordinates": subordinates,
+        "employee": {"id": emp["id"], "name": emp["name"], "matricula": emp.get("matricula", ""), "cargo": emp.get("cargo", ""), "hierarchy_level": emp_level},
         "indicators": indicators,
     }
+
 
 class IndicatorScore(BaseModel):
     indicator_id: str
     score: float
 
-class SubordinateScores(BaseModel):
-    employee_id: str
-    indicator_scores: list[IndicatorScore]
 
 class EvaluationSubmit(BaseModel):
-    scores: list[SubordinateScores]
+    indicator_scores: list[IndicatorScore]
+
 
 @router.post("/avaliar/{token}")
 def submit_evaluation(token: str, body: EvaluationSubmit, request: Request) -> dict:
@@ -85,83 +89,82 @@ def submit_evaluation(token: str, body: EvaluationSubmit, request: Request) -> d
     if not cycle.data or cycle.data[0]["status"] != "open":
         raise HTTPException(400, detail="O ciclo de avaliação está encerrado.")
 
-    s = get_settings()
-    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+    employee_id = t.get("employee_id")
+    if not employee_id:
+        raise HTTPException(400, detail="Token sem colaborador vinculado.")
 
-    reviews_created = 0
-    for sub_score in body.scores:
-        scores_list = [sc.score for sc in sub_score.indicator_scores]
-        if not scores_list:
-            continue
-        for sc in scores_list:
-            if sc < 1 or sc > 5:
-                raise HTTPException(400, detail=f"Nota {sc} inválida. Notas devem ser entre 1 e 5.")
+    scores_list = [sc.score for sc in body.indicator_scores]
+    if not scores_list:
+        raise HTTPException(400, detail="Nenhuma nota informada.")
+    for sc in scores_list:
+        if sc < 1 or sc > 4:
+            raise HTTPException(400, detail=f"Nota {sc} inválida. Use valores de 1 a 4 (NAE/APE/AE/SE).")
 
-        final_score = round(sum(scores_list) / len(scores_list), 2)
+    final_score = round(sum(scores_list) / len(scores_list), 2)
 
-        # Upsert review
-        existing_review = db.table("performance_reviews").select("id").eq("cycle_id", t["cycle_id"]).eq("employee_id", sub_score.employee_id).execute()
-        if existing_review.data:
-            review_id = existing_review.data[0]["id"]
-            db.table("performance_reviews").update({
-                "evaluator_id": t["evaluator_id"],
-                "status": "completed",
-                "final_score": final_score,
-                "submitted_at": "now()",
-                "updated_at": "now()",
-            }).eq("id", review_id).execute()
-        else:
-            review_res = db.table("performance_reviews").insert({
-                "cycle_id": t["cycle_id"],
-                "employee_id": sub_score.employee_id,
-                "evaluator_id": t["evaluator_id"],
-                "status": "completed",
-                "final_score": final_score,
-                "submitted_at": "now()",
-            }).execute()
-            if not review_res.data:
-                continue
-            review_id = review_res.data[0]["id"]
+    existing_review = db.table("performance_reviews").select("id").eq("cycle_id", t["cycle_id"]).eq("employee_id", employee_id).execute()
+    if existing_review.data:
+        review_id = existing_review.data[0]["id"]
+        db.table("performance_reviews").update({
+            "evaluator_id": t["evaluator_id"],
+            "status": "completed",
+            "final_score": final_score,
+            "submitted_at": "now()",
+            "updated_at": "now()",
+        }).eq("id", review_id).execute()
+    else:
+        review_res = db.table("performance_reviews").insert({
+            "cycle_id": t["cycle_id"],
+            "employee_id": employee_id,
+            "evaluator_id": t["evaluator_id"],
+            "status": "completed",
+            "final_score": final_score,
+            "submitted_at": "now()",
+        }).execute()
+        if not review_res.data:
+            raise HTTPException(500, detail="Erro ao salvar avaliação.")
+        review_id = review_res.data[0]["id"]
 
-        # Inserir scores por indicador
-        db.table("performance_indicator_scores").delete().eq("review_id", review_id).execute()
-        score_rows = [{"review_id": review_id, "indicator_id": sc.indicator_id, "score": sc.score} for sc in sub_score.indicator_scores]
-        db.table("performance_indicator_scores").insert(score_rows).execute()
-        reviews_created += 1
-
-        # Enviar e-mail de ciência se o colaborador tem e-mail
-        employee = db.table("performance_employees").select("*").eq("id", sub_score.employee_id).execute()
-        if employee.data:
-            emp = employee.data[0]
-            if emp.get("has_corporate_email") and emp.get("email"):
-                # Criar token de ciência
-                ack_token_res = db.table("performance_acknowledgment_tokens").insert({
-                    "review_id": review_id,
-                    "employee_id": emp["id"],
-                    "sent_at": "now()",
-                    "expires_at": (datetime.now(tz=timezone.utc) + timedelta(days=30)).isoformat(),
-                }).execute()
-                if ack_token_res.data:
-                    ack_token = ack_token_res.data[0]["token"]
-                    evaluator = db.table("performance_employees").select("name").eq("id", t["evaluator_id"]).execute()
-                    evaluator_name = evaluator.data[0]["name"] if evaluator.data else "seu gestor"
-                    from services.email import send_ciencia_email
-                    send_ciencia_email(
-                        employee_name=emp["name"],
-                        employee_email=emp["email"],
-                        evaluator_name=evaluator_name,
-                        cycle_name=cycle.data[0]["name"],
-                        token=str(ack_token),
-                        frontend_url=frontend_url,
-                    )
+    db.table("performance_indicator_scores").delete().eq("review_id", review_id).execute()
+    score_rows = [{"review_id": review_id, "indicator_id": sc.indicator_id, "score": sc.score} for sc in body.indicator_scores]
+    db.table("performance_indicator_scores").insert(score_rows).execute()
 
     # Marcar token como usado
-    db.table("performance_evaluation_tokens").update({
-        "is_used": True,
-        "used_at": "now()",
-    }).eq("token", token).execute()
+    db.table("performance_evaluation_tokens").update({"is_used": True, "used_at": "now()"}).eq("token", token).execute()
 
-    return {"ok": True, "reviews_created": reviews_created}
+    # Enviar ciência por e-mail se colaborador tem e-mail corporativo
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+    employee = db.table("performance_employees").select("*").eq("id", employee_id).execute()
+    if employee.data:
+        emp = employee.data[0]
+        if emp.get("has_corporate_email") and emp.get("email"):
+            ack_token_res = db.table("performance_acknowledgment_tokens").insert({
+                "review_id": review_id,
+                "employee_id": emp["id"],
+                "sent_at": "now()",
+                "expires_at": (datetime.now(tz=timezone.utc) + timedelta(days=30)).isoformat(),
+            }).execute()
+            if ack_token_res.data:
+                ack_token = ack_token_res.data[0]["token"]
+                evaluator = db.table("performance_employees").select("name").eq("id", t["evaluator_id"]).execute()
+                evaluator_name = evaluator.data[0]["name"] if evaluator.data else "seu gestor"
+                company_name = ""
+                if emp.get("company_id"):
+                    co = db.table("performance_companies").select("name").eq("id", emp["company_id"]).execute()
+                    company_name = co.data[0]["name"] if co.data else ""
+                from services.email import send_ciencia_email
+                send_ciencia_email(
+                    employee_name=emp["name"],
+                    employee_email=emp["email"],
+                    evaluator_name=evaluator_name,
+                    cycle_name=cycle.data[0]["name"],
+                    token=str(ack_token),
+                    frontend_url=frontend_url,
+                    company_name=company_name,
+                )
+
+    return {"ok": True}
 
 # ── Ciência por token de e-mail ───────────────────────────────────────────────
 
@@ -205,6 +208,13 @@ def get_ciencia_form(token: str) -> dict:
     already_acknowledged = bool(existing_ack.data)
     acknowledged_at = existing_ack.data[0]["acknowledged_at"] if already_acknowledged else None
 
+    # Buscar empresa do colaborador para branding correto no frontend
+    company_name = ""
+    emp_full = db.table("performance_employees").select("company_id").eq("id", at["employee_id"]).execute()
+    if emp_full.data and emp_full.data[0].get("company_id"):
+        co = db.table("performance_companies").select("name").eq("id", emp_full.data[0]["company_id"]).execute()
+        company_name = co.data[0]["name"] if co.data else ""
+
     return {
         "employee_name": employee.data[0]["name"] if employee.data else "",
         "evaluator_name": evaluator.data[0]["name"] if evaluator.data else "",
@@ -213,6 +223,7 @@ def get_ciencia_form(token: str) -> dict:
         "indicator_scores": indicator_scores,
         "already_acknowledged": already_acknowledged,
         "acknowledged_at": acknowledged_at,
+        "company_name": company_name,
     }
 
 class AcknowledgeBody(BaseModel):
@@ -249,56 +260,54 @@ def submit_ciencia(token: str, body: AcknowledgeBody, request: Request) -> dict:
 
 class CienciaPresencialBusca(BaseModel):
     nome: str
-    matricula: str
+    cpf: str  # 11 dígitos numéricos, sem máscara
+
 
 class CienciaPresencialConfirmar(BaseModel):
-    matricula: str
+    cpf: str
     review_id: str
     feedback_received: bool
 
+
 MAX_ATTEMPTS = 3
 BLOCK_MINUTES = 5
+
 
 @router.post("/ciencia-presencial/buscar")
 def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) -> dict:
     db = get_supabase()
     ip = request.client.host if request.client else "unknown"
 
-    # Anti-brute-force: contar tentativas recentes do mesmo IP
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
     attempts = db.table("performance_ciencia_attempts").select("id").eq("ip_address", ip).gte("attempted_at", cutoff).execute()
     if len(attempts.data) >= MAX_ATTEMPTS:
-        raise HTTPException(429, detail=f"Muitas tentativas incorretas. Aguarde {BLOCK_MINUTES} minutos antes de tentar novamente.")
+        raise HTTPException(429, detail=f"Muitas tentativas incorretas. Aguarde {BLOCK_MINUTES} minutos.")
 
-    # Validar matrícula
-    if not re.match(r'^\d+$', body.matricula.strip()):
-        raise HTTPException(400, detail="Matrícula deve conter apenas números, sem pontos ou traços.")
+    cpf_clean = re.sub(r'\D', '', body.cpf.strip())
+    if len(cpf_clean) != 11:
+        raise HTTPException(400, detail="CPF inválido. Informe os 11 dígitos numéricos.")
 
-    # Buscar colaborador por matrícula
-    employees = db.table("performance_employees").select("*").eq("matricula", body.matricula.strip()).eq("active", True).execute().data
+    employees = db.table("performance_employees").select("*").eq("cpf", cpf_clean).eq("active", True).execute().data
 
     def _log_attempt():
-        db.table("performance_ciencia_attempts").insert({"matricula": body.matricula.strip(), "ip_address": ip}).execute()
+        db.table("performance_ciencia_attempts").insert({"matricula": cpf_clean, "ip_address": ip}).execute()
 
     if not employees:
         _log_attempt()
-        raise HTTPException(404, detail="Colaborador não encontrado. Verifique a matrícula e tente novamente.")
+        raise HTTPException(404, detail="Colaborador não encontrado. Verifique o CPF e tente novamente.")
 
     employee = employees[0]
 
-    # Verificar que é sem e-mail corporativo
     if employee.get("has_corporate_email"):
         _log_attempt()
         raise HTTPException(400, detail="Este colaborador possui e-mail corporativo. Use o link enviado por e-mail para dar sua ciência.")
 
-    # Validar nome (comparação normalizada)
     nome_digitado = _normalize_name(body.nome)
     nome_cadastrado = _normalize_name(employee["name"])
     if nome_digitado != nome_cadastrado:
         _log_attempt()
-        raise HTTPException(404, detail="Dados incorretos. Verifique se o nome está exatamente como registrado pelo RH (sem abreviações).")
+        raise HTTPException(404, detail="Dados incorretos. Verifique se o nome está exatamente como registrado pelo RH.")
 
-    # Buscar review ativa (ciclo aberto)
     open_cycles = db.table("performance_cycles").select("id,name").eq("status", "open").execute().data
     if not open_cycles:
         raise HTTPException(400, detail="Não há ciclo de avaliação aberto no momento. Procure o RH.")
@@ -311,13 +320,12 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
 
     rev = review.data[0]
 
-    # Verificar se já deu ciência
     existing_ack = db.table("performance_review_acknowledgments").select("*").eq("review_id", rev["id"]).eq("employee_id", employee["id"]).execute()
     if existing_ack.data:
         ack = existing_ack.data[0]
         return {
             "already_acknowledged": True,
-            "acknowledged_at": ack["acknowledged_at"],
+            "acknowledged_at": ack.get("acknowledged_at"),
             "employee_name": employee["name"],
         }
 
@@ -326,12 +334,17 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
 
     indicator_scores = []
     for s in scores_raw:
-        ind = s.get("performance_indicators", {}) or {}
+        ind = s.get("performance_indicators") or {}
         indicator_scores.append({
             "indicator_id": s["indicator_id"],
             "indicator_name": ind.get("name", ""),
             "score": s["score"],
         })
+
+    company_name = ""
+    if employee.get("company_id"):
+        co = db.table("performance_companies").select("name").eq("id", employee["company_id"]).execute()
+        company_name = co.data[0]["name"] if co.data else ""
 
     return {
         "already_acknowledged": False,
@@ -341,25 +354,25 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
         "cycle_name": cycle["name"],
         "final_score": rev.get("final_score"),
         "indicator_scores": indicator_scores,
+        "company_name": company_name,
     }
+
 
 @router.post("/ciencia-presencial/confirmar")
 def confirmar_ciencia_presencial(body: CienciaPresencialConfirmar, request: Request) -> dict:
     db = get_supabase()
     ip = request.client.host if request.client else None
 
-    # Verificar matrícula
-    employee = db.table("performance_employees").select("id,name").eq("matricula", body.matricula.strip()).eq("has_corporate_email", False).eq("active", True).execute()
+    cpf_clean = re.sub(r'\D', '', body.cpf.strip())
+    employee = db.table("performance_employees").select("id,name").eq("cpf", cpf_clean).eq("has_corporate_email", False).eq("active", True).execute()
     if not employee.data:
         raise HTTPException(404, detail="Colaborador não encontrado.")
     emp = employee.data[0]
 
-    # Verificar review
     review = db.table("performance_reviews").select("id").eq("id", body.review_id).eq("employee_id", emp["id"]).execute()
     if not review.data:
         raise HTTPException(404, detail="Avaliação não encontrada.")
 
-    # Verificar se já deu ciência
     existing = db.table("performance_review_acknowledgments").select("id").eq("review_id", body.review_id).eq("employee_id", emp["id"]).execute()
     if existing.data:
         raise HTTPException(400, detail="Ciência já registrada para este colaborador.")

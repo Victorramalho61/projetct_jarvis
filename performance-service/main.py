@@ -26,6 +26,7 @@ from routes.management import router as management_router
 from routes.indicators import router as indicators_router
 from routes.hierarchy import router as hierarchy_router
 from routes.public import router as public_router
+from routes.my import router as my_router
 
 
 @asynccontextmanager
@@ -84,3 +85,4 @@ app.include_router(management_router)
 app.include_router(indicators_router)
 app.include_router(hierarchy_router)
 app.include_router(public_router)
+app.include_router(my_router)

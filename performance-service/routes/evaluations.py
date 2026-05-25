@@ -1,5 +1,6 @@
 import logging
 import secrets
+import uuid
 from datetime import date
 from typing import Annotated
 
@@ -96,6 +97,12 @@ def open_cycle(
 
     db.table("performance_cycles").update({"status": "open"}).eq("id", cycle_id).execute()
     log_action("cycle", cycle_id, "open", {"status": "draft"}, {"status": "open"}, current_user["username"], request)
+    # Invalida cache do dashboard
+    try:
+        from routes.admin import _cache_invalidate_prefix
+        _cache_invalidate_prefix("dashboard:")
+    except Exception:
+        pass
     return {"ok": True, "cycle_id": cycle_id, "status": "open"}
 
 
@@ -119,6 +126,11 @@ def close_cycle(
 
     db.table("performance_cycles").update({"status": "closed"}).eq("id", cycle_id).execute()
     log_action("cycle", cycle_id, "close", {"status": "open"}, {"status": "closed"}, current_user["username"], request)
+    try:
+        from routes.admin import _cache_invalidate_prefix
+        _cache_invalidate_prefix("dashboard:")
+    except Exception:
+        pass
     return {"ok": True, "cycle_id": cycle_id, "status": "closed"}
 
 
@@ -201,56 +213,62 @@ def send_tokens(
     from services.email import send_evaluation_token_email
 
     for ev in evaluators:
-        # Verificar se tem subordinados
-        subs = db.table("performance_employees").select("id").eq("manager_id", ev["id"]).eq("active", True).execute()
+        # Buscar subordinados diretos deste avaliador
+        subs = db.table("performance_employees").select(
+            "id,name,cargo,hierarchy_level"
+        ).eq("manager_id", ev["id"]).eq("active", True).execute()
         if not subs.data:
             continue
 
-        # Verificar token existente não utilizado
-        existing_token = (
-            db.table("performance_evaluation_tokens")
-            .select("*")
-            .eq("cycle_id", cycle_id)
-            .eq("evaluator_id", ev["id"])
-            .eq("is_used", False)
-            .is_("invalidated_at", "null")
-            .execute()
-        )
+        branch_name  = ev.get("performance_branches",  {}).get("name", "") if isinstance(ev.get("performance_branches"),  dict) else ""
+        company_name = ev.get("performance_companies", {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
 
-        if existing_token.data:
-            token_value = existing_token.data[0]["token"]
-        else:
-            # Criar novo token
-            token_value = secrets.token_urlsafe(32)
-            token_res = db.table("performance_evaluation_tokens").insert({
-                "cycle_id": cycle_id,
-                "evaluator_id": ev["id"],
-                "token": token_value,
-                "is_used": False,
-                "resend_count": 0,
-            }).execute()
-            if not token_res.data:
-                continue
-            tokens_created += 1
-
-        # Enviar e-mail se tem e-mail corporativo
-        if ev.get("has_corporate_email") and ev.get("email"):
-            branch_name = ev.get("performance_branches", {}).get("name", "") if isinstance(ev.get("performance_branches"), dict) else ""
-            company_name = ev.get("performance_companies", {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
-
-            ok = send_evaluation_token_email(
-                evaluator_name=ev["name"],
-                evaluator_email=ev["email"],
-                company_name=company_name,
-                branch_name=branch_name,
-                cycle_name=cycle_name,
-                token=token_value,
-                frontend_url=frontend_url,
+        # Um token por par (avaliador × subordinado) — formulário pré-vinculado
+        for emp in subs.data:
+            existing_token = (
+                db.table("performance_evaluation_tokens")
+                .select("token")
+                .eq("cycle_id",    cycle_id)
+                .eq("evaluator_id", ev["id"])
+                .eq("employee_id",  emp["id"])
+                .eq("is_used", False)
+                .is_("invalidated_at", "null")
+                .execute()
             )
-            if ok:
-                sent_emails += 1
-        else:
-            no_email_count += 1
+
+            if existing_token.data:
+                token_value = existing_token.data[0]["token"]
+            else:
+                token_value = str(uuid.uuid4())
+                token_res = db.table("performance_evaluation_tokens").insert({
+                    "cycle_id":    cycle_id,
+                    "evaluator_id": ev["id"],
+                    "employee_id":  emp["id"],
+                    "token":        token_value,
+                    "is_used":      False,
+                    "resend_count": 0,
+                }).execute()
+                if not token_res.data:
+                    continue
+                tokens_created += 1
+
+            # Enviar e-mail apenas para avaliadores com e-mail corporativo
+            if ev.get("has_corporate_email") and ev.get("email"):
+                ok = send_evaluation_token_email(
+                    evaluator_name=ev["name"],
+                    evaluator_email=ev["email"],
+                    employee_name=emp["name"],
+                    employee_cargo=emp.get("cargo", ""),
+                    company_name=company_name,
+                    branch_name=branch_name,
+                    cycle_name=cycle_name,
+                    token=token_value,
+                    frontend_url=frontend_url,
+                )
+                if ok:
+                    sent_emails += 1
+            else:
+                no_email_count += 1
 
     log_action(
         "cycle", cycle_id, "send_tokens", None,
@@ -307,10 +325,21 @@ def resend_token(
     branch_name = ev_data.get("performance_branches", {}).get("name", "") if isinstance(ev_data.get("performance_branches"), dict) else ""
     company_name = ev_data.get("performance_companies", {}).get("name", "") if isinstance(ev_data.get("performance_companies"), dict) else ""
 
+    # Fetch employee info linked to this token
+    employee_name = ""
+    employee_cargo = ""
+    if t.get("employee_id"):
+        emp = db.table("performance_employees").select("name,cargo").eq("id", t["employee_id"]).execute()
+        if emp.data:
+            employee_name = emp.data[0]["name"]
+            employee_cargo = emp.data[0].get("cargo", "")
+
     from services.email import send_evaluation_token_email
     ok = send_evaluation_token_email(
         evaluator_name=ev_data["name"],
         evaluator_email=ev_data["email"],
+        employee_name=employee_name,
+        employee_cargo=employee_cargo,
         company_name=company_name,
         branch_name=branch_name,
         cycle_name=cycle_name,

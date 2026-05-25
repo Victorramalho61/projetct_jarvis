@@ -114,10 +114,21 @@ def list_employees(
         query = query.eq("active", True)
 
     employees = query.order("name").execute().data
-    # Enriquecer com manager_name
-    all_emps = {e["id"]: e["name"] for e in db.table("performance_employees").select("id,name").execute().data}
+
+    # Busca apenas os gestores necessários — evita varredura completa
+    manager_ids = list({e["manager_id"] for e in employees if e.get("manager_id")})
+    mgr_map: dict[str, str] = {}
+    if manager_ids:
+        mgrs = (
+            db.table("performance_employees")
+            .select("id,name")
+            .in_("id", manager_ids)
+            .execute()
+            .data
+        )
+        mgr_map = {m["id"]: m["name"] for m in mgrs}
     for e in employees:
-        e["manager_name"] = all_emps.get(e.get("manager_id"), "") if e.get("manager_id") else ""
+        e["manager_name"] = mgr_map.get(e.get("manager_id"), "") if e.get("manager_id") else ""
     return employees
 
 class EmployeeCreate(BaseModel):

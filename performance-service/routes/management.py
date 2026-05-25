@@ -36,10 +36,23 @@ def _summary(reviews: list[dict]) -> dict:
 
 def _build_overview(cycle_id: str) -> dict:
     db = get_supabase()
-    reviews = db.table("performance_reviews").select("*").eq("cycle_id", cycle_id).execute().data
-    employees = db.table("performance_employees").select("*").execute().data
-    branches = db.table("performance_branches").select("*").execute().data
-    companies = db.table("performance_companies").select("*").execute().data
+    reviews = (
+        db.table("performance_reviews")
+        .select("id,employee_id,status,final_score")
+        .eq("cycle_id", cycle_id)
+        .execute()
+        .data
+    )
+    # Apenas colaboradores ativos, só as colunas necessárias para o overview
+    employees = (
+        db.table("performance_employees")
+        .select("id,company_id,branch_id,manager_id")
+        .eq("active", True)
+        .execute()
+        .data
+    )
+    branches  = db.table("performance_branches").select("id,name,company_id").execute().data
+    companies = db.table("performance_companies").select("id,name").execute().data
 
     emp_map = {e["id"]: e for e in employees}
     branch_map = {b["id"]: b for b in branches}

@@ -13,22 +13,27 @@ _RH_ADMIN = ("admin", "rh")
 class IndicatorCreate(BaseModel):
     name: str
     description: str | None = None
+    hierarchy_level: int | None = None  # 1=Gerente, 2=Coord/Sup, 3=Operacional/Admin; None=todos
 
 class IndicatorUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     active: bool | None = None
+    hierarchy_level: int | None = None
 
 @router.get("/")
 def list_indicators(
     _: Annotated[dict, Depends(require_role("admin", "rh", "gerente", "coordenador_supervisor"))],
     active_only: bool = True,
+    hierarchy_level: int | None = None,
 ) -> list[dict]:
     db = get_supabase()
     query = db.table("performance_indicators").select("*")
     if active_only:
         query = query.eq("active", True)
-    return query.order("created_at").execute().data
+    if hierarchy_level is not None:
+        query = query.eq("hierarchy_level", hierarchy_level)
+    return query.order("hierarchy_level").order("created_at").execute().data
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_indicator(
@@ -42,6 +47,7 @@ def create_indicator(
     result = db.table("performance_indicators").insert({
         "name": body.name.strip(),
         "description": body.description,
+        "hierarchy_level": body.hierarchy_level,
         "active": True,
         "created_by": current_user["username"],
     }).execute()

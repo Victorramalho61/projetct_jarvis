@@ -1,11 +1,18 @@
+import csv
+import io
 import logging
-from typing import Annotated
+import re
+import time
+import uuid as uuid_mod
+from datetime import date, datetime, timedelta, timezone
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from auth import require_role
-from db import get_supabase
+from db import get_supabase, get_settings
 from services.audit import log_action
 
 router = APIRouter(prefix="/api/performance/admin")
@@ -13,48 +20,1471 @@ _logger = logging.getLogger(__name__)
 
 _RH_ADMIN = ("admin", "rh")
 
+# ── Cache simples em memória (TTL 60 s) ────────────────────────────────────────
+# Evita repetir queries idênticas em acessos simultâneos ao dashboard.
+_cache: dict[str, tuple[Any, float]] = {}
+_CACHE_TTL = 60.0  # segundos
 
-class CalibrationCreate(BaseModel):
-    review_id: str
-    calibrated_score: float
-    justification: str
 
+def _cache_get(key: str) -> Any:
+    entry = _cache.get(key)
+    if entry and (time.monotonic() - entry[1]) < _CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _cache_set(key: str, value: Any) -> None:
+    _cache[key] = (value, time.monotonic())
+
+
+def _cache_invalidate_prefix(prefix: str) -> None:
+    for k in list(_cache.keys()):
+        if k.startswith(prefix):
+            del _cache[k]
+
+# ── Level mapping ──────────────────────────────────────────────────────────────
+
+_LEVEL_MAP = {
+    "gerente": 1,
+    "coordenador_supervisor": 2,
+    "administrativo_operacional": 3,
+}
+_LEVEL_RMAP = {1: "gerente", 2: "coordenador_supervisor", 3: "administrativo_operacional"}
+
+
+def _emp_out(e: dict) -> dict:
+    out = dict(e)
+    out["level"] = _LEVEL_RMAP.get(e.get("hierarchy_level"), "administrativo_operacional")
+    out["cpf"] = e.get("cpf") or ""
+    return out
+
+
+# ── Helper: current cycle ──────────────────────────────────────────────────────
+
+def _get_current_cycle(db) -> dict | None:
+    """Retorna o ciclo mais relevante em uma única query (open > draft > closed)."""
+    res = (
+        db.table("performance_cycles")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    if not res.data:
+        return None
+    _priority = {"open": 0, "draft": 1, "closed": 2}
+    return min(res.data, key=lambda c: _priority.get(c.get("status"), 99))
+
+
+# ── Dashboard ──────────────────────────────────────────────────────────────────
 
 @router.get("/dashboard")
 def dashboard(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    company_id: str | None = None,
     cycle_id: str | None = None,
 ) -> dict:
     db = get_supabase()
-    query = db.table("performance_reviews").select("status, final_score")
-    if cycle_id:
-        query = query.eq("cycle_id", cycle_id)
-    reviews = query.execute().data
 
-    total = len(reviews)
-    by_status: dict[str, int] = {}
-    score_distribution: dict[str, int] = {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}
+    if not cycle_id:
+        cycle = _get_current_cycle(db)
+        cycle_id = cycle["id"] if cycle else None
 
-    for r in reviews:
-        s = r.get("status", "unknown")
-        by_status[s] = by_status.get(s, 0) + 1
-        if r.get("final_score") is not None:
-            bucket = str(min(5, max(1, round(r["final_score"]))))
-            score_distribution[bucket] = score_distribution.get(bucket, 0) + 1
+    if not cycle_id:
+        return {
+            "total_evaluated": 0, "completion_pct": 0,
+            "pending_acknowledgment": 0, "without_evaluation": 0,
+            "indicator_averages": [],
+        }
 
-    completed = by_status.get("completed", 0)
-    completude_pct = round((completed / total * 100), 1) if total else 0
+    # Cache por (cycle_id, company_id) — invalida ao criar/encerrar ciclos
+    cache_key = f"dashboard:{cycle_id}:{company_id or 'all'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
 
-    pending_ack = db.table("performance_review_acknowledgments").select("id").is_("acknowledged_at", "null").execute().data
+    emp_q = db.table("performance_employees").select("id").eq("active", True)
+    if company_id:
+        emp_q = emp_q.eq("company_id", company_id)
+    all_employees = emp_q.execute().data
+    total_employees = len(all_employees)
+    all_emp_ids = {e["id"] for e in all_employees}
 
+    rev_q = db.table("performance_reviews").select("id,employee_id,status").eq("cycle_id", cycle_id)
+    reviews = rev_q.execute().data
+    if company_id:
+        reviews = [r for r in reviews if r.get("employee_id") in all_emp_ids]
+
+    completed = [r for r in reviews if r.get("status") in ("completed", "calibrated")]
+    reviewed_ids = {r["employee_id"] for r in reviews if r.get("employee_id")}
+    without_evaluation = max(0, total_employees - len(reviewed_ids))
+    completion_pct = round(len(completed) / total_employees * 100, 1) if total_employees else 0
+
+    # Bulk fetch acks and calibrations
+    review_ids = [r["id"] for r in completed]
+    acked_ids: set[str] = set()
+    if review_ids:
+        acks = (
+            db.table("performance_review_acknowledgments")
+            .select("review_id")
+            .in_("review_id", review_ids)
+            .execute()
+            .data
+        )
+        acked_ids = {a["review_id"] for a in acks}
+
+    pending_ack = len(completed) - len(acked_ids & {r["id"] for r in completed})
+
+    # Indicator averages
+    indicator_averages: list[dict] = []
+    if review_ids:
+        scores_raw = (
+            db.table("performance_indicator_scores")
+            .select("indicator_id,score,performance_indicators(name)")
+            .in_("review_id", review_ids)
+            .execute()
+            .data
+        )
+        by_ind: dict[str, list[float]] = {}
+        ind_names: dict[str, str] = {}
+        for s in scores_raw:
+            iid = s["indicator_id"]
+            ind = s.get("performance_indicators") or {}
+            ind_names[iid] = ind.get("name", iid) if isinstance(ind, dict) else iid
+            by_ind.setdefault(iid, []).append(float(s["score"]))
+        indicator_averages = sorted(
+            [{"name": ind_names[k], "avg": round(sum(v) / len(v), 2)} for k, v in by_ind.items()],
+            key=lambda x: x["name"],
+        )
+
+    result = {
+        "total_evaluated": len(completed),
+        "completion_pct": completion_pct,
+        "pending_acknowledgment": pending_ack,
+        "without_evaluation": without_evaluation,
+        "indicator_averages": indicator_averages,
+    }
+    _cache_set(cache_key, result)
+    return result
+
+
+@router.get("/dashboard/pending-evaluators")
+def dashboard_pending_evaluators(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    cycle_id: str | None = None,
+    company_id: str | None = None,
+) -> list[dict]:
+    """Managers who still have pending employees to evaluate in the current cycle."""
+    db = get_supabase()
+    if not cycle_id:
+        cycle = _get_current_cycle(db)
+        cycle_id = cycle["id"] if cycle else None
+    if not cycle_id:
+        return []
+
+    # Employees that should be evaluated (L2 + L3)
+    emp_q = (
+        db.table("performance_employees")
+        .select("id,name,cargo,manager_id")
+        .in_("hierarchy_level", [2, 3])
+        .eq("active", True)
+    )
+    if company_id:
+        emp_q = emp_q.eq("company_id", company_id)
+    employees = emp_q.execute().data
+
+    # Employees who already have a completed review in this cycle
+    reviewed_ids: set[str] = set()
+    if employees:
+        all_ids = [e["id"] for e in employees]
+        rev_res = (
+            db.table("performance_reviews")
+            .select("employee_id")
+            .eq("cycle_id", cycle_id)
+            .in_("status", ["completed", "calibrated"])
+            .execute()
+            .data
+        )
+        reviewed_ids = {r["employee_id"] for r in rev_res}
+
+    # Collect pending employees grouped by manager
+    pending_by_manager: dict[str, list[dict]] = {}
+    for emp in employees:
+        if emp["id"] in reviewed_ids:
+            continue
+        mgr_id = emp.get("manager_id") or "__no_manager__"
+        pending_by_manager.setdefault(mgr_id, []).append({"name": emp["name"], "cargo": emp.get("cargo", "")})
+
+    if not pending_by_manager:
+        return []
+
+    # Fetch manager details
+    mgr_ids = [mid for mid in pending_by_manager if mid != "__no_manager__"]
+    managers_map: dict[str, dict] = {}
+    if mgr_ids:
+        mgrs = db.table("performance_employees").select("id,name,email").in_("id", mgr_ids).execute().data
+        managers_map = {m["id"]: m for m in mgrs}
+
+    result = []
+    for mgr_id, pending_emps in pending_by_manager.items():
+        mgr = managers_map.get(mgr_id, {})
+        result.append({
+            "manager_name": mgr.get("name", "Sem gestor definido"),
+            "manager_email": mgr.get("email", ""),
+            "pending_employees": pending_emps,
+        })
+    result.sort(key=lambda x: x["manager_name"])
+    return result
+
+
+@router.get("/dashboard/pending-ciencia")
+def dashboard_pending_ciencia(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    cycle_id: str | None = None,
+    company_id: str | None = None,
+) -> list[dict]:
+    """Employees who have a completed review but haven't acknowledged yet."""
+    db = get_supabase()
+    if not cycle_id:
+        cycle = _get_current_cycle(db)
+        cycle_id = cycle["id"] if cycle else None
+    if not cycle_id:
+        return []
+
+    rev_q = (
+        db.table("performance_reviews")
+        .select("id,employee_id,evaluator_id,final_score")
+        .eq("cycle_id", cycle_id)
+        .in_("status", ["completed", "calibrated"])
+    )
+    reviews = rev_q.execute().data
+    if not reviews:
+        return []
+
+    # Filter by company if needed
+    if company_id:
+        emp_res = db.table("performance_employees").select("id").eq("company_id", company_id).execute().data
+        company_emp_ids = {e["id"] for e in emp_res}
+        reviews = [r for r in reviews if r.get("employee_id") in company_emp_ids]
+
+    review_ids = [r["id"] for r in reviews]
+    acks = (
+        db.table("performance_review_acknowledgments")
+        .select("review_id")
+        .in_("review_id", review_ids)
+        .execute()
+        .data
+    )
+    acked_review_ids = {a["review_id"] for a in acks}
+
+    pending_reviews = [r for r in reviews if r["id"] not in acked_review_ids]
+    if not pending_reviews:
+        return []
+
+    # Fetch employee and evaluator names
+    all_emp_ids = list({r["employee_id"] for r in pending_reviews} | {r["evaluator_id"] for r in pending_reviews if r.get("evaluator_id")})
+    people = db.table("performance_employees").select("id,name,cargo").in_("id", all_emp_ids).execute().data
+    people_map = {p["id"]: p for p in people}
+
+    result = []
+    for rev in pending_reviews:
+        emp = people_map.get(rev["employee_id"], {})
+        evaluator = people_map.get(rev.get("evaluator_id", ""), {})
+        result.append({
+            "employee_name": emp.get("name", ""),
+            "employee_cargo": emp.get("cargo", ""),
+            "evaluator_name": evaluator.get("name", ""),
+            "final_score": rev.get("final_score"),
+        })
+    result.sort(key=lambda x: x["employee_name"])
+    return result
+
+
+# ── Cycles (list) ─────────────────────────────────────────────────────────────
+
+@router.get("/cycles")
+def list_cycles(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
+    """Retorna todos os ciclos (usado pelo filtro de ciclo no dashboard)."""
+    cached = _cache_get("cycles")
+    if cached is not None:
+        return cached
+    db = get_supabase()
+    result = (
+        db.table("performance_cycles")
+        .select("id,name,status,period_start,period_end,created_at")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+    _cache_set("cycles", result)
+    return result
+
+
+# ── Companies / Branches / Employees ──────────────────────────────────────────
+
+@router.get("/companies")
+def list_companies(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
+    cached = _cache_get("companies")
+    if cached is not None:
+        return cached
+    db = get_supabase()
+    result = db.table("performance_companies").select("*").eq("active", True).order("name").execute().data
+    _cache_set("companies", result)
+    return result
+
+
+@router.get("/branches")
+def list_branches(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    company_id: str | None = None,
+) -> list[dict]:
+    cache_key = f"branches:{company_id or 'all'}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+    db = get_supabase()
+    q = db.table("performance_branches").select("*").eq("active", True)
+    if company_id:
+        q = q.eq("company_id", company_id)
+    result = q.order("name").execute().data
+    _cache_set(cache_key, result)
+    return result
+
+
+@router.get("/employees/template")
+def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
+    try:
+        import openpyxl
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+        from openpyxl.worksheet.datavalidation import DataValidation
+    except ImportError:
+        raise HTTPException(500, detail="openpyxl não instalado")
+
+    db = get_supabase()
+    companies = db.table("performance_companies").select("id,name").eq("active", True).order("name").execute().data
+    branches_all = db.table("performance_branches").select("id,name,company_id").eq("active", True).order("name").execute().data
+
+    branches_by_company: dict[str, list[str]] = {}
+    for b in branches_all:
+        branches_by_company.setdefault(b["company_id"], []).append(b["name"])
+
+    company_names = [c["name"] for c in companies]
+    all_branch_names = sorted({b["name"] for b in branches_all})
+
+    wb = openpyxl.Workbook()
+    ws_lists = wb.active
+    ws_lists.title = "Listas"
+
+    # Column A: company names
+    ws_lists["A1"] = "Empresa"
+    ws_lists["A1"].font = Font(bold=True)
+    for i, cn in enumerate(company_names, 2):
+        ws_lists.cell(row=i, column=1).value = cn
+
+    # Columns B onwards: branches per company (one column each)
+    for col_i, company in enumerate(companies, 2):
+        ws_lists.cell(row=1, column=col_i).value = f"Filiais: {company['name']}"
+        ws_lists.cell(row=1, column=col_i).font = Font(bold=True)
+        for row_i, b_name in enumerate(branches_by_company.get(company["id"], []), 2):
+            ws_lists.cell(row=row_i, column=col_i).value = b_name
+
+    # Column for all branches combined (used for validation)
+    all_col = len(companies) + 2
+    ws_lists.cell(row=1, column=all_col).value = "Todas as Filiais"
+    ws_lists.cell(row=1, column=all_col).font = Font(bold=True)
+    for i, b_name in enumerate(all_branch_names, 2):
+        ws_lists.cell(row=i, column=all_col).value = b_name
+
+    # Level and yes/no columns
+    lv_col = all_col + 1
+    yn_col = all_col + 2
+    ws_lists.cell(row=1, column=lv_col).value = "Nível Hierárquico"
+    ws_lists.cell(row=1, column=lv_col).font = Font(bold=True)
+    for i, lv in enumerate(["Gerente", "Coordenador-Supervisor", "Operacional-Administrativo"], 2):
+        ws_lists.cell(row=i, column=lv_col).value = lv
+    ws_lists.cell(row=1, column=yn_col).value = "Tem E-mail"
+    ws_lists.cell(row=1, column=yn_col).font = Font(bold=True)
+    ws_lists.cell(row=2, column=yn_col).value = "Sim"
+    ws_lists.cell(row=3, column=yn_col).value = "Não"
+
+    # Named range reference for all branches column
+    all_branches_col_letter = get_column_letter(all_col)
+    all_branches_ref = f"Listas!${all_branches_col_letter}$2:${all_branches_col_letter}${len(all_branch_names) + 1}"
+    company_list_ref = f"Listas!$A$2:$A${len(company_names) + 1}"
+    level_ref = f"Listas!${get_column_letter(lv_col)}$2:${get_column_letter(lv_col)}$4"
+    yn_ref = f"Listas!${get_column_letter(yn_col)}$2:${get_column_letter(yn_col)}$3"
+
+    # ── Instructions sheet ────────────────────────────────────────────────────
+    ws_inst = wb.create_sheet("Instruções")
+    ws_inst["A1"] = "COMO PREENCHER O TEMPLATE"
+    ws_inst["A1"].font = Font(bold=True, size=14)
+    ws_inst["A3"] = "Estrutura das colunas (13 colunas — A a M):"
+    ws_inst["A3"].font = Font(bold=True, size=12)
+    col_desc = [
+        ("A", "Empresa", "Selecione da lista suspensa. Deve existir no sistema."),
+        ("B", "Filial", "Selecione da lista suspensa. Deve ser idêntico ao sistema."),
+        ("C", "Gerência", "Nome da gerência/área. Ex: 'Gerência de Operações'"),
+        ("D", "Nome Completo", "Nome SEM abreviações. Mín. 2 palavras, cada uma com 3+ letras."),
+        ("E", "Matrícula", "Apenas números. Ex: '100001' (NÃO '100.001')"),
+        ("F", "Cargo", "Cargo do colaborador. Ex: 'Supervisor de Logística'"),
+        ("G", "Nível Hierárquico", "Selecione: Gerente / Coordenador-Supervisor / Operacional-Administrativo"),
+        ("H", "E-mail Corporativo", "E-mail corporativo do colaborador. Obrigatório se Tem E-mail = Sim."),
+        ("I", "Tem E-mail Corporativo?", "Sim ou Não."),
+        ("J", "Nome do Gestor Imediato", "Nome completo do gestor direto. Gerentes deixam em branco."),
+        ("K", "Cargo do Gestor Imediato", "Cargo do gestor direto. Gerentes deixam em branco."),
+        ("L", "E-mail do Gestor Imediato", "E-mail corporativo do gestor. Usado para envio do token de avaliação."),
+        ("M", "CPF (opcional)", "CPF do colaborador, apenas para quem NÃO tem e-mail. Usado para acesso presencial. 11 dígitos sem máscara."),
+    ]
+    for row_i, (col, header, desc) in enumerate(col_desc, 4):
+        ws_inst.cell(row=row_i, column=1).value = col
+        ws_inst.cell(row=row_i, column=1).font = Font(bold=True)
+        ws_inst.cell(row=row_i, column=2).value = header
+        ws_inst.cell(row=row_i, column=2).font = Font(bold=True)
+        ws_inst.cell(row=row_i, column=3).value = desc
+
+    ws_inst["A18"] = "REGRAS IMPORTANTES"
+    ws_inst["A18"].font = Font(bold=True, size=12)
+    rules = [
+        "- Gerentes (nível 1) são avaliadores, não são avaliados. Colunas J, K, L ficam em branco para eles.",
+        "- Coordenadores/Supervisores (nível 2) são avaliados pelo Gerente e também avaliam seus subordinados.",
+        "- Operacionais/Administrativos (nível 3) são avaliados por Coordenador ou Gerente.",
+        "- O e-mail do Gestor (coluna L) é obrigatório para colaboradores com gestor — é para lá que vai o token.",
+        "- CPF (coluna M): apenas para colaboradores SEM e-mail corporativo. 11 dígitos numéricos, sem pontos ou traços.",
+        "- Filiais: os nomes devem ser exatamente como aparecem na aba Listas.",
+    ]
+    for i, rule in enumerate(rules, 19):
+        ws_inst.cell(row=i, column=1).value = rule
+    ws_inst.column_dimensions["A"].width = 8
+    ws_inst.column_dimensions["B"].width = 30
+    ws_inst.column_dimensions["C"].width = 80
+
+    ws_inst["A26"] = "EXEMPLO:"
+    ws_inst["A26"].font = Font(bold=True, size=12)
+    ex_headers = ["A:Empresa", "B:Filial", "C:Gerência", "D:Nome", "E:Matrícula", "F:Cargo",
+                  "G:Nível", "H:E-mail", "I:Tem E-mail?", "J:Nome Gestor", "K:Cargo Gestor", "L:E-mail Gestor", "M:CPF"]
+    for ci, h in enumerate(ex_headers, 1):
+        ws_inst.cell(row=27, column=ci).value = h
+        ws_inst.cell(row=27, column=ci).font = Font(bold=True)
+    examples = [
+        [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
+         "Gerência de Operações", "João da Silva Santos", "100001",
+         "Gerente de Operações", "Gerente", "joao.santos@empresa.com.br", "Sim", "", "", "", ""],
+        [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
+         "Gerência de Operações", "Maria Fernanda Costa", "100002",
+         "Coordenadora de Logística", "Coordenador-Supervisor", "maria.costa@empresa.com.br", "Sim",
+         "João da Silva Santos", "Gerente de Operações", "joao.santos@empresa.com.br", ""],
+        [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
+         "Gerência de Operações", "Carlos Eduardo Lima", "100003",
+         "Operador Logístico", "Operacional-Administrativo", "", "Não",
+         "Maria Fernanda Costa", "Coordenadora de Logística", "maria.costa@empresa.com.br", "12345678901"],
+    ]
+    for r_i, row_data in enumerate(examples, 28):
+        for c_i, val in enumerate(row_data, 1):
+            ws_inst.cell(row=r_i, column=c_i).value = val
+
+    # ── Dados sheet ──────────────────────────────────────────────────────────
+    ws_data = wb.create_sheet("Dados")
+    headers = [
+        "Empresa", "Filial", "Gerência", "Nome Completo", "Matrícula", "Cargo",
+        "Nível Hierárquico", "E-mail Corporativo", "Tem E-mail Corporativo?",
+        "Nome do Gestor Imediato", "Cargo do Gestor Imediato", "E-mail do Gestor Imediato",
+        "CPF (opcional — sem máscara)",
+    ]
+    hfill = PatternFill("solid", fgColor="1F4E79")
+    hfont = Font(bold=True, color="FFFFFF")
+    for i, h in enumerate(headers, 1):
+        cell = ws_data.cell(row=1, column=i)
+        cell.value = h
+        cell.font = hfont
+        cell.fill = hfill
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    instrucoes = [
+        "Selecione da lista", "Selecione da lista", "Nome da área/gerência",
+        "Nome completo SEM abreviações", "Apenas números", "Cargo do colaborador",
+        "Selecione da lista", "E-mail (obrigatório se Tem E-mail=Sim)", "Sim ou Não",
+        "Nome do gestor (vazio se Gerente)", "Cargo do gestor (vazio se Gerente)",
+        "E-mail do gestor (obrigatório para envio do token)", "11 dígitos numéricos (só sem e-mail)",
+    ]
+    inst_font = Font(italic=True, color="808080")
+    for i, inst in enumerate(instrucoes, 1):
+        ws_data.cell(row=2, column=i).value = inst
+        ws_data.cell(row=2, column=i).font = inst_font
+
+    # Data validations
+    dv_empresa = DataValidation(type="list", formula1=f"={company_list_ref}", allow_blank=False, showErrorMessage=True,
+                                errorTitle="Empresa inválida", error="Selecione uma empresa da lista.")
+    dv_filial = DataValidation(type="list", formula1=f"={all_branches_ref}", allow_blank=False, showErrorMessage=True,
+                               errorTitle="Filial inválida", error="Selecione uma filial da lista. O nome deve ser idêntico ao sistema.")
+    dv_nivel = DataValidation(type="list", formula1=f"={level_ref}", allow_blank=False, showErrorMessage=True,
+                              errorTitle="Nível inválido", error="Use: Gerente, Coordenador-Supervisor ou Operacional-Administrativo")
+    dv_email = DataValidation(type="list", formula1=f"={yn_ref}", allow_blank=False)
+    ws_data.add_data_validation(dv_empresa)
+    ws_data.add_data_validation(dv_filial)
+    ws_data.add_data_validation(dv_nivel)
+    ws_data.add_data_validation(dv_email)
+    dv_empresa.sqref = "A3:A502"
+    dv_filial.sqref = "B3:B502"
+    dv_nivel.sqref = "G3:G502"
+    dv_email.sqref = "I3:I502"
+
+    col_widths = [30, 28, 28, 35, 12, 30, 28, 35, 22, 35, 30, 35, 20]
+    for i, w in enumerate(col_widths, 1):
+        ws_data.column_dimensions[get_column_letter(i)].width = w
+    ws_data.row_dimensions[1].height = 40
+    ws_data.row_dimensions[2].height = 25
+
+    wb.move_sheet("Dados", offset=-len(wb.worksheets))
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=template_hierarquia_avd.xlsx"},
+    )
+
+
+@router.get("/employees")
+def list_employees(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    company_id: str | None = None,
+    branch_id: str | None = None,
+) -> list[dict]:
+    db = get_supabase()
+    q = db.table("performance_employees").select("*").eq("active", True)
+    if company_id:
+        q = q.eq("company_id", company_id)
+    if branch_id:
+        q = q.eq("branch_id", branch_id)
+    employees = q.order("name").execute().data
+
+    # Busca apenas os gestores necessários (evita varredura completa da tabela)
+    manager_ids = list({e["manager_id"] for e in employees if e.get("manager_id")})
+    mgr_map: dict[str, str] = {}
+    if manager_ids:
+        mgrs = (
+            db.table("performance_employees")
+            .select("id,name")
+            .in_("id", manager_ids)
+            .execute()
+            .data
+        )
+        mgr_map = {m["id"]: m["name"] for m in mgrs}
+
+    result = []
+    for e in employees:
+        out = _emp_out(e)
+        out["manager_name"] = mgr_map.get(e.get("manager_id"), "") if e.get("manager_id") else ""
+        result.append(out)
+    return result
+
+
+class EmployeeBody(BaseModel):
+    name: str
+    matricula: str
+    cargo: str
+    level: str = "administrativo_operacional"
+    email: str | None = None
+    cpf: str | None = None
+    has_corporate_email: bool = True
+    manager_id: str | None = None
+    branch_id: str | None = None
+    company_id: str | None = None
+    management_id: str | None = None
+    jarvis_username: str | None = None
+    active: bool | None = None
+
+
+def _validate_name(name: str) -> None:
+    parts = name.strip().split()
+    if len(parts) < 2 or any(len(p) < 3 for p in parts):
+        raise HTTPException(400, detail="Nome deve ser completo, sem abreviações (mínimo 2 partes com 3+ caracteres)")
+
+
+def _validate_matricula(matricula: str) -> None:
+    if not re.match(r"^\d+$", matricula.strip()):
+        raise HTTPException(400, detail="Matrícula deve conter apenas números, sem pontos ou traços")
+
+
+def _ensure_management(db, branch_id: str | None) -> str | None:
+    if not branch_id:
+        return None
+    mgmt = (
+        db.table("performance_managements")
+        .select("id")
+        .eq("branch_id", branch_id)
+        .eq("active", True)
+        .limit(1)
+        .execute()
+    )
+    if mgmt.data:
+        return mgmt.data[0]["id"]
+    res = db.table("performance_managements").insert(
+        {"branch_id": branch_id, "name": "Geral", "active": True}
+    ).execute()
+    return res.data[0]["id"] if res.data else None
+
+
+@router.post("/employees", status_code=status.HTTP_201_CREATED)
+def create_employee(
+    body: EmployeeBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    _validate_name(body.name)
+    _validate_matricula(body.matricula)
+    hierarchy_level = _LEVEL_MAP.get(body.level, 3)
+    has_email = bool(body.email and body.email.strip())
+
+    db = get_supabase()
+    if body.company_id:
+        dup = (
+            db.table("performance_employees")
+            .select("id")
+            .eq("matricula", body.matricula.strip())
+            .eq("company_id", body.company_id)
+            .execute()
+        )
+        if dup.data:
+            raise HTTPException(400, detail=f"Matrícula {body.matricula} já cadastrada nesta empresa")
+
+    mgmt_id = body.management_id or _ensure_management(db, body.branch_id)
+
+    cpf_clean = re.sub(r'\D', '', body.cpf or "").strip() or None
+    result = db.table("performance_employees").insert({
+        "name": body.name.strip(),
+        "matricula": body.matricula.strip(),
+        "email": body.email or None,
+        "cpf": cpf_clean,
+        "cargo": body.cargo,
+        "has_corporate_email": has_email,
+        "hierarchy_level": hierarchy_level,
+        "manager_id": body.manager_id or None,
+        "management_id": mgmt_id,
+        "branch_id": body.branch_id,
+        "company_id": body.company_id,
+        "jarvis_username": body.jarvis_username,
+        "active": True,
+    }).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao cadastrar colaborador")
+    emp = result.data[0]
+    log_action("employee", emp["id"], "create", None, emp, current_user["username"], request)
+    return _emp_out(emp)
+
+
+@router.put("/employees/{employee_id}")
+def update_employee(
+    employee_id: str,
+    body: EmployeeBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+    existing = db.table("performance_employees").select("*").eq("id", employee_id).execute()
+    if not existing.data:
+        raise HTTPException(404, detail="Colaborador não encontrado")
+    old = existing.data[0]
+
+    updates: dict[str, Any] = {"updated_at": "now()"}
+    if body.name:
+        _validate_name(body.name)
+        updates["name"] = body.name.strip()
+    if body.matricula:
+        _validate_matricula(body.matricula)
+        updates["matricula"] = body.matricula.strip()
+    if body.cargo:
+        updates["cargo"] = body.cargo
+    if body.level:
+        updates["hierarchy_level"] = _LEVEL_MAP.get(body.level, 3)
+    if body.email is not None:
+        updates["email"] = body.email or None
+        updates["has_corporate_email"] = bool(body.email and body.email.strip())
+    if body.cpf is not None:
+        updates["cpf"] = re.sub(r'\D', '', body.cpf).strip() or None
+    if body.manager_id is not None:
+        updates["manager_id"] = body.manager_id or None
+    if body.active is not None:
+        updates["active"] = body.active
+    if body.jarvis_username is not None:
+        updates["jarvis_username"] = body.jarvis_username
+
+    result = db.table("performance_employees").update(updates).eq("id", employee_id).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao atualizar colaborador")
+    new = result.data[0]
+    log_action("employee", employee_id, "update", old, new, current_user["username"], request)
+    return _emp_out(new)
+
+
+@router.post("/employees/import")
+async def import_employees(
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    file: UploadFile = File(...),
+) -> dict:
+    try:
+        import openpyxl
+    except ImportError:
+        raise HTTPException(500, detail="openpyxl não instalado")
+
+    if not (file.filename or "").endswith(".xlsx"):
+        raise HTTPException(400, detail="Arquivo deve ser .xlsx")
+
+    content = await file.read()
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(content))
+    except Exception:
+        raise HTTPException(400, detail="Arquivo inválido ou corrompido")
+
+    if "Dados" not in wb.sheetnames:
+        raise HTTPException(400, detail="Aba 'Dados' não encontrada. Use o template correto.")
+
+    ws = wb["Dados"]
+    db = get_supabase()
+
+    companies = {c["name"]: c for c in db.table("performance_companies").select("*").execute().data}
+    branches_all = db.table("performance_branches").select("*").execute().data
+    existing_matriculas = {
+        f"{e['matricula']}_{e['company_id']}": True
+        for e in db.table("performance_employees").select("matricula,company_id").execute().data
+    }
+    NIVEL_MAP = {"gerente": 1, "coordenador-supervisor": 2, "operacional-administrativo": 3}
+
+    errors: list[dict] = []
+    rows_data: list[dict] = []
+    file_matriculas: dict[str, str] = {}
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
+        if all(v is None or str(v).strip() == "" for v in row):
+            break
+
+        empresa_name = str(row[0] or "").strip()
+        filial_name = str(row[1] or "").strip()
+        gerencia_name = str(row[2] or "").strip()
+        nome = str(row[3] or "").strip()
+        matricula = str(row[4] or "").strip()
+        cargo = str(row[5] or "").strip()
+        nivel_str = str(row[6] or "").strip()
+        email = str(row[7] or "").strip() or None
+        tem_email_str = str(row[8] or "").strip()
+        gestor_nome = str(row[9] or "").strip() if len(row) > 9 else ""
+        gestor_cargo = str(row[10] or "").strip() if len(row) > 10 else ""
+        gestor_email = str(row[11] or "").strip() if len(row) > 11 else ""
+        cpf_raw = re.sub(r'\D', '', str(row[12] or "")) if len(row) > 12 else ""
+        cpf = cpf_raw if cpf_raw else None
+
+        row_errors: list[dict] = []
+        company = companies.get(empresa_name)
+        if not company:
+            row_errors.append({"linha": row_idx, "campo": "Empresa", "erro": f"Empresa '{empresa_name}' inválida"})
+
+        branch = None
+        if company:
+            branch_matches = [b for b in branches_all if b["company_id"] == company["id"] and b["name"].lower() == filial_name.lower()]
+            if not branch_matches:
+                row_errors.append({"linha": row_idx, "campo": "Filial", "erro": f"Filial '{filial_name}' não encontrada. Nome deve ser idêntico ao sistema."})
+            else:
+                branch = branch_matches[0]
+
+        parts = nome.split()
+        if len(parts) < 2 or any(len(p) < 3 for p in parts):
+            row_errors.append({"linha": row_idx, "campo": "Nome Completo", "erro": "Nome deve ser completo, sem abreviações"})
+
+        if not re.match(r"^\d+$", matricula):
+            row_errors.append({"linha": row_idx, "campo": "Matrícula", "erro": "Matrícula deve conter apenas números"})
+        elif company:
+            key = f"{matricula}_{company['id']}"
+            if key in existing_matriculas:
+                row_errors.append({"linha": row_idx, "campo": "Matrícula", "erro": f"Matrícula {matricula} já cadastrada"})
+            elif key in file_matriculas:
+                row_errors.append({"linha": row_idx, "campo": "Matrícula", "erro": f"Matrícula {matricula} duplicada no arquivo (linha {file_matriculas[key]})"})
+            else:
+                file_matriculas[key] = str(row_idx)
+
+        nivel_key = nivel_str.lower()
+        hierarchy_level = NIVEL_MAP.get(nivel_key)
+        if hierarchy_level is None:
+            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido"})
+
+        tem_email = tem_email_str.lower() in ("sim", "s", "yes")
+        if tem_email and not email:
+            row_errors.append({"linha": row_idx, "campo": "E-mail Corporativo", "erro": "E-mail obrigatório quando Tem E-mail = Sim"})
+
+        # L2/L3 precisam ter gestor
+        if hierarchy_level and hierarchy_level > 1:
+            if not gestor_nome and not gestor_email:
+                row_errors.append({"linha": row_idx, "campo": "Gestor Imediato", "erro": "Nome ou e-mail do gestor é obrigatório para Coordenador/Supervisor e Operacional"})
+
+        if row_errors:
+            errors.extend(row_errors)
+        else:
+            rows_data.append({
+                "company_id": company["id"] if company else None,
+                "branch_id": branch["id"] if branch else None,
+                "gerencia_name": gerencia_name,
+                "name": nome, "matricula": matricula, "cargo": cargo,
+                "hierarchy_level": hierarchy_level, "email": email,
+                "has_corporate_email": tem_email,
+                "gestor_nome": gestor_nome,
+                "gestor_cargo": gestor_cargo,
+                "gestor_email": gestor_email.lower() if gestor_email else "",
+                "cpf": cpf,
+            })
+
+    if errors:
+        return {"errors": [f"Linha {e['linha']} — {e['campo']}: {e['erro']}" for e in errors], "imported": 0}
+    if not rows_data:
+        return {"errors": ["Nenhuma linha de dados encontrada (preencha a partir da linha 3)"], "imported": 0}
+
+    # Build lookup: email→id and name(lower)→id from existing employees
+    all_existing_emps = db.table("performance_employees").select("id,name,email").execute().data
+    existing_by_email: dict[str, str] = {e["email"].lower(): e["id"] for e in all_existing_emps if e.get("email")}
+    existing_by_name: dict[str, str] = {e["name"].lower(): e["id"] for e in all_existing_emps}
+
+    saved_map: dict[str, str] = {}  # matricula_companyid → id (newly inserted in this batch)
+    saved_by_email: dict[str, str] = {}  # email→id for newly inserted
+    saved_by_name: dict[str, str] = {}   # name.lower()→id for newly inserted
+
+    existing_mgmts = {
+        f"{m['branch_id']}_{m['name'].lower()}": m["id"]
+        for m in db.table("performance_managements").select("*").execute().data
+    }
+    imported = 0
+
+    def _resolve_manager(gestor_email: str, gestor_nome: str) -> str | None:
+        if gestor_email:
+            mid = existing_by_email.get(gestor_email) or saved_by_email.get(gestor_email)
+            if mid:
+                return mid
+        if gestor_nome:
+            mid = existing_by_name.get(gestor_nome.lower()) or saved_by_name.get(gestor_nome.lower())
+            if mid:
+                return mid
+        return None
+
+    for row in sorted(rows_data, key=lambda x: x["hierarchy_level"]):
+        mgmt_key = f"{row['branch_id']}_{row['gerencia_name'].lower()}"
+        mgmt_id = existing_mgmts.get(mgmt_key)
+        if not mgmt_id:
+            mgmt_res = db.table("performance_managements").insert(
+                {"branch_id": row["branch_id"], "name": row["gerencia_name"], "active": True}
+            ).execute()
+            if mgmt_res.data:
+                mgmt_id = mgmt_res.data[0]["id"]
+                existing_mgmts[mgmt_key] = mgmt_id
+
+        manager_id = _resolve_manager(row.get("gestor_email", ""), row.get("gestor_nome", ""))
+
+        emp_res = db.table("performance_employees").insert({
+            "name": row["name"], "matricula": row["matricula"],
+            "email": row["email"], "cargo": row["cargo"],
+            "has_corporate_email": row["has_corporate_email"],
+            "cpf": row.get("cpf"),
+            "hierarchy_level": row["hierarchy_level"],
+            "manager_id": manager_id, "management_id": mgmt_id,
+            "branch_id": row["branch_id"], "company_id": row["company_id"],
+            "active": True,
+        }).execute()
+        if emp_res.data:
+            new_id = emp_res.data[0]["id"]
+            saved_map[f"{row['matricula']}_{row['company_id']}"] = new_id
+            if row.get("email"):
+                saved_by_email[row["email"].lower()] = new_id
+            saved_by_name[row["name"].lower()] = new_id
+            imported += 1
+
+    log_action("system", "import-excel", "bulk_import", None, {"imported": imported}, current_user["username"], request)
+    return {"errors": [], "imported": imported}
+
+
+# ── Current cycle management ───────────────────────────────────────────────────
+
+@router.get("/cycle/status")
+def get_cycle_status(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> dict | None:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        return None
+    company_name = None
+    if cycle.get("company_id"):
+        co = db.table("performance_companies").select("name").eq("id", cycle["company_id"]).execute()
+        company_name = co.data[0]["name"] if co.data else None
     return {
-        "total_reviews": total,
-        "by_status": by_status,
-        "score_distribution": score_distribution,
-        "completude_pct": completude_pct,
-        "pending_acknowledgments": len(pending_ack),
+        "id": cycle["id"],
+        "name": cycle["name"],
+        "status": cycle["status"],
+        "is_open": cycle["status"] == "open",
+        "started_at": cycle.get("created_at"),
+        "period_start": cycle.get("period_start"),
+        "period_end": cycle.get("period_end"),
+        "company_id": cycle.get("company_id"),
+        "company_name": company_name,
     }
 
+
+class CycleCreateSimple(BaseModel):
+    name: str
+    period_start: str | None = None  # ISO date string
+    period_end: str | None = None
+    company_id: str | None = None  # None = todas as empresas
+
+
+@router.post("/cycle", status_code=status.HTTP_201_CREATED)
+def create_cycle(
+    body: CycleCreateSimple,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    if not body.name.strip():
+        raise HTTPException(400, detail="Nome do ciclo é obrigatório")
+    db = get_supabase()
+    open_cycle = db.table("performance_cycles").select("id,name").eq("status", "open").execute()
+    if open_cycle.data:
+        raise HTTPException(400, detail=f"Já existe um ciclo aberto: '{open_cycle.data[0]['name']}'")
+    today = date.today()
+    insert_data: dict = {
+        "name": body.name.strip(),
+        "period_start": body.period_start or today.isoformat(),
+        "period_end": body.period_end or (today + timedelta(days=90)).isoformat(),
+        "status": "draft",
+        "created_by": current_user["username"],
+    }
+    if body.company_id:
+        insert_data["company_id"] = body.company_id
+    result = db.table("performance_cycles").insert(insert_data).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao criar ciclo")
+    cycle = result.data[0]
+    _cache_invalidate_prefix("cycles")
+    _cache_invalidate_prefix("dashboard:")
+    log_action("cycle", cycle["id"], "create", None, cycle, current_user["username"], request)
+    company_name = None
+    if body.company_id:
+        co = db.table("performance_companies").select("name").eq("id", body.company_id).execute()
+        company_name = co.data[0]["name"] if co.data else None
+    return {
+        "id": cycle["id"], "name": cycle["name"],
+        "status": cycle["status"], "is_open": False,
+        "started_at": cycle.get("created_at"),
+        "period_start": cycle.get("period_start"),
+        "period_end": cycle.get("period_end"),
+        "company_id": body.company_id,
+        "company_name": company_name,
+    }
+
+
+@router.post("/cycle/open")
+def open_current_cycle(
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        raise HTTPException(404, detail="Nenhum ciclo encontrado")
+    if cycle["status"] != "draft":
+        raise HTTPException(400, detail="Apenas ciclos em rascunho podem ser abertos")
+    db.table("performance_cycles").update({"status": "open"}).eq("id", cycle["id"]).execute()
+    _cache_invalidate_prefix("cycles")
+    _cache_invalidate_prefix("dashboard:")
+    log_action("cycle", cycle["id"], "open", {"status": "draft"}, {"status": "open"}, current_user["username"], request)
+    return {"ok": True, "status": "open", "is_open": True}
+
+
+@router.post("/cycle/close")
+def close_current_cycle(
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        raise HTTPException(404, detail="Nenhum ciclo encontrado")
+    if cycle["status"] != "open":
+        raise HTTPException(400, detail="Apenas ciclos abertos podem ser encerrados")
+    db.table("performance_evaluation_tokens").update({
+        "invalidated_at": datetime.now(tz=timezone.utc).isoformat(),
+    }).eq("cycle_id", cycle["id"]).eq("is_used", False).is_("invalidated_at", "null").execute()
+    db.table("performance_cycles").update({"status": "closed"}).eq("id", cycle["id"]).execute()
+    _cache_invalidate_prefix("cycles")
+    _cache_invalidate_prefix("dashboard:")
+    log_action("cycle", cycle["id"], "close", {"status": "open"}, {"status": "closed"}, current_user["username"], request)
+    return {"ok": True, "status": "closed", "is_open": False}
+
+
+class ReopenBody(BaseModel):
+    justification: str
+
+
+@router.post("/cycle/reopen")
+def reopen_current_cycle(
+    body: ReopenBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    if not body.justification.strip():
+        raise HTTPException(400, detail="Justificativa é obrigatória")
+    db = get_supabase()
+    closed = (
+        db.table("performance_cycles")
+        .select("*")
+        .eq("status", "closed")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not closed.data:
+        raise HTTPException(404, detail="Nenhum ciclo fechado encontrado")
+    cycle = closed.data[0]
+    db.table("performance_cycle_reopens").insert({
+        "cycle_id": cycle["id"],
+        "justification": body.justification.strip(),
+        "reopened_by": current_user["username"],
+    }).execute()
+    db.table("performance_cycles").update({"status": "open"}).eq("id", cycle["id"]).execute()
+    _cache_invalidate_prefix("cycles")
+    _cache_invalidate_prefix("dashboard:")
+    log_action("cycle", cycle["id"], "reopen", {"status": "closed"}, {"status": "open"}, current_user["username"], request)
+    return {"ok": True, "status": "open", "is_open": True}
+
+
+@router.post("/cycle/send-tokens")
+def send_tokens_current_cycle(
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    from services.email import send_evaluation_token_email
+
+    db = get_supabase()
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para enviar tokens")
+
+    # Buscar colaboradores a serem avaliados: L2 e L3 (Gerentes não são avaliados)
+    employees_to_eval = (
+        db.table("performance_employees")
+        .select("id,name,cargo,email,has_corporate_email,hierarchy_level,manager_id,branch_id,company_id")
+        .in_("hierarchy_level", [2, 3])
+        .eq("active", True)
+        .execute()
+        .data
+    )
+
+    # Coletar manager_ids únicos e buscar dados dos gestores em batch
+    manager_ids = {e["manager_id"] for e in employees_to_eval if e.get("manager_id")}
+    managers_map: dict[str, dict] = {}
+    if manager_ids:
+        mgrs = (
+            db.table("performance_employees")
+            .select("id,name,email,has_corporate_email,hierarchy_level")
+            .in_("id", list(manager_ids))
+            .execute()
+            .data
+        )
+        managers_map = {m["id"]: m for m in mgrs}
+
+    # Buscar dados de filial/empresa em batch
+    branch_ids = {e["branch_id"] for e in employees_to_eval if e.get("branch_id")}
+    company_ids = {e["company_id"] for e in employees_to_eval if e.get("company_id")}
+    branches_map: dict[str, str] = {}
+    companies_map: dict[str, str] = {}
+    if branch_ids:
+        brs = db.table("performance_branches").select("id,name").in_("id", list(branch_ids)).execute().data
+        branches_map = {b["id"]: b["name"] for b in brs}
+    if company_ids:
+        cos = db.table("performance_companies").select("id,name").in_("id", list(company_ids)).execute().data
+        companies_map = {c["id"]: c["name"] for c in cos}
+
+    sent_emails = no_email_count = tokens_created = 0
+
+    for emp in employees_to_eval:
+        manager_id = emp.get("manager_id")
+        if not manager_id:
+            no_email_count += 1
+            continue
+
+        mgr = managers_map.get(manager_id)
+        if not mgr:
+            no_email_count += 1
+            continue
+
+        # Verificar se já existe token válido para este colaborador neste ciclo
+        existing = (
+            db.table("performance_evaluation_tokens")
+            .select("token")
+            .eq("cycle_id", cycle["id"])
+            .eq("employee_id", emp["id"])
+            .eq("is_used", False)
+            .is_("invalidated_at", "null")
+            .execute()
+        )
+        if existing.data:
+            token_value = existing.data[0]["token"]
+        else:
+            token_value = str(uuid_mod.uuid4())
+            tok_res = db.table("performance_evaluation_tokens").insert({
+                "cycle_id": cycle["id"],
+                "evaluator_id": manager_id,
+                "employee_id": emp["id"],
+                "token": token_value,
+                "is_used": False,
+                "resend_count": 0,
+            }).execute()
+            if not tok_res.data:
+                continue
+            tokens_created += 1
+
+        # Enviar para o e-mail do GESTOR (não do colaborador)
+        if mgr.get("has_corporate_email") and mgr.get("email"):
+            branch_name = branches_map.get(emp.get("branch_id", ""), "")
+            company_name = companies_map.get(emp.get("company_id", ""), "")
+            ok = send_evaluation_token_email(
+                evaluator_name=mgr["name"],
+                evaluator_email=mgr["email"],
+                employee_name=emp["name"],
+                employee_cargo=emp.get("cargo", ""),
+                company_name=company_name,
+                branch_name=branch_name,
+                cycle_name=cycle["name"],
+                token=token_value,
+                frontend_url=frontend_url,
+            )
+            if ok:
+                sent_emails += 1
+        else:
+            no_email_count += 1
+
+    log_action("cycle", cycle["id"], "send_tokens", None,
+               {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created},
+               current_user["username"], request)
+    return {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created}
+
+
+@router.get("/cycle/tokens")
+def get_cycle_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        return []
+    tokens = (
+        db.table("performance_evaluation_tokens")
+        .select("*")
+        .eq("cycle_id", cycle["id"])
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+    if not tokens:
+        return []
+
+    # Resolve evaluator and employee names in batch
+    all_ids = set()
+    for t in tokens:
+        if t.get("evaluator_id"):
+            all_ids.add(t["evaluator_id"])
+        if t.get("employee_id"):
+            all_ids.add(t["employee_id"])
+    emp_map: dict[str, dict] = {}
+    if all_ids:
+        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", list(all_ids)).execute().data
+        emp_map = {e["id"]: e for e in emps}
+
+    result = []
+    for t in tokens:
+        evaluator = emp_map.get(t.get("evaluator_id", ""), {})
+        employee = emp_map.get(t.get("employee_id", ""), {})
+        result.append({
+            "id": t["id"],
+            "evaluator_id": t.get("evaluator_id"),
+            "evaluator_name": evaluator.get("name", ""),
+            "employee_id": t.get("employee_id"),
+            "employee_name": employee.get("name", ""),
+            "status": "completed" if t["is_used"] else ("invalidated" if t.get("invalidated_at") else "pending"),
+            "sent_at": t.get("created_at"),
+            "resend_count": t.get("resend_count", 0),
+            "has_email": evaluator.get("has_corporate_email", False),
+        })
+    return result
+
+
+@router.post("/cycle/tokens/{token_id}/resend")
+def resend_cycle_token(
+    token_id: str,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    from services.email import send_evaluation_token_email
+
+    db = get_supabase()
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para reenviar tokens")
+
+    tok = db.table("performance_evaluation_tokens").select("*").eq("id", token_id).eq("cycle_id", cycle["id"]).execute()
+    if not tok.data:
+        raise HTTPException(404, detail="Token não encontrado")
+    t = tok.data[0]
+    if t["is_used"]:
+        raise HTTPException(400, detail="Token já utilizado")
+
+    ev = db.table("performance_employees").select("*, performance_branches(name), performance_companies(name)").eq("id", t["evaluator_id"]).execute()
+    if not ev.data:
+        raise HTTPException(404, detail="Avaliador não encontrado")
+    ev_data = ev.data[0]
+    if not ev_data.get("has_corporate_email") or not ev_data.get("email"):
+        raise HTTPException(400, detail="Avaliador não possui e-mail corporativo")
+
+    employee_name = ""
+    employee_cargo = ""
+    if t.get("employee_id"):
+        emp = db.table("performance_employees").select("name,cargo").eq("id", t["employee_id"]).execute()
+        if emp.data:
+            employee_name = emp.data[0]["name"]
+            employee_cargo = emp.data[0].get("cargo", "")
+
+    branch_name = (ev_data.get("performance_branches") or {}).get("name", "")
+    company_name = (ev_data.get("performance_companies") or {}).get("name", "")
+
+    ok = send_evaluation_token_email(
+        evaluator_name=ev_data["name"], evaluator_email=ev_data["email"],
+        employee_name=employee_name, employee_cargo=employee_cargo,
+        company_name=company_name, branch_name=branch_name,
+        cycle_name=cycle["name"], token=t["token"], frontend_url=frontend_url,
+    )
+    if ok:
+        new_count = (t.get("resend_count") or 0) + 1
+        db.table("performance_evaluation_tokens").update({
+            "resend_count": new_count,
+            "last_resent_at": datetime.now(tz=timezone.utc).isoformat(),
+        }).eq("id", token_id).execute()
+
+    log_action("token", token_id, "resend", None, {"evaluator_id": t["evaluator_id"]}, current_user["username"], request)
+    return {"ok": ok}
+
+
+@router.get("/cycle/reopen-history")
+def get_reopen_history(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        return []
+    history = (
+        db.table("performance_cycle_reopens")
+        .select("*")
+        .eq("cycle_id", cycle["id"])
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+    return [
+        {"created_at": h.get("created_at"), "user_name": h.get("reopened_by"), "justification": h.get("justification")}
+        for h in history
+    ]
+
+
+# ── Evaluations management ─────────────────────────────────────────────────────
+
+@router.get("/evaluations/export")
+def export_evaluations(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    status_filter: str | None = None,
+    company_id: str | None = None,
+):
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        return StreamingResponse(iter([""]), media_type="text/csv")
+
+    q = db.table("performance_reviews").select("*").eq("cycle_id", cycle["id"])
+    reviews = q.execute().data
+
+    all_ids = set()
+    for r in reviews:
+        if r.get("employee_id"):
+            all_ids.add(r["employee_id"])
+        if r.get("evaluator_id"):
+            all_ids.add(r["evaluator_id"])
+    emp_map: dict[str, dict] = {}
+    if all_ids:
+        emps = db.table("performance_employees").select("id,name,cargo,company_id").in_("id", list(all_ids)).execute().data
+        emp_map = {e["id"]: e for e in emps}
+
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["Colaborador", "Cargo", "Avaliador", "Nota Final", "Status", "Enviado em"])
+    for r in reviews:
+        emp = emp_map.get(r.get("employee_id", ""), {})
+        if company_id and emp.get("company_id") != company_id:
+            continue
+        if status_filter and r.get("status") != status_filter:
+            continue
+        evaluator = emp_map.get(r.get("evaluator_id", ""), {})
+        w.writerow([emp.get("name", ""), emp.get("cargo", ""), evaluator.get("name", ""),
+                    r.get("final_score", ""), r.get("status", ""), r.get("submitted_at", "")])
+    out.seek(0)
+    return StreamingResponse(
+        iter([out.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=avaliacoes.csv"},
+    )
+
+
+@router.get("/evaluations")
+def list_evaluations(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    status: str | None = None,
+    company_id: str | None = None,
+    search: str | None = None,
+) -> list[dict]:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        return []
+
+    q = db.table("performance_reviews").select("*").eq("cycle_id", cycle["id"])
+    reviews = q.order("created_at", desc=True).execute().data
+
+    all_ids = set()
+    for r in reviews:
+        if r.get("employee_id"):
+            all_ids.add(r["employee_id"])
+        if r.get("evaluator_id"):
+            all_ids.add(r["evaluator_id"])
+    emp_map: dict[str, dict] = {}
+    if all_ids:
+        emps = db.table("performance_employees").select("id,name,cargo,company_id").in_("id", list(all_ids)).execute().data
+        emp_map = {e["id"]: e for e in emps}
+
+    review_ids = [r["id"] for r in reviews]
+    acked_ids: set[str] = set()
+    calibrated_ids: set[str] = set()
+    if review_ids:
+        acks = db.table("performance_review_acknowledgments").select("review_id").in_("review_id", review_ids).execute().data
+        acked_ids = {a["review_id"] for a in acks}
+        calibs = db.table("performance_calibrations").select("review_id").in_("review_id", review_ids).execute().data
+        calibrated_ids = {c["review_id"] for c in calibs}
+
+    result = []
+    for r in reviews:
+        emp = emp_map.get(r.get("employee_id", ""), {})
+        if company_id and emp.get("company_id") != company_id:
+            continue
+        emp_name = emp.get("name", "")
+        if search and search.lower() not in emp_name.lower():
+            continue
+
+        rid = r["id"]
+        if rid in calibrated_ids:
+            final_status = "calibrated"
+        elif rid in acked_ids:
+            final_status = "acknowledged"
+        elif r.get("status") in ("completed",):
+            final_status = "completed"
+        else:
+            final_status = "pending"
+
+        if status and final_status != status:
+            continue
+
+        evaluator = emp_map.get(r.get("evaluator_id", ""), {})
+        result.append({
+            "id": rid,
+            "employee_name": emp_name,
+            "evaluator_name": evaluator.get("name", ""),
+            "final_score": r.get("final_score"),
+            "status": final_status,
+            "submitted_at": r.get("submitted_at"),
+            "employee_id": r.get("employee_id"),
+            "evaluator_id": r.get("evaluator_id"),
+        })
+    return result
+
+
+class EvalCalibrateBody(BaseModel):
+    new_score: float
+    justification: str
+
+
+@router.post("/evaluations/{review_id}/calibrate", status_code=status.HTTP_201_CREATED)
+def calibrate_evaluation(
+    review_id: str,
+    body: EvalCalibrateBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    if body.new_score < 0 or body.new_score > 5:
+        raise HTTPException(400, detail="Nota deve ser entre 0 e 5")
+    if not body.justification.strip():
+        raise HTTPException(400, detail="Justificativa é obrigatória")
+
+    db = get_supabase()
+    rev = db.table("performance_reviews").select("final_score,cycle_id,status").eq("id", review_id).execute()
+    if not rev.data:
+        raise HTTPException(404, detail="Avaliação não encontrada")
+
+    cycle_id = rev.data[0].get("cycle_id")
+    cycle = db.table("performance_cycles").select("status").eq("id", cycle_id).execute()
+    if not cycle.data or cycle.data[0]["status"] != "open":
+        raise HTTPException(400, detail="Calibração só pode ser feita com o ciclo aberto")
+
+    original_score = rev.data[0].get("final_score")
+    calib = db.table("performance_calibrations").insert({
+        "cycle_id": cycle_id, "review_id": review_id,
+        "original_score": original_score, "calibrated_score": body.new_score,
+        "justification": body.justification.strip(),
+        "calibrated_by": current_user["username"],
+    }).execute()
+    db.table("performance_reviews").update({
+        "final_score": body.new_score, "updated_at": "now()",
+    }).eq("id", review_id).execute()
+
+    log_action("review", review_id, "calibrate",
+               {"final_score": original_score},
+               {"final_score": body.new_score, "calibrated_by": current_user["username"]},
+               current_user["username"], request)
+    return calib.data[0] if calib.data else {"ok": True}
+
+
+# ── Reset ──────────────────────────────────────────────────────────────────────
+
+@router.post("/reset")
+def reset_cycle_data(
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role("admin"))],
+) -> dict:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        raise HTTPException(404, detail="Nenhum ciclo encontrado")
+    cycle_id = cycle["id"]
+
+    reviews = db.table("performance_reviews").select("id").eq("cycle_id", cycle_id).execute().data
+    review_ids = [r["id"] for r in reviews]
+
+    if review_ids:
+        db.table("performance_review_acknowledgments").delete().in_("review_id", review_ids).execute()
+        db.table("performance_calibrations").delete().in_("review_id", review_ids).execute()
+        db.table("performance_indicator_scores").delete().in_("review_id", review_ids).execute()
+        db.table("performance_acknowledgment_tokens").delete().in_("review_id", review_ids).execute()
+        db.table("performance_reviews").delete().eq("cycle_id", cycle_id).execute()
+
+    db.table("performance_evaluation_tokens").delete().eq("cycle_id", cycle_id).execute()
+    db.table("performance_cycle_reopens").delete().eq("cycle_id", cycle_id).execute()
+    db.table("performance_cycles").update({"status": "draft"}).eq("id", cycle_id).execute()
+
+    log_action("cycle", cycle_id, "reset", None, {"reset_by": current_user["username"]}, current_user["username"], request)
+    return {"ok": True, "cycle_id": cycle_id}
+
+
+# ── Audit Log ─────────────────────────────────────────────────────────────────
 
 @router.get("/audit-log")
 def audit_log(
@@ -67,53 +1497,13 @@ def audit_log(
     offset: int = 0,
 ) -> list[dict]:
     db = get_supabase()
-    query = db.table("performance_audit_logs").select("*")
+    q = db.table("performance_audit_logs").select("*")
     if entity_type:
-        query = query.eq("entity_type", entity_type)
+        q = q.eq("entity_type", entity_type)
     if actor:
-        query = query.eq("actor", actor)
+        q = q.eq("actor", actor)
     if from_ts:
-        query = query.gte("ts", from_ts)
+        q = q.gte("ts", from_ts)
     if to_ts:
-        query = query.lte("ts", to_ts)
-    return query.order("ts", desc=True).range(offset, offset + limit - 1).execute().data
-
-
-@router.post("/calibrations", status_code=status.HTTP_201_CREATED)
-def create_calibration(
-    body: CalibrationCreate,
-    request: Request,
-    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
-) -> dict:
-    db = get_supabase()
-    rev = db.table("performance_reviews").select("final_score,cycle_id").eq("id", body.review_id).execute()
-    if not rev.data:
-        raise HTTPException(status_code=404, detail="Avaliação não encontrada")
-
-    original_score = rev.data[0].get("final_score")
-    cycle_id = rev.data[0].get("cycle_id")
-
-    calib = db.table("performance_calibrations").insert({
-        "cycle_id": cycle_id,
-        "review_id": body.review_id,
-        "original_score": original_score,
-        "calibrated_score": body.calibrated_score,
-        "justification": body.justification,
-        "calibrated_by": current_user["username"],
-    }).execute()
-
-    if not calib.data:
-        raise HTTPException(status_code=500, detail="Erro ao registrar calibração")
-
-    db.table("performance_reviews").update({
-        "final_score": body.calibrated_score,
-        "updated_at": "now()",
-    }).eq("id", body.review_id).execute()
-
-    log_action(
-        "review", body.review_id, "calibrate",
-        {"final_score": original_score},
-        {"final_score": body.calibrated_score, "calibrated_by": current_user["username"]},
-        current_user["username"], request,
-    )
-    return calib.data[0]
+        q = q.lte("ts", to_ts)
+    return q.order("ts", desc=True).range(offset, offset + limit - 1).execute().data

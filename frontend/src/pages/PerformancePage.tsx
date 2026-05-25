@@ -47,7 +47,7 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   );
 }
 
-function StatCard({ label, value, color = "blue" }: { label: string; value: string | number; color?: string }) {
+function StatCard({ label, value, color = "blue", onClick }: { label: string; value: string | number; color?: string; onClick?: () => void }) {
   const colorMap: Record<string, string> = {
     blue: "text-blue-700 dark:text-blue-400",
     green: "text-green-700 dark:text-green-400",
@@ -55,10 +55,21 @@ function StatCard({ label, value, color = "blue" }: { label: string; value: stri
     red: "text-red-700 dark:text-red-400",
     violet: "text-violet-700 dark:text-violet-400",
   };
+  const clickable = !!onClick;
   return (
-    <Card className="p-5">
-      <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{label}</p>
-      <p className={`text-3xl font-bold ${colorMap[color] ?? colorMap.blue}`}>{value}</p>
+    <Card className={`p-5 ${clickable ? "cursor-pointer hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all" : ""}`}>
+      {clickable ? (
+        <button onClick={onClick} className="w-full text-left">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{label}</p>
+          <p className={`text-3xl font-bold ${colorMap[color] ?? colorMap.blue}`}>{value}</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">Clique para ver detalhes</p>
+        </button>
+      ) : (
+        <>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{label}</p>
+          <p className={`text-3xl font-bold ${colorMap[color] ?? colorMap.blue}`}>{value}</p>
+        </>
+      )}
     </Card>
   );
 }
@@ -80,6 +91,8 @@ function ModalWrapper({ open, onClose, title, children }: { open: boolean; onClo
 
 // ─── Tab Dashboard ────────────────────────────────────────────────────────────
 
+type DrilldownModal = "pending-evaluators" | "pending-ciencia" | null;
+
 function TabDashboard() {
   const { token } = useAuth();
   const [stats, setStats] = useState<any>(null);
@@ -87,27 +100,54 @@ function TabDashboard() {
   const [filters, setFilters] = useState({ empresa: "", ciclo: "" });
   const [companies, setCompanies] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
+  const [drilldown, setDrilldown] = useState<DrilldownModal>(null);
+  const [drilldownData, setDrilldownData] = useState<any[]>([]);
+  const [drilldownLoading, setDrilldownLoading] = useState(false);
+  // Tracks whether the initial load (companies + cycles + dashboard) has completed
+  const initialLoaded = useRef(false);
 
+  // On mount / token refresh: load selects + dashboard together in one round-trip
   useEffect(() => {
+    initialLoaded.current = false;
+    setLoading(true);
     Promise.all([
       apiFetch<any[]>("/api/performance/admin/companies", { token }),
       apiFetch<any[]>("/api/performance/admin/cycles", { token }),
-    ]).then(([c, cy]) => {
+      apiFetch<any>("/api/performance/admin/dashboard", { token }),
+    ]).then(([c, cy, d]) => {
       setCompanies(c || []);
       setCycles(cy || []);
-    }).catch(() => {});
+      setStats(d);
+      initialLoaded.current = true;
+    }).catch(() => {})
+      .finally(() => setLoading(false));
   }, [token]);
 
+  // Re-fetch only dashboard when filters change (skip the initial render)
   useEffect(() => {
+    if (!initialLoaded.current) return;
     setLoading(true);
     const params = new URLSearchParams();
     if (filters.empresa) params.set("company_id", filters.empresa);
-    if (filters.ciclo) params.set("cycle_id", filters.ciclo);
+    if (filters.ciclo)   params.set("cycle_id",   filters.ciclo);
     apiFetch<any>(`/api/performance/admin/dashboard?${params}`, { token })
       .then(setStats)
       .catch(() => setStats(null))
       .finally(() => setLoading(false));
-  }, [token, filters]);
+  }, [filters]);
+
+  function openDrilldown(type: DrilldownModal) {
+    setDrilldown(type);
+    setDrilldownData([]);
+    setDrilldownLoading(true);
+    const params = new URLSearchParams();
+    if (filters.empresa) params.set("company_id", filters.empresa);
+    if (filters.ciclo) params.set("cycle_id", filters.ciclo);
+    apiFetch<any[]>(`/api/performance/admin/dashboard/${type}?${params}`, { token })
+      .then(d => setDrilldownData(d || []))
+      .catch(() => setDrilldownData([]))
+      .finally(() => setDrilldownLoading(false));
+  }
 
   return (
     <div className="space-y-6">
@@ -139,8 +179,18 @@ function TabDashboard() {
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label="Total Avaliados" value={stats.total_evaluated ?? "—"} color="blue" />
             <StatCard label="Completude" value={`${stats.completion_pct ?? 0}%`} color="green" />
-            <StatCard label="Pendentes Ciência" value={stats.pending_acknowledgment ?? "—"} color="amber" />
-            <StatCard label="Sem Avaliação" value={stats.without_evaluation ?? "—"} color="red" />
+            <StatCard
+              label="Pendentes Ciência"
+              value={stats.pending_acknowledgment ?? "—"}
+              color="amber"
+              onClick={() => openDrilldown("pending-ciencia")}
+            />
+            <StatCard
+              label="Sem Avaliação"
+              value={stats.without_evaluation ?? "—"}
+              color="red"
+              onClick={() => openDrilldown("pending-evaluators")}
+            />
           </div>
           {stats.indicator_averages?.length > 0 && (
             <Card className="p-5">
@@ -158,37 +208,103 @@ function TabDashboard() {
           )}
         </>
       )}
+
+      {/* Drilldown: Gestores pendentes de avaliação */}
+      <ModalWrapper
+        open={drilldown === "pending-evaluators"}
+        onClose={() => setDrilldown(null)}
+        title="Gestores com Avaliações Pendentes"
+      >
+        {drilldownLoading ? (
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+        ) : drilldownData.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">Nenhum gestor com avaliações pendentes.</p>
+        ) : (
+          <div className="space-y-4">
+            {drilldownData.map((mgr: any, i: number) => (
+              <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-lg p-4">
+                <p className="font-semibold text-gray-900 dark:text-white text-sm">{mgr.manager_name}</p>
+                {mgr.manager_email && <p className="text-xs text-gray-400 mb-3">{mgr.manager_email}</p>}
+                <div className="space-y-1 mt-2">
+                  {mgr.pending_employees?.map((emp: any, j: number) => (
+                    <div key={j} className="flex items-center gap-2 text-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                      <span className="text-gray-700 dark:text-gray-300 font-medium">{emp.name}</span>
+                      <span className="text-gray-400">— {emp.cargo}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ModalWrapper>
+
+      {/* Drilldown: Colaboradores pendentes de ciência */}
+      <ModalWrapper
+        open={drilldown === "pending-ciencia"}
+        onClose={() => setDrilldown(null)}
+        title="Colaboradores Pendentes de Ciência"
+      >
+        {drilldownLoading ? (
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+        ) : drilldownData.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">Nenhum colaborador pendente de ciência.</p>
+        ) : (
+          <div className="space-y-2">
+            {drilldownData.map((emp: any, i: number) => (
+              <div key={i} className="flex items-center justify-between border border-gray-100 dark:border-gray-700 rounded-lg px-4 py-3">
+                <div>
+                  <p className="font-semibold text-gray-900 dark:text-white text-sm">{emp.employee_name}</p>
+                  <p className="text-xs text-gray-400">{emp.employee_cargo} · Avaliado por: {emp.evaluator_name}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-amber-600">{emp.final_score != null ? Number(emp.final_score).toFixed(2) : "—"}</span>
+                  <p className="text-xs text-gray-400">Nota</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ModalWrapper>
     </div>
   );
 }
 
 // ─── Tab Indicadores ──────────────────────────────────────────────────────────
 
-type Indicator = { id: string; name: string; description?: string; active: boolean };
+type Indicator = { id: string; name: string; description?: string; active: boolean; hierarchy_level?: number | null };
+
+const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3 — Oper./Admin." };
+const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "gray" };
 
 function TabIndicadores() {
   const { token } = useAuth();
   const [list, setList] = useState<Indicator[]>([]);
   const [loading, setLoading] = useState(true);
+  const [levelFilter, setLevelFilter] = useState<string>("");
   const [modal, setModal] = useState<{ open: boolean; item: Partial<Indicator> | null }>({ open: false, item: null });
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState("");
 
   function load() {
     setLoading(true);
-    apiFetch<Indicator[]>("/api/performance/indicators", { token })
+    const params = new URLSearchParams({ active_only: "false" });
+    if (levelFilter) params.set("hierarchy_level", levelFilter);
+    apiFetch<Indicator[]>(`/api/performance/indicators?${params}`, { token })
       .then(setList).catch(() => setList([]))
       .finally(() => setLoading(false));
   }
-  useEffect(() => { load(); }, [token]);
+  useEffect(() => { load(); }, [token, levelFilter]);
 
-  function openCreate() { setModal({ open: true, item: { name: "", description: "", active: true } }); setFormErr(""); }
+  function openCreate() { setModal({ open: true, item: { name: "", description: "", active: true, hierarchy_level: null } }); setFormErr(""); }
   function openEdit(it: Indicator) { setModal({ open: true, item: { ...it } }); setFormErr(""); }
   function closeModal() { setModal({ open: false, item: null }); setFormErr(""); }
 
   async function handleSave() {
     const it = modal.item!;
     if (!it.name?.trim()) { setFormErr("Nome é obrigatório."); return; }
+    if (!it.hierarchy_level) { setFormErr("Selecione o nível hierárquico."); return; }
     setSaving(true);
     try {
       if (it.id) {
@@ -203,15 +319,24 @@ function TabIndicadores() {
 
   async function toggleActive(it: Indicator) {
     try {
-      await apiFetch(`/api/performance/indicators/${it.id}`, { token, method: "PUT", json: { ...it, active: !it.active } });
+      await apiFetch(`/api/performance/indicators/${it.id}`, { token, method: "PUT", json: { active: !it.active } });
       load();
     } catch {}
   }
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Indicadores de Avaliação</h2>
+      <div className="flex flex-wrap justify-between items-center mb-4 gap-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Indicadores de Avaliação</h2>
+          <select value={levelFilter} onChange={e => setLevelFilter(e.target.value)}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Todos os níveis</option>
+            <option value="1">N1 — Gerente</option>
+            <option value="2">N2 — Coord./Supervisor</option>
+            <option value="3">N3 — Oper./Admin.</option>
+          </select>
+        </div>
         <button onClick={openCreate} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">+ Novo Indicador</button>
       </div>
       <Card>
@@ -221,15 +346,18 @@ function TabIndicadores() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700">
-                {["Nome", "Descrição", "Status", "Ações"].map(h => (
+                {["Nível", "Nome", "Descrição", "Status", "Ações"].map(h => (
                   <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 ${h === "Descrição" ? "hidden md:table-cell" : ""}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {list.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum indicador cadastrado.</td></tr>}
+              {list.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum indicador cadastrado.</td></tr>}
               {list.map(it => (
                 <tr key={it.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                  <td className="px-4 py-3">
+                    {it.hierarchy_level ? <Badge color={IND_LEVEL_COLORS[it.hierarchy_level] ?? "gray"}>{IND_LEVEL_LABELS[it.hierarchy_level] ?? `N${it.hierarchy_level}`}</Badge> : <Badge color="gray">—</Badge>}
+                  </td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{it.name}</td>
                   <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell max-w-xs truncate">{it.description || "—"}</td>
                   <td className="px-4 py-3"><Badge color={it.active ? "green" : "gray"}>{it.active ? "Ativo" : "Inativo"}</Badge></td>
@@ -249,13 +377,24 @@ function TabIndicadores() {
       <ModalWrapper open={modal.open} onClose={closeModal} title={modal.item?.id ? "Editar Indicador" : "Novo Indicador"}>
         <div className="space-y-4">
           <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nível Hierárquico *</label>
+            <select value={modal.item?.hierarchy_level ?? ""}
+              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, hierarchy_level: e.target.value ? Number(e.target.value) : null } }))}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              <option value="">Selecione o nível</option>
+              <option value="1">N1 — Gerente (Estratégico)</option>
+              <option value="2">N2 — Coordenador/Supervisor (Tático)</option>
+              <option value="3">N3 — Operacional/Administrativo</option>
+            </select>
+          </div>
+          <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nome *</label>
             <input type="text" value={modal.item?.name ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, name: e.target.value } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
           </div>
           <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Descrição</label>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Descrição (competência)</label>
             <textarea value={modal.item?.description ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, description: e.target.value } }))}
               rows={3}
@@ -477,6 +616,7 @@ function TabHierarquia() {
             { label: "Matrícula *", key: "matricula", type: "text", hint: "Apenas números." },
             { label: "Cargo", key: "cargo", type: "text" },
             { label: "E-mail corporativo", key: "email", type: "email", hint: "Opcional — usado para envio do link de ciência." },
+            { label: "CPF", key: "cpf", type: "text", hint: "Apenas para colaboradores SEM e-mail. 11 dígitos numéricos." },
           ].map(f => (
             <div key={f.key}>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{f.label}</label>
@@ -725,7 +865,8 @@ function TabCiclo() {
   const [loading, setLoading] = useState(true);
   const [createModal, setCreateModal] = useState(false);
   const [reopenModal, setReopenModal] = useState(false);
-  const [newCycleName, setNewCycleName] = useState("");
+  const [newCycle, setNewCycle] = useState({ name: "", period_start: "", period_end: "", company_id: "" });
+  const [companies, setCompanies] = useState<any[]>([]);
   const [reopenJust, setReopenJust] = useState("");
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState("");
@@ -740,13 +881,40 @@ function TabCiclo() {
       .catch(() => {}).finally(() => setLoading(false));
   }
   useEffect(() => { load(); }, [token]);
+  useEffect(() => {
+    apiFetch<any[]>("/api/performance/admin/companies", { token }).then(setCompanies).catch(() => {});
+  }, [token]);
 
   async function handleCreate() {
-    if (!newCycleName.trim()) { setSaveErr("Nome é obrigatório."); return; }
+    if (!newCycle.name.trim()) { setSaveErr("Nome é obrigatório."); return; }
+    if (!newCycle.period_start || !newCycle.period_end) { setSaveErr("Período de início e fim são obrigatórios."); return; }
+    if (newCycle.period_end < newCycle.period_start) { setSaveErr("Data de término deve ser após o início."); return; }
     setSaving(true); setSaveErr("");
-    try { await apiFetch("/api/performance/admin/cycle", { token, method: "POST", json: { name: newCycleName } }); setCreateModal(false); setNewCycleName(""); load(); }
+    try {
+      await apiFetch("/api/performance/admin/cycle", {
+        token, method: "POST",
+        json: { name: newCycle.name, period_start: newCycle.period_start, period_end: newCycle.period_end, company_id: newCycle.company_id || null }
+      });
+      setCreateModal(false);
+      setNewCycle({ name: "", period_start: "", period_end: "", company_id: "" });
+      load();
+    }
     catch (e: any) { setSaveErr(e.message || "Erro."); }
     finally { setSaving(false); }
+  }
+
+  async function handleOpen() {
+    if (!confirm("Abrir o ciclo? Após aberto será possível enviar tokens de avaliação.")) return;
+    try { await apiFetch("/api/performance/admin/cycle/open", { token, method: "POST" }); load(); } catch {}
+  }
+
+  async function handleSendTokens() {
+    if (!confirm("Enviar tokens de avaliação por e-mail para todos os avaliadores com e-mail corporativo?")) return;
+    try {
+      const r = await apiFetch<any>("/api/performance/admin/cycle/send-tokens", { token, method: "POST" });
+      alert(`Tokens enviados: ${r.sent_emails} e-mails. Sem e-mail: ${r.no_email_count}. Tokens criados: ${r.tokens_created}.`);
+      load();
+    } catch {}
   }
 
   async function handleClose() {
@@ -775,24 +943,55 @@ function TabCiclo() {
   return (
     <div className="space-y-6">
       <Card className="p-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex-1">
             <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Ciclo Atual</p>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">{cycleStatus?.name ?? "Nenhum ciclo ativo"}</h2>
-            {cycleStatus?.started_at && <p className="text-sm text-gray-500 mt-0.5">Iniciado em: {formatDate(cycleStatus.started_at)}</p>}
+            {cycleStatus ? (
+              <>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">{cycleStatus.name}</h2>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-sm text-gray-500">
+                  {cycleStatus.period_start && cycleStatus.period_end && (
+                    <span>
+                      Período: <strong className="text-gray-700 dark:text-gray-300">
+                        {new Date(cycleStatus.period_start + "T12:00:00").toLocaleDateString("pt-BR")}
+                        {" até "}
+                        {new Date(cycleStatus.period_end + "T12:00:00").toLocaleDateString("pt-BR")}
+                      </strong>
+                    </span>
+                  )}
+                  <span>
+                    Escopo: <strong className="text-gray-700 dark:text-gray-300">
+                      {cycleStatus.company_name ? cycleStatus.company_name : "Todas as empresas"}
+                    </strong>
+                  </span>
+                </div>
+              </>
+            ) : (
+              <h2 className="text-xl font-bold text-gray-500 dark:text-gray-400">Nenhum ciclo ativo</h2>
+            )}
           </div>
           {cycleStatus && (
-            cycleStatus.is_open ? <Badge color="green">Aberto</Badge> : <Badge color="gray">Fechado</Badge>
+            cycleStatus.status === "open"
+              ? <Badge color="green">Aberto</Badge>
+              : cycleStatus.status === "draft"
+                ? <Badge color="amber">Rascunho</Badge>
+                : <Badge color="gray">Fechado</Badge>
           )}
         </div>
         <div className="flex flex-wrap gap-3 mt-5">
           {!cycleStatus && (
             <button onClick={() => { setCreateModal(true); setSaveErr(""); }} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">+ Criar Ciclo</button>
           )}
-          {cycleStatus?.is_open && (
+          {cycleStatus?.status === "draft" && (
+            <button onClick={handleOpen} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">Abrir Ciclo</button>
+          )}
+          {cycleStatus?.status === "open" && (
+            <button onClick={handleSendTokens} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-all">Enviar Tokens</button>
+          )}
+          {cycleStatus?.status === "open" && (
             <button onClick={handleClose} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-all">Fechar Ciclo</button>
           )}
-          {cycleStatus && !cycleStatus.is_open && (
+          {cycleStatus?.status === "closed" && (
             <button onClick={() => { setReopenModal(true); setSaveErr(""); }} className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-lg transition-all">Reabrir Ciclo</button>
           )}
         </div>
@@ -803,10 +1002,10 @@ function TabCiclo() {
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Tokens de Avaliação</h3>
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[500px]">
+              <table className="w-full min-w-[600px]">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Avaliador", "Status", "Enviado em", "Ações"].map(h => (
+                    {["Colaborador", "Avaliador (Gestor)", "Status", "Enviado em", "Ações"].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                     ))}
                   </tr>
@@ -814,11 +1013,14 @@ function TabCiclo() {
                 <tbody>
                   {tokens.map((t: any) => (
                     <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{t.evaluator_name}</td>
-                      <td className="px-4 py-3"><Badge color={t.status === "completed" ? "green" : t.status === "sent" ? "blue" : "gray"}>{t.status === "completed" ? "Concluído" : t.status === "sent" ? "Enviado" : t.status}</Badge></td>
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{t.employee_name || "—"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{t.evaluator_name}</td>
+                      <td className="px-4 py-3"><Badge color={t.status === "completed" ? "green" : t.status === "invalidated" ? "red" : "gray"}>{t.status === "completed" ? "Concluído" : t.status === "invalidated" ? "Inválido" : "Pendente"}</Badge></td>
                       <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
                       <td className="px-4 py-3">
-                        <button onClick={() => handleResendToken(t.id)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">Reenviar</button>
+                        {t.status !== "completed" && t.status !== "invalidated" && (
+                          <button onClick={() => handleResendToken(t.id)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">Reenviar</button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -855,13 +1057,34 @@ function TabCiclo() {
         </div>
       )}
 
-      <ModalWrapper open={createModal} onClose={() => setCreateModal(false)} title="Criar Novo Ciclo">
+      <ModalWrapper open={createModal} onClose={() => setCreateModal(false)} title="Criar Novo Ciclo de Avaliação">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nome do Ciclo *</label>
-            <input type="text" value={newCycleName} onChange={e => setNewCycleName(e.target.value)}
+            <input type="text" value={newCycle.name} onChange={e => setNewCycle(c => ({ ...c, name: e.target.value }))}
               placeholder="Ex: Avaliação 1º Semestre 2026"
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Início do Período *</label>
+              <input type="date" value={newCycle.period_start} onChange={e => setNewCycle(c => ({ ...c, period_start: e.target.value }))}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Fim do Período *</label>
+              <input type="date" value={newCycle.period_end} onChange={e => setNewCycle(c => ({ ...c, period_end: e.target.value }))}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Escopo da Empresa</label>
+            <select value={newCycle.company_id} onChange={e => setNewCycle(c => ({ ...c, company_id: e.target.value }))}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              <option value="">Todas as empresas do grupo</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <p className="text-xs text-gray-400 mt-0.5">Deixe em branco para aplicar o ciclo a todas as empresas.</p>
           </div>
           {saveErr && <p className="text-sm text-red-600 dark:text-red-400">{saveErr}</p>}
           <div className="flex gap-3">
