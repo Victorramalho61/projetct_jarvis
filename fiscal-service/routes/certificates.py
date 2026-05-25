@@ -5,6 +5,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, UploadFile, File, F
 
 from auth import require_role, get_current_user
 from db import get_supabase, get_settings
+from routes.nfse_search import _invalidate_companies_cache
 
 router = APIRouter(prefix="/api/fiscal")
 _logger = logging.getLogger(__name__)
@@ -42,6 +43,7 @@ async def upload_certificate(
         "cert_password_encrypted": pass_enc,
         "cert_expiry": expiry.isoformat() if expiry else None,
     }).eq("id", company_id).execute()
+    _invalidate_companies_cache()
 
     return {"ok": True, "cert_expiry": expiry.isoformat() if expiry else None}
 
@@ -112,6 +114,7 @@ def update_portal_nfse_settings(
         raise HTTPException(404, "Empresa não encontrada")
 
     sb.table("fiscal_companies").update(update).eq("id", company_id).execute()
+    _invalidate_companies_cache()
     _logger.info("Portal NFS-e settings atualizados para %s: %s", company_id[:8], update)
     return {"ok": True, **update}
 
@@ -127,4 +130,5 @@ def delete_certificate(
         "cert_password_encrypted": None,
         "cert_expiry": None,
     }).eq("id", company_id).execute()
+    _invalidate_companies_cache()
     return {"ok": True}

@@ -385,7 +385,7 @@ export default function FiscalPage() {
     if (mes > 0) p.set("mes", String(mes));
     if (selectedId) p.set("company_id", selectedId);
     const key = `stats:${p}`;
-    const hit = cached<NfseStats>(key);
+    const hit = cached<NfseStats>(key, 300_000);
     if (hit) { setStats(hit); return; }
     setStatsLoading(true);
     apiFetch<NfseStats>(`/api/fiscal/nfse/stats?${p}`, { token })
@@ -533,9 +533,11 @@ export default function FiscalPage() {
   // ── Sync Status ─────────────────────────────────────────────────────────────
   const loadSyncStatus = useCallback(() => {
     if (!token) return;
+    const hit = cached<SyncStatusEntry[]>("sync:status", 60_000);
+    if (hit) { setSyncStatus(hit); return; }
     setSyncStatusLoading(true);
     apiFetch<SyncStatusEntry[]>("/api/fiscal/sync/status", { token })
-      .then(setSyncStatus)
+      .then((d) => { setSyncStatus(d); setCache("sync:status", d); })
       .catch(() => {})
       .finally(() => setSyncStatusLoading(false));
   }, [token]);

@@ -14,14 +14,17 @@ export function setUnauthorizedHandler(fn: () => void): void {
   _onUnauthorized = fn;
 }
 
+const API_TIMEOUT_MS = 8_000;
+
 type FetchOptions = Omit<RequestInit, "body"> & {
   token?: string | null;
   json?: unknown;
+  timeoutMs?: number;
 };
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { token, json, ...init }: FetchOptions = {}
+  { token, json, timeoutMs = API_TIMEOUT_MS, signal: userSignal, ...init }: FetchOptions = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
@@ -29,16 +32,25 @@ export async function apiFetch<T = unknown>(
   if (token) headers["Authorization"] = `Bearer ${token}`;
   if (json !== undefined) headers["Content-Type"] = "application/json";
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  if (userSignal) {
+    userSignal.addEventListener("abort", () => controller.abort(userSignal.reason), { once: true });
+  }
+
   let response: Response;
   try {
     response = await fetch(`${BASE}${path}`, {
       ...init,
+      signal: controller.signal,
       headers,
       body: json !== undefined ? JSON.stringify(json) : undefined,
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new ApiError(0, "Sem conexão com o servidor.");
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   if (!response.ok) {

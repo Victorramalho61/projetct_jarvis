@@ -5,7 +5,7 @@ from datetime import date
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 
 from auth import require_role
-from services.expenses import fetch_dashboard
+from services.expenses import fetch_dashboard, compute_dashboard_from_cache
 from services.forecast import fetch_forecast
 from services.sync import get_cached_dashboard, get_cached_forecast, get_last_updated, run_expenses_sync
 
@@ -32,11 +32,18 @@ async def dashboard(
             year = date.today().year
 
     try:
-        # Use Supabase cache for unfiltered requests (much faster than ERP)
-        if not filial and tipo in ("todos", ""):
-            cached = get_cached_dashboard(year)
-            if cached:
+        cached = get_cached_dashboard(year)
+        if cached:
+            if not filial and tipo in ("todos", ""):
                 return cached
+            # Filial/tipo especificados: re-agrega do cache sem bater no ERP
+            if cached.get("rows"):
+                try:
+                    result = compute_dashboard_from_cache(cached, filial, tipo, year)
+                    result["last_updated"] = cached.get("last_updated")
+                    return result
+                except Exception:
+                    logger.warning("Erro ao filtrar cache — fallback para ERP")
         result = await asyncio.to_thread(fetch_dashboard, year, filial, tipo)
         result["last_updated"] = get_last_updated()
         return result

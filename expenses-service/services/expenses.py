@@ -268,44 +268,14 @@ def _kpi_comp(cur: float, prev: float | None) -> dict | None:
     return {"valor": round(cur - prev, 2), "pct": pct, "direcao": direcao}
 
 
-def fetch_dashboard(
+def _compute_dashboard(
+    rows: list[dict],
     year: int,
-    filial: str | None = None,
-    tipo: str = "todos",  # "todos" | "contrato" | "eventual"
+    sparkline: list | None = None,
+    yoy: dict | None = None,
+    yoy_mensal: dict | None = None,
 ) -> dict:
-    date_from = f"{year}-01-01"
-    date_to = f"{year}-12-31"
-
-    conn = get_sql_connection()
-    try:
-        cursor = conn.cursor()
-        cursor.execute(_QUERY, (date_from, date_to))
-        columns = [col[0] for col in cursor.description]
-        rows = [
-            {col: _serialize(val) for col, val in zip(columns, row)}
-            for row in cursor.fetchall()
-        ]
-    finally:
-        conn.close()
-
-    # Apply filial filter in Python
-    if filial:
-        rows = [r for r in rows if r.get("FILIAL") == filial]
-
-    # Apply tipo filter in Python
-    if tipo == "contrato":
-        rows = [r for r in rows if r.get("ORIGEM") == "Contrato"]
-    elif tipo == "eventual":
-        rows = [r for r in rows if r.get("ORIGEM") in ("Ordem de Compra", "Financeiro")]
-
-    # Compute recurrence per supplier using 16-month history
-    pessoa_handles = [r.get("COD_PESSOA") for r in rows]
-    recurrence_map = _fetch_recurrence(pessoa_handles)
-    for row in rows:
-        handle = str(row.get("COD_PESSOA")) if row.get("COD_PESSOA") is not None else None
-        meses = recurrence_map.get(handle, 1) if handle else 1
-        row["CATEGORIA"] = _categoria(meses)
-
+    """Agrega rows já filtrados e com CATEGORIA calculada. Sparkline/yoy opcionais (vêm do cache)."""
     total_valor = sum(float(r.get("VALOR") or 0) for r in rows)
     efetivo_rows = [r for r in rows if r.get("TIPO_DOC") == "Efetivo"]
     previsao_rows = [r for r in rows if r.get("TIPO_DOC") == "Previsao"]
@@ -336,14 +306,11 @@ def fetch_dashboard(
     recorrente_rows = [r for r in rows if r.get("CATEGORIA") == "Recorrente"]
     eventual_rows = [r for r in rows if r.get("CATEGORIA") == "Eventual"]
 
-    # by_filial: aggregated totals per filial
     by_filial_raw = _aggregate(rows, lambda r: r.get("FILIAL") or "Sem filial", "VALOR")
     by_filial = [{"filial": e["key"], "valor": e["valor"]} for e in by_filial_raw]
 
-    # filiais: unique filial names for dropdown
     filiais = sorted({r.get("FILIAL") for r in rows if r.get("FILIAL")})
 
-    # by_fornecedor: top 20 by valor
     fornecedor_totals: dict[str, dict] = {}
     for row in rows:
         pessoa = row.get("PESSOA") or "Sem fornecedor"
@@ -360,7 +327,6 @@ def fetch_dashboard(
     for entry in by_fornecedor:
         entry["valor"] = round(entry["valor"], 2)
 
-    # by_origem_mensal: per-month breakdown of Contrato vs Eventual
     mensal_map: dict[str, dict] = defaultdict(lambda: {"contrato": 0.0, "eventual": 0.0})
     for row in rows:
         mes = str(row.get("DATAVENCIMENTO") or "")[:7]
@@ -384,27 +350,30 @@ def fetch_dashboard(
         key=lambda x: x["mes"],
     )
 
-    # Sparkline: last 12 months of totals
-    try:
-        sparkline = _fetch_sparkline()
-    except Exception:
-        logger.exception("Erro ao buscar sparkline")
-        sparkline = []
-
-    # YoY: prior year monthly totals (only when year >= 2026)
-    yoy: dict[str, float] = {}
-    yoy_mensal: dict[str, dict] = {}
-    if year >= 2026:
+    # Sparkline/YoY: usa cache quando disponível, senão consulta ERP
+    if sparkline is None:
         try:
-            yoy = _fetch_yoy(year)
+            sparkline = _fetch_sparkline()
         except Exception:
-            logger.exception("Erro ao buscar YoY")
-        try:
-            yoy_mensal = _fetch_yoy_mensal(year)
-        except Exception:
-            logger.exception("Erro ao buscar yoy_mensal")
+            logger.exception("Erro ao buscar sparkline")
+            sparkline = []
 
-    # KPI comparisons — month-over-month (last 2 months from by_origem_mensal)
+    if yoy is None:
+        yoy = {}
+        if year >= 2026:
+            try:
+                yoy = _fetch_yoy(year)
+            except Exception:
+                logger.exception("Erro ao buscar YoY")
+
+    if yoy_mensal is None:
+        yoy_mensal = {}
+        if year >= 2026:
+            try:
+                yoy_mensal = _fetch_yoy_mensal(year)
+            except Exception:
+                logger.exception("Erro ao buscar yoy_mensal")
+
     vs_mes_ant_total = vs_mes_ant_cont = vs_mes_ant_ev = None
     if len(by_origem_mensal) >= 2:
         last_m = by_origem_mensal[-1]
@@ -415,7 +384,6 @@ def fetch_dashboard(
         vs_mes_ant_cont = _kpi_comp(last_m["contrato"], prev_m["contrato"])
         vs_mes_ant_ev = _kpi_comp(last_m["eventual"], prev_m["eventual"])
 
-    # vs prior year same period
     vs_ly_total = None
     if year >= 2026 and yoy:
         existing_months = {m["mes"] for m in by_origem_mensal}
@@ -429,7 +397,6 @@ def fetch_dashboard(
 
     return {
         "kpis": {
-            # Legacy flat fields (kept for compatibility)
             "total_valor": round(total_valor, 2),
             "total_efetivo": round(total_efetivo, 2),
             "total_previsao": round(total_previsao, 2),
@@ -441,7 +408,6 @@ def fetch_dashboard(
             "total_recorrente": total_recorrente,
             "total_eventual": total_eventual_val,
             "sparkline": sparkline,
-            # KPIWithContext objects
             "total_ytd": {
                 "valor": round(total_valor, 2),
                 "sparkline": sparkline,
@@ -476,3 +442,64 @@ def fetch_dashboard(
         "yoy_mensal": yoy_mensal,
         "rows": rows,
     }
+
+
+def compute_dashboard_from_cache(cached: dict, filial: str | None, tipo: str, year: int) -> dict:
+    """Filtra e re-agrega dashboard a partir do cache — sem consultar o ERP."""
+    rows = list(cached.get("rows") or [])
+
+    if filial:
+        rows = [r for r in rows if r.get("FILIAL") == filial]
+    if tipo == "contrato":
+        rows = [r for r in rows if r.get("ORIGEM") == "Contrato"]
+    elif tipo == "eventual":
+        rows = [r for r in rows if r.get("ORIGEM") in ("Ordem de Compra", "Financeiro")]
+
+    # CATEGORIA já foi calculada e persistida no cache — fallback para "Eventual" se ausente
+    for row in rows:
+        if "CATEGORIA" not in row:
+            row["CATEGORIA"] = "Eventual"
+
+    # Sparkline e YoY são company-wide (não por filial) — reutiliza do cache
+    sparkline = cached.get("kpis", {}).get("sparkline") or []
+    yoy = cached.get("yoy") or {}
+    yoy_mensal = cached.get("yoy_mensal") or {}
+
+    return _compute_dashboard(rows, year, sparkline=sparkline, yoy=yoy, yoy_mensal=yoy_mensal)
+
+
+def fetch_dashboard(
+    year: int,
+    filial: str | None = None,
+    tipo: str = "todos",  # "todos" | "contrato" | "eventual"
+) -> dict:
+    date_from = f"{year}-01-01"
+    date_to = f"{year}-12-31"
+
+    conn = get_sql_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(_QUERY, (date_from, date_to))
+        columns = [col[0] for col in cursor.description]
+        rows = [
+            {col: _serialize(val) for col, val in zip(columns, row)}
+            for row in cursor.fetchall()
+        ]
+    finally:
+        conn.close()
+
+    if filial:
+        rows = [r for r in rows if r.get("FILIAL") == filial]
+    if tipo == "contrato":
+        rows = [r for r in rows if r.get("ORIGEM") == "Contrato"]
+    elif tipo == "eventual":
+        rows = [r for r in rows if r.get("ORIGEM") in ("Ordem de Compra", "Financeiro")]
+
+    pessoa_handles = [r.get("COD_PESSOA") for r in rows]
+    recurrence_map = _fetch_recurrence(pessoa_handles)
+    for row in rows:
+        handle = str(row.get("COD_PESSOA")) if row.get("COD_PESSOA") is not None else None
+        meses = recurrence_map.get(handle, 1) if handle else 1
+        row["CATEGORIA"] = _categoria(meses)
+
+    return _compute_dashboard(rows, year)

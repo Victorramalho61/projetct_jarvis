@@ -1,5 +1,6 @@
 import logging
 import threading
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Body, Query, Depends, HTTPException
@@ -12,17 +13,32 @@ _logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/fiscal", tags=["nfse-search"])
 
+# In-memory cache para lista de empresas (raramente muda, cara de buscar)
+_COMPANIES_TTL = 300  # 5 minutos
+_companies_cache: dict = {"data": None, "ts": 0.0}
+
+
+def _invalidate_companies_cache() -> None:
+    _companies_cache["data"] = None
+    _companies_cache["ts"] = 0.0
+
 
 @router.get("/companies")
 def list_companies(_user: dict = Depends(get_current_user)):
-    """Lista todas as empresas fiscais cadastradas."""
+    """Lista todas as empresas fiscais cadastradas (cache 5 min)."""
+    now = time.monotonic()
+    if _companies_cache["data"] is not None and now - _companies_cache["ts"] < _COMPANIES_TTL:
+        return _companies_cache["data"]
     sb = get_supabase()
     result = sb.table("fiscal_companies").select(
         "id,cnpj,nome,regime,grupo,tipo,cidade,uf_sede,"
         "sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
         "ndd_last_sync_at,ndd_access_token,ndd_refresh_token,ndd_token_expires_at,cert_expiry,ultima_sync"
     ).order("grupo").order("tipo").execute()
-    return result.data or []
+    data = result.data or []
+    _companies_cache["data"] = data
+    _companies_cache["ts"] = now
+    return data
 
 
 @router.get("/sync/logs")
@@ -217,7 +233,7 @@ def get_sync_status(_user: dict = Depends(get_current_user)):
 
     logs_result = sb.table("fiscal_sync_logs").select(
         "company_id,tipo,status,documentos_novos,documentos_cancelados,executado_em,erro_msg,nsu_final"
-    ).order("executado_em", desc=True).limit(500).execute()
+    ).order("executado_em", desc=True).limit(200).execute()
     logs = logs_result.data or []
 
     companies_result = sb.table("fiscal_companies").select(

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from auth import require_role, get_current_user
 from db import get_supabase, get_settings
+from routes.nfse_search import _invalidate_companies_cache
 
 router = APIRouter(prefix="/api/fiscal")
 _logger = logging.getLogger(__name__)
@@ -58,6 +59,7 @@ def store_ndd_token(
         "ndd_refresh_token": body.refresh_token or None,
         "ndd_token_expires_at": expires_at,
     }).eq("id", company_id).execute()
+    _invalidate_companies_cache()
 
     return {
         "ok": True,
@@ -180,6 +182,7 @@ def ndd_callback(code: str = "", state: str = "", error: str = ""):
         "ndd_refresh_token": refresh_token or None,
         "ndd_token_expires_at": expires_at,
     }).eq("id", pkce["company_id"]).execute()
+    _invalidate_companies_cache()
 
     has_refresh = bool(refresh_token)
     if has_refresh:
