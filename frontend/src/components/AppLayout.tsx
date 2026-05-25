@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, Role } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useNotifications } from "../hooks/useNotifications";
@@ -12,6 +12,79 @@ type NavItem = {
   icon: string;
   roles: Role[];
 };
+
+// ── SidebarContent definido FORA do AppLayout para evitar remontagem a cada render ──
+// Se definido dentro do componente, o React interpreta como tipo novo a cada render
+// (referência de função diferente) e desmonta/remonta o sidebar, podendo perder cliques.
+interface SidebarContentProps {
+  visible: NavItem[];
+  onLinkClick: () => void;
+}
+
+function SidebarContent({ visible, onLinkClick }: SidebarContentProps) {
+  return (
+    <>
+      <div className="px-3 py-4">
+        <div className="mb-2 px-2 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
+          Navegação
+        </div>
+        <nav className="space-y-0.5">
+          {visible.map((item) => (
+            <NavLink
+              key={item.id}
+              to={item.path}
+              end={item.path === "/"}
+              onClick={onLinkClick}
+              className={({ isActive }) =>
+                `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                  isActive
+                    ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
+                    : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  {isActive && (
+                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
+                  )}
+                  <Icon name={item.icon} size={17} strokeWidth={isActive ? 2 : 1.75} />
+                  <span className="flex-1">{item.label}</span>
+                </>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+
+      <div className="mt-auto border-t border-gray-100 dark:border-gray-800 px-3 py-4">
+        <nav className="space-y-0.5">
+          <NavLink
+            to="/perfil"
+            onClick={onLinkClick}
+            className={({ isActive }) =>
+              `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                isActive
+                  ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
+                  : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
+              }`
+            }
+          >
+            {({ isActive }) => (
+              <>
+                {isActive && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
+                )}
+                <Icon name="settings" size={17} strokeWidth={isActive ? 2 : 1.75} />
+                <span>Perfil</span>
+              </>
+            )}
+          </NavLink>
+        </nav>
+      </div>
+    </>
+  );
+}
 
 const NAV_ITEMS: NavItem[] = [
   { id: "home",        label: "Início",          path: "/",                     icon: "home",      roles: ["admin", "user", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
@@ -33,6 +106,7 @@ export default function AppLayout() {
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
+  const location = useLocation();
   const { notifications, dismiss, clearAll } = useNotifications();
 
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -45,6 +119,7 @@ export default function AppLayout() {
   const searchRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const userDropdownRef = useRef<HTMLDivElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
 
   const MODULES_BY_NAV_ID: Record<string, string> = {
     desempenho: "desempenho",
@@ -84,6 +159,11 @@ export default function AppLayout() {
     return () => document.removeEventListener("mousedown", onClickOutside);
   }, []);
 
+  // Scroll para o topo a cada troca de rota (evita ficar no meio da página anterior)
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0, behavior: "instant" });
+  }, [location.pathname]);
+
   // Atalho Ctrl/Cmd+K para busca
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -121,69 +201,6 @@ const filteredNav = visible.filter((i) =>
   };
 
   // Badges movidos para AgentsDashboard (tabs internas)
-
-  const SidebarContent = () => (
-    <>
-      <div className="px-3 py-4">
-        <div className="mb-2 px-2 font-mono text-[10px] uppercase tracking-[0.2em] text-gray-400 dark:text-gray-500">
-          Navegação
-        </div>
-        <nav className="space-y-0.5">
-          {visible.map((item) => (
-            <NavLink
-              key={item.id}
-              to={item.path}
-              end={item.path === "/"}
-              onClick={() => setMobileOpen(false)}
-              className={({ isActive }) =>
-                `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
-                  isActive
-                    ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
-                    : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
-                  )}
-                  <Icon name={item.icon} size={17} strokeWidth={isActive ? 2 : 1.75} />
-                  <span className="flex-1">{item.label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
-        </nav>
-      </div>
-
-      <div className="mt-auto border-t border-gray-100 dark:border-gray-800 px-3 py-4">
-        <nav className="space-y-0.5">
-          <NavLink
-            to="/perfil"
-            onClick={() => setMobileOpen(false)}
-            className={({ isActive }) =>
-              `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
-                isActive
-                  ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
-                  : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
-              }`
-            }
-          >
-            {({ isActive }) => (
-              <>
-                {isActive && (
-                  <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
-                )}
-                <Icon name="settings" size={17} strokeWidth={isActive ? 2 : 1.75} />
-                <span>Perfil</span>
-              </>
-            )}
-          </NavLink>
-        </nav>
-      </div>
-    </>
-  );
 
   return (
     <div className="flex min-h-screen flex-col bg-white dark:bg-gray-950">
@@ -474,7 +491,7 @@ const filteredNav = visible.filter((i) =>
       <div className="flex flex-1">
         {/* Sidebar desktop */}
         <aside className="hidden md:flex w-56 flex-col border-r border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900">
-          <SidebarContent />
+          <SidebarContent visible={visible} onLinkClick={() => setMobileOpen(false)} />
         </aside>
 
         {/* Drawer mobile */}
@@ -499,7 +516,7 @@ const filteredNav = visible.filter((i) =>
                   <Icon name="x" size={18} />
                 </button>
               </div>
-              <SidebarContent />
+              <SidebarContent visible={visible} onLinkClick={() => setMobileOpen(false)} />
             </aside>
           </>
         )}
@@ -533,7 +550,7 @@ const filteredNav = visible.filter((i) =>
           </div>
         )}
 
-        <main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-950">
+        <main ref={mainRef} className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-950">
           <Outlet />
         </main>
       </div>

@@ -15,6 +15,8 @@ current_trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
+from services.app_logger import setup_log_forwarding
+setup_log_forwarding("agents-service")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 

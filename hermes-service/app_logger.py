@@ -23,7 +23,6 @@ class SupabaseHandler(logging.Handler):
         self._service = service_name
 
     def emit(self, record: logging.LogRecord) -> None:
-        # Evita recursão infinita (ex.: erros do supabase-client gerando novo emit)
         if getattr(_in_emit, "active", False):
             return
         _in_emit.active = True
@@ -39,18 +38,15 @@ class SupabaseHandler(logging.Handler):
                 "detail":  detail,
             }).execute()
         except Exception:
-            pass  # nunca propagar erro do handler — apenas log local
+            pass
         finally:
             _in_emit.active = False
 
 
 def setup_log_forwarding(service_name: str) -> None:
-    """Registra SupabaseHandler no root logger para capturar ERRORs em app_logs.
-    Chamar UMA vez na startup do serviço (após logging.basicConfig).
-    """
     root = logging.getLogger()
     if any(isinstance(h, SupabaseHandler) for h in root.handlers):
-        return  # já registrado
+        return
     root.addHandler(SupabaseHandler(service_name))
     _logger.info("app_logger: SupabaseHandler registrado para '%s'", service_name)
 
@@ -63,7 +59,6 @@ def log_event(
     detail: str | None = None,
     trace_id: str | None = None,
 ) -> None:
-    """Insere evento manual na tabela app_logs."""
     try:
         from db import get_supabase
         get_supabase().table("app_logs").insert({

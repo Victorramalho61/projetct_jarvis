@@ -8,6 +8,7 @@
 
 CREATE TABLE IF NOT EXISTS public.freshservice_tickets (
     id                  integer PRIMARY KEY,
+    workspace_id        integer,                    -- ID do workspace Freshservice (multi-workspace)
     subject             text NOT NULL,
     status              smallint NOT NULL,          -- 4=resolved, 5=closed
     priority            smallint,                   -- 1=low 2=medium 3=high 4=urgent
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS public.freshservice_tickets (
     ingested_at         timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE INDEX IF NOT EXISTS idx_fst_workspace   ON public.freshservice_tickets (workspace_id);
 CREATE INDEX IF NOT EXISTS idx_fst_status      ON public.freshservice_tickets (status);
 CREATE INDEX IF NOT EXISTS idx_fst_group       ON public.freshservice_tickets (group_id);
 CREATE INDEX IF NOT EXISTS idx_fst_responder   ON public.freshservice_tickets (responder_id);
