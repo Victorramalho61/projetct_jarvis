@@ -94,6 +94,7 @@ def dashboard(
             "total_evaluated": 0, "completion_pct": 0,
             "pending_acknowledgment": 0, "without_evaluation": 0,
             "indicator_averages": [],
+            "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
         }
 
     # Cache por (cycle_id, company_id) — invalida ao criar/encerrar ciclos
@@ -156,12 +157,36 @@ def dashboard(
             key=lambda x: x["name"],
         )
 
+    # ── Métricas de auto-avaliação ──────────────────────────────────────────────
+    self_eval_sent = len(
+        db.table("performance_self_evaluation_tokens")
+        .select("id")
+        .eq("cycle_id", cycle_id)
+        .execute()
+        .data
+    )
+    self_eval_completed_q = (
+        db.table("performance_reviews")
+        .select("id")
+        .eq("cycle_id", cycle_id)
+        .eq("is_self_evaluation", True)
+        .eq("status", "completed")
+    )
+    if company_id:
+        self_eval_completed_q = self_eval_completed_q.in_("employee_id", list(all_emp_ids))
+    self_eval_completed = len(self_eval_completed_q.execute().data)
+    self_eval_total = len(all_employees)
+    self_eval_pct = round(self_eval_completed / self_eval_total * 100, 1) if self_eval_total else 0
+
     result = {
         "total_evaluated": len(completed),
         "completion_pct": completion_pct,
         "pending_acknowledgment": pending_ack,
         "without_evaluation": without_evaluation,
         "indicator_averages": indicator_averages,
+        "self_eval_sent": self_eval_sent,
+        "self_eval_completed": self_eval_completed,
+        "self_eval_pct": self_eval_pct,
     }
     _cache_set(cache_key, result)
     return result
@@ -590,9 +615,12 @@ class EmployeeBody(BaseModel):
     active: bool | None = None
 
 
+_PREPS = {"da", "de", "di", "do", "dos", "das", "e"}
+
 def _validate_name(name: str) -> None:
-    parts = name.strip().split()
-    if len(parts) < 2 or any(len(p) < 3 for p in parts):
+    parts = [p for p in name.strip().split() if p]
+    meaningful = [p for p in parts if p.lower() not in _PREPS]
+    if len(parts) < 2 or len(meaningful) < 2:
         raise HTTPException(400, detail="Nome deve ser completo, sem abreviações (mínimo 2 partes com 3+ caracteres)")
 
 
@@ -706,7 +734,7 @@ def update_employee(
         _validate_name(body.name)
         updates["name"] = body.name.strip()
     if body.matricula:
-        _validate_matricula(body.matricula)
+        # matricula agora é gerada automaticamente a partir do CPF — aceita sem validação extra
         updates["matricula"] = body.matricula.strip()
     if body.cargo:
         updates["cargo"] = body.cargo
@@ -771,7 +799,13 @@ async def import_employees(
     rows_data: list[dict] = []
     file_cpfs: dict[str, int] = {}   # cpf → first line seen (dedup within file)
 
-    for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
+    # Detecta se dados começam na linha 2 (1 header) ou linha 3 (header + instrução)
+    company_names_set = set(companies.keys())
+    row2_val = next(ws.iter_rows(min_row=2, max_row=2, values_only=True), None)
+    row2_empresa = str(row2_val[0] if row2_val else "").strip()
+    start_row = 2 if row2_empresa in company_names_set else 3
+
+    for row_idx, row in enumerate(ws.iter_rows(min_row=start_row, values_only=True), start=start_row):
         if all(v is None or str(v).strip() == "" for v in row):
             break
 
@@ -803,9 +837,11 @@ async def import_employees(
             else:
                 branch = branch_matches[0]
 
-        # Nome
+        # Nome — permite preposições curtas brasileiras (da, de, do, dos, das)
+        _PREPS = {"da", "de", "di", "do", "dos", "das", "e"}
         parts = [p for p in nome.split() if p]
-        if len(parts) < 2 or any(len(p) < 3 for p in parts):
+        meaningful = [p for p in parts if p.lower() not in _PREPS]
+        if len(parts) < 2 or len(meaningful) < 2:
             row_errors.append({"linha": row_idx, "campo": "Nome Completo", "erro": "Nome deve ser completo, sem abreviações (mín. 2 palavras com 3+ letras)"})
 
         # Nível
@@ -1102,6 +1138,18 @@ def send_tokens_current_cycle(
             no_email_count += 1
             continue
 
+        # Bloquear se colaborador já tem avaliação concluída/calibrada/com ciência
+        completed_review = (
+            db.table("performance_reviews")
+            .select("id,status")
+            .eq("cycle_id", cycle["id"])
+            .eq("employee_id", emp["id"])
+            .execute()
+        )
+        if completed_review.data and completed_review.data[0].get("status") in ("completed", "calibrated", "acknowledged"):
+            no_email_count += 1
+            continue
+
         # Verificar se já existe token válido para este colaborador neste ciclo
         existing = (
             db.table("performance_evaluation_tokens")
@@ -1222,7 +1270,22 @@ def resend_cycle_token(
         raise HTTPException(404, detail="Token não encontrado")
     t = tok.data[0]
     if t["is_used"]:
-        raise HTTPException(400, detail="Token já utilizado")
+        raise HTTPException(400, detail="Token já utilizado — avaliação já submetida pelo gestor")
+    # Bloquear reenvio se colaborador já tem avaliação concluída
+    if t.get("employee_id"):
+        completed = (
+            db.table("performance_reviews")
+            .select("status")
+            .eq("cycle_id", cycle["id"])
+            .eq("employee_id", t["employee_id"])
+            .execute()
+        )
+        if completed.data and completed.data[0].get("status") in ("completed", "calibrated", "acknowledged"):
+            raise HTTPException(
+                400,
+                detail="A avaliação deste colaborador já foi submetida. "
+                       "Não é possível reenviar. Para criar uma nova avaliação, use a opção específica do RH.",
+            )
 
     ev = db.table("performance_employees").select("*, performance_branches(name), performance_companies(name)").eq("id", t["evaluator_id"]).execute()
     if not ev.data:
@@ -1257,6 +1320,132 @@ def resend_cycle_token(
 
     log_action("token", token_id, "resend", None, {"evaluator_id": t["evaluator_id"]}, current_user["username"], request)
     return {"ok": ok}
+
+
+@router.post("/cycle/send-self-evaluation-tokens")
+def send_self_evaluation_tokens(
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    from services.email import send_self_evaluation_email
+
+    db = get_supabase()
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        raise HTTPException(400, detail="Nenhum ciclo ativo encontrado")
+    if cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para enviar auto-avaliações")
+
+    employees = db.table("performance_employees").select("*").eq("active", True).execute().data
+    if not employees:
+        raise HTTPException(404, detail="Nenhum colaborador ativo encontrado")
+
+    tokens_created = 0
+    sent_emails = 0
+    no_email_count = 0
+
+    for emp in employees:
+        # Verificar se já tem token de auto-avaliação para este ciclo
+        existing_tok = (
+            db.table("performance_self_evaluation_tokens")
+            .select("id,token,is_used")
+            .eq("cycle_id", cycle["id"])
+            .eq("employee_id", emp["id"])
+            .is_("invalidated_at", "null")
+            .execute()
+        )
+        if existing_tok.data and existing_tok.data[0]["is_used"]:
+            continue  # auto-avaliação já concluída
+
+        if existing_tok.data:
+            tok_val = existing_tok.data[0]["token"]
+            tok_id  = existing_tok.data[0]["id"]
+        else:
+            import uuid as _u
+            tok_val = str(_u.uuid4())
+            tok_res = db.table("performance_self_evaluation_tokens").insert({
+                "token": tok_val,
+                "cycle_id": cycle["id"],
+                "employee_id": emp["id"],
+            }).execute()
+            if not tok_res.data:
+                continue
+            tok_id = tok_res.data[0]["id"]
+            tokens_created += 1
+
+        if emp.get("has_corporate_email") and emp.get("email"):
+            company_name = ""
+            if emp.get("company_id"):
+                co = db.table("performance_companies").select("name").eq("id", emp["company_id"]).execute()
+                company_name = co.data[0]["name"] if co.data else ""
+            ok = send_self_evaluation_email(
+                employee_name=emp["name"],
+                employee_email=emp["email"],
+                cycle_name=cycle["name"],
+                token=tok_val,
+                frontend_url=frontend_url,
+                company_name=company_name,
+            )
+            if ok:
+                db.table("performance_self_evaluation_tokens").update({
+                    "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+                    "resend_count": (existing_tok.data[0].get("resend_count", 0) + 1) if existing_tok.data else 1,
+                }).eq("id", tok_id).execute()
+                sent_emails += 1
+        else:
+            no_email_count += 1
+
+    _cache_invalidate_prefix("dashboard:")
+    log_action("self_eval_tokens", cycle["id"], "send", None,
+               {"sent": sent_emails, "no_email": no_email_count, "created": tokens_created},
+               current_user["username"], request)
+    return {
+        "ok": True,
+        "sent_emails": sent_emails,
+        "no_email_count": no_email_count,
+        "tokens_created": tokens_created,
+    }
+
+
+@router.get("/cycle/self-evaluation-tokens")
+def get_self_evaluation_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        return []
+    tokens = (
+        db.table("performance_self_evaluation_tokens")
+        .select("*")
+        .eq("cycle_id", cycle["id"])
+        .order("created_at", desc=True)
+        .execute()
+        .data
+    )
+    if not tokens:
+        return []
+
+    all_emp_ids = list({t["employee_id"] for t in tokens if t.get("employee_id")})
+    emp_map: dict[str, dict] = {}
+    if all_emp_ids:
+        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", all_emp_ids).execute().data
+        emp_map = {e["id"]: e for e in emps}
+
+    result = []
+    for t in tokens:
+        emp = emp_map.get(t.get("employee_id", ""), {})
+        result.append({
+            "id": t["id"],
+            "employee_id": t.get("employee_id"),
+            "employee_name": emp.get("name", ""),
+            "status": "completed" if t["is_used"] else ("invalidated" if t.get("invalidated_at") else "pending"),
+            "sent_at": t.get("sent_at"),
+            "resend_count": t.get("resend_count", 0),
+            "has_email": emp.get("has_corporate_email", False),
+        })
+    return result
 
 
 @router.get("/cycle/reopen-history")
@@ -1338,7 +1527,13 @@ def list_evaluations(
     if not cycle:
         return []
 
-    q = db.table("performance_reviews").select("*").eq("cycle_id", cycle["id"])
+    # Apenas avaliações do gestor (não auto-avaliações)
+    q = (
+        db.table("performance_reviews")
+        .select("*")
+        .eq("cycle_id", cycle["id"])
+        .eq("is_self_evaluation", False)
+    )
     reviews = q.order("created_at", desc=True).execute().data
 
     all_ids = set()
@@ -1349,7 +1544,7 @@ def list_evaluations(
             all_ids.add(r["evaluator_id"])
     emp_map: dict[str, dict] = {}
     if all_ids:
-        emps = db.table("performance_employees").select("id,name,cargo,company_id").in_("id", list(all_ids)).execute().data
+        emps = db.table("performance_employees").select("id,name,cargo,company_id,has_corporate_email").in_("id", list(all_ids)).execute().data
         emp_map = {e["id"]: e for e in emps}
 
     review_ids = [r["id"] for r in reviews]
@@ -1360,6 +1555,31 @@ def list_evaluations(
         acked_ids = {a["review_id"] for a in acks}
         calibs = db.table("performance_calibrations").select("review_id").in_("review_id", review_ids).execute().data
         calibrated_ids = {c["review_id"] for c in calibs}
+
+    # Mapear self-eval status por employee_id
+    self_eval_reviews = (
+        db.table("performance_reviews")
+        .select("employee_id,status")
+        .eq("cycle_id", cycle["id"])
+        .eq("is_self_evaluation", True)
+        .execute()
+        .data
+    )
+    self_eval_map: dict[str, str] = {}
+    for se in self_eval_reviews:
+        if se.get("employee_id"):
+            self_eval_map[se["employee_id"]] = se.get("status", "pending")
+
+    self_eval_tokens = (
+        db.table("performance_self_evaluation_tokens")
+        .select("employee_id,is_used")
+        .eq("cycle_id", cycle["id"])
+        .execute()
+        .data
+    )
+    self_eval_token_map: dict[str, bool] = {
+        t["employee_id"]: t["is_used"] for t in self_eval_tokens if t.get("employee_id")
+    }
 
     result = []
     for r in reviews:
@@ -1383,6 +1603,16 @@ def list_evaluations(
         if status and final_status != status:
             continue
 
+        emp_id = r.get("employee_id", "")
+        if self_eval_map.get(emp_id) == "completed":
+            self_eval_status = "completed"
+        elif self_eval_token_map.get(emp_id):
+            self_eval_status = "completed"
+        elif emp_id in self_eval_token_map:
+            self_eval_status = "pending"
+        else:
+            self_eval_status = "not_sent"
+
         evaluator = emp_map.get(r.get("evaluator_id", ""), {})
         result.append({
             "id": rid,
@@ -1391,8 +1621,11 @@ def list_evaluations(
             "final_score": r.get("final_score"),
             "status": final_status,
             "submitted_at": r.get("submitted_at"),
-            "employee_id": r.get("employee_id"),
+            "employee_id": emp_id,
             "evaluator_id": r.get("evaluator_id"),
+            "has_email": emp.get("has_corporate_email", False),
+            "observations": r.get("observations"),
+            "self_eval_status": self_eval_status,
         })
     return result
 
@@ -1419,6 +1652,14 @@ def calibrate_evaluation(
     if not rev.data:
         raise HTTPException(404, detail="Avaliação não encontrada")
 
+    rev_status = rev.data[0].get("status", "pending")
+    if rev_status not in ("completed", "calibrated", "acknowledged"):
+        raise HTTPException(
+            400,
+            detail="Não é possível calibrar uma avaliação pendente. "
+                   "O gestor precisa primeiro submeter a avaliação.",
+        )
+
     cycle_id = rev.data[0].get("cycle_id")
     cycle = db.table("performance_cycles").select("status").eq("id", cycle_id).execute()
     if not cycle.data or cycle.data[0]["status"] != "open":
@@ -1440,6 +1681,134 @@ def calibrate_evaluation(
                {"final_score": body.new_score, "calibrated_by": current_user["username"]},
                current_user["username"], request)
     return calib.data[0] if calib.data else {"ok": True}
+
+
+# ── Nova Avaliação (Override RH) ───────────────────────────────────────────────
+
+class NewEvaluationBody(BaseModel):
+    justification: str
+
+
+@router.post("/employees/{employee_id}/new-evaluation", status_code=status.HTTP_201_CREATED)
+def create_new_evaluation(
+    employee_id: str,
+    body: NewEvaluationBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """RH cria uma nova avaliação para um colaborador que já foi avaliado.
+    Invalida tokens anteriores, registra o override na tabela de auditoria e cria novo token."""
+    if not body.justification.strip():
+        raise HTTPException(400, detail="Justificativa é obrigatória")
+
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para criar nova avaliação")
+
+    emp_res = db.table("performance_employees").select("*").eq("id", employee_id).execute()
+    if not emp_res.data:
+        raise HTTPException(404, detail="Colaborador não encontrado")
+    emp_data = emp_res.data[0]
+
+    manager_id = emp_data.get("manager_id")
+    if not manager_id:
+        raise HTTPException(400, detail="Colaborador não possui gestor direto definido. Vincule um gestor antes de criar nova avaliação.")
+
+    # Registro da avaliação anterior (se existir)
+    prev_review_res = (
+        db.table("performance_reviews")
+        .select("id,final_score,status")
+        .eq("cycle_id", cycle["id"])
+        .eq("employee_id", employee_id)
+        .execute()
+    )
+    previous_review_id = None
+    previous_score = None
+    if prev_review_res.data:
+        previous_review_id = prev_review_res.data[0]["id"]
+        previous_score = prev_review_res.data[0].get("final_score")
+
+    # Invalidar tokens existentes para este colaborador neste ciclo
+    db.table("performance_evaluation_tokens").update({
+        "invalidated_at": datetime.now(tz=timezone.utc).isoformat(),
+    }).eq("cycle_id", cycle["id"]).eq("employee_id", employee_id).is_("invalidated_at", "null").execute()
+
+    # Criar novo token de avaliação
+    new_token_value = str(uuid_mod.uuid4())
+    tok_res = db.table("performance_evaluation_tokens").insert({
+        "cycle_id": cycle["id"],
+        "evaluator_id": manager_id,
+        "employee_id": employee_id,
+        "token": new_token_value,
+        "is_used": False,
+        "resend_count": 0,
+    }).execute()
+    if not tok_res.data:
+        raise HTTPException(500, detail="Erro ao criar novo token de avaliação")
+    new_token_id = tok_res.data[0]["id"]
+
+    # Registrar override para auditoria
+    db.table("performance_evaluation_overrides").insert({
+        "cycle_id": cycle["id"],
+        "employee_id": employee_id,
+        "previous_review_id": previous_review_id,
+        "previous_score": previous_score,
+        "created_by": current_user["username"],
+        "justification": body.justification.strip(),
+        "new_token_id": new_token_id,
+    }).execute()
+
+    log_action(
+        "employee", employee_id, "new_evaluation_override",
+        {"previous_review_id": previous_review_id, "previous_score": previous_score},
+        {"new_token_id": new_token_id, "justification": body.justification.strip()},
+        current_user["username"], request,
+    )
+
+    # Enviar e-mail para o gestor (avaliador) com o novo link
+    email_sent = False
+    try:
+        from services.email import send_evaluation_token_email
+        s = get_settings()
+        frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+        mgr_res = db.table("performance_employees").select(
+            "*, performance_branches(name), performance_companies(name)"
+        ).eq("id", manager_id).execute()
+
+        if mgr_res.data:
+            mgr = mgr_res.data[0]
+            if mgr.get("has_corporate_email") and mgr.get("email"):
+                branch_name = (mgr.get("performance_branches") or {}).get("name", "")
+                company_name = (mgr.get("performance_companies") or {}).get("name", "")
+                email_sent = send_evaluation_token_email(
+                    evaluator_name=mgr["name"],
+                    evaluator_email=mgr["email"],
+                    employee_name=emp_data.get("name", ""),
+                    employee_cargo=emp_data.get("cargo", ""),
+                    company_name=company_name,
+                    branch_name=branch_name,
+                    cycle_name=cycle["name"],
+                    token=new_token_value,
+                    frontend_url=frontend_url,
+                )
+                if email_sent:
+                    db.table("performance_evaluation_tokens").update({
+                        "resend_count": 1,
+                        "last_resent_at": datetime.now(tz=timezone.utc).isoformat(),
+                    }).eq("id", new_token_id).execute()
+    except Exception as exc:
+        _logger.error("create_new_evaluation: erro ao enviar e-mail — %s", exc)
+
+    return {
+        "ok": True,
+        "new_token_id": new_token_id,
+        "new_token": new_token_value,
+        "previous_review_id": previous_review_id,
+        "employee_name": emp_data.get("name", ""),
+        "email_sent": email_sent,
+    }
 
 
 # ── Reset ──────────────────────────────────────────────────────────────────────

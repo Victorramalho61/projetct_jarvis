@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 
 type Indicator = { id: string; name: string; description?: string };
-type Employee  = { id: string; name: string; matricula: string; cargo: string; hierarchy_level?: number };
 
 const SCORE_OPTIONS = [
   { value: 5, label: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
@@ -20,8 +19,6 @@ const SOCIALS = [
 ];
 
 const HR_EMAIL = "rh@voetur.com.br";
-const BRAND    = "#00694E";
-const BRAND_DARK = "#004F3A";
 
 function CompanyLogo() {
   return (
@@ -68,8 +65,6 @@ function GrupoVoeturFooter() {
   );
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
 function ScoreBadge({ value }: { value: number }) {
   const opt = SCORE_OPTIONS.find(o => o.value === value);
   if (!opt) return <span>{value}</span>;
@@ -101,7 +96,6 @@ function avgLabel(avg: number): string {
 interface ConfirmModalProps {
   indicators: Indicator[];
   scores: Record<string, number>;
-  justifications: Record<string, string>;
   observations: string;
   employeeName: string;
   primaryBg: string;
@@ -113,15 +107,13 @@ interface ConfirmModalProps {
 }
 
 function ConfirmModal({
-  indicators, scores, justifications, observations,
-  employeeName, primaryBg, primaryBtn,
+  indicators, scores, observations, employeeName, primaryBg, primaryBtn,
   onClose, onConfirm, submitting, submitError,
 }: ConfirmModalProps) {
   const total = indicators.reduce((s, ind) => s + (scores[ind.id] ?? 0), 0);
   const avg   = indicators.length > 0 ? total / indicators.length : 0;
   const modalRef = useRef<HTMLDivElement>(null);
 
-  // Fechar ao clicar no backdrop
   function handleBackdropClick(e: React.MouseEvent) {
     if (e.target === e.currentTarget && !submitting) onClose();
   }
@@ -139,17 +131,15 @@ function ConfirmModal({
                    animate-in slide-in-from-bottom-8 duration-300"
         onClick={e => e.stopPropagation()}
       >
-        {/* Tira de arraste (mobile) */}
         <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
           <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
         </div>
 
-        {/* Header verde */}
         <div className={`${primaryBg} px-6 py-5 flex-shrink-0 rounded-t-3xl sm:rounded-t-2xl overflow-hidden`}>
           <div className="h-0.5 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500 -mx-6 -mt-5 mb-4" />
           <div className="text-center">
             <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
-              Confirmar Avaliação
+              Confirmar Auto-Avaliação
             </p>
             <p className="text-4xl font-black text-white">{avg.toFixed(2)}</p>
             <p className="text-white/50 text-xs mb-1">média / 5,00</p>
@@ -159,42 +149,25 @@ function ConfirmModal({
           </div>
         </div>
 
-        {/* Corpo rolável */}
         <div className="overflow-y-auto flex-1 p-5 space-y-4">
-
-          {/* Tabela de notas */}
           <div className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
             <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5">
               <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Notas por Indicador
+                Suas Notas por Indicador
               </p>
             </div>
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
-              {indicators.map((ind, idx) => {
-                const sc = scores[ind.id];
-                const just = justifications[ind.id];
-                return (
-                  <div key={ind.id}>
-                    <div className="flex items-center justify-between px-4 py-3 gap-3">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#00694E] text-white text-[10px] font-bold flex items-center justify-center">
-                          {idx + 1}
-                        </span>
-                        <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{ind.name}</p>
-                      </div>
-                      <ScoreBadge value={sc} />
-                    </div>
-                    {/* Justificativa de notas extremas no resumo */}
-                    {just && (
-                      <div className="px-4 pb-3 -mt-1">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 italic">
-                          "{just}"
-                        </p>
-                      </div>
-                    )}
+              {indicators.map((ind, idx) => (
+                <div key={ind.id} className="flex items-center justify-between px-4 py-3 gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#00694E] text-white text-[10px] font-bold flex items-center justify-center">
+                      {idx + 1}
+                    </span>
+                    <p className="text-sm text-gray-800 dark:text-gray-200 truncate">{ind.name}</p>
                   </div>
-                );
-              })}
+                  <ScoreBadge value={scores[ind.id]} />
+                </div>
+              ))}
             </div>
             <div className="flex items-center justify-between px-4 py-3 bg-gray-50 dark:bg-gray-700/50 border-t border-gray-200 dark:border-gray-700">
               <span className="text-sm font-bold text-gray-700 dark:text-gray-300">Média Final</span>
@@ -205,33 +178,24 @@ function ConfirmModal({
             </div>
           </div>
 
-          {/* Prévia das observações */}
-          <div className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
-            <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5">
-              <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Observações do Gestor
-              </p>
+          {observations.trim() && (
+            <div className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
+              <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5">
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                  Suas Observações
+                </p>
+              </div>
+              <div className="px-4 py-3">
+                <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap line-clamp-5">
+                  {observations}
+                </p>
+              </div>
             </div>
-            <div className="px-4 py-3">
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap line-clamp-5">
-                {observations}
-              </p>
-            </div>
-          </div>
+          )}
 
-          {/* Avisos */}
           <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4">
             <p className="text-sm text-blue-800 dark:text-blue-300 leading-relaxed">
-              📋 Confira as notas acima. Ao confirmar, a avaliação de{" "}
-              <strong>{employeeName}</strong> será registrada e não poderá ser
-              alterada por você — o RH poderá realizar ajustes na etapa de calibração.
-            </p>
-          </div>
-
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
-            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-              ⚠️ Após o envio, o <strong>RH poderá calibrar</strong> as notas conforme
-              acordado na reunião de apresentação do processo.
+              📋 Esta é sua <strong>auto-avaliação</strong>. Ao confirmar, sua percepção sobre seu desempenho será registrada e compartilhada com seu gestor.
             </p>
           </div>
 
@@ -242,7 +206,6 @@ function ConfirmModal({
           )}
         </div>
 
-        {/* Rodapé fixo com botões */}
         <div className="flex-shrink-0 p-4 border-t border-gray-100 dark:border-gray-700 bg-white dark:bg-gray-800
                         rounded-b-3xl sm:rounded-b-2xl flex gap-3">
           <button
@@ -267,7 +230,7 @@ function ConfirmModal({
                 <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                 Enviando...
               </span>
-            ) : "✓ Confirmar e Enviar Avaliação"}
+            ) : "✓ Confirmar e Enviar Auto-Avaliação"}
           </button>
         </div>
       </div>
@@ -275,57 +238,42 @@ function ConfirmModal({
   );
 }
 
-// ── Página principal ──────────────────────────────────────────────────────────
+// ── Página de Auto-Avaliação ──────────────────────────────────────────────────
 
-export default function PublicEvaluationPage() {
+export default function PublicSelfEvaluationPage() {
   const { token } = useParams<{ token: string }>();
-  const [state,           setState]           = useState<"loading" | "error" | "form" | "success">("loading");
-  const [errorMsg,        setErrorMsg]        = useState("");
-  const [data,            setData]            = useState<any>(null);
-  const [scores,          setScores]          = useState<Record<string, number>>({});
-  const [justifications,  setJustifications]  = useState<Record<string, string>>({});
-  const [observations,    setObservations]    = useState("");
-  const [showModal,       setShowModal]       = useState(false);
-  const [submitting,      setSubmitting]      = useState(false);
-  const [submitError,     setSubmitError]     = useState("");
+  const [state,          setState]          = useState<"loading" | "error" | "form" | "success">("loading");
+  const [errorMsg,       setErrorMsg]       = useState("");
+  const [data,           setData]           = useState<any>(null);
+  const [scores,         setScores]         = useState<Record<string, number>>({});
+  const [justifications, setJustifications] = useState<Record<string, string>>({});
+  const [observations,   setObservations]   = useState("");
+  const [showModal,      setShowModal]      = useState(false);
+  const [submitting,     setSubmitting]     = useState(false);
+  const [submitError,    setSubmitError]    = useState("");
 
   useEffect(() => {
     if (!token) { setState("error"); setErrorMsg("Link inválido."); return; }
-    fetch(`/api/performance/public/avaliar/${token}`)
+    fetch(`/api/performance/public/auto-avaliar/${token}`)
       .then(r => r.json().then(j => ({ ok: r.ok, data: j })))
       .then(({ ok, data }) => {
         if (!ok) { setState("error"); setErrorMsg(data.detail || "Link inválido."); return; }
         setState("form");
         setData(data);
-        setScores({});
-        setJustifications({});
-        setObservations("");
       })
-      .catch(() => { setState("error"); setErrorMsg("Erro de conexão. Tente novamente."); });
+      .catch(() => { setState("error"); setErrorMsg("Erro ao carregar formulário."); });
   }, [token]);
 
-  const indicators: Indicator[] = data?.indicators || [];
-  const employee: Employee | null = data?.employee || null;
+  const indicators: Indicator[] = data?.indicators ?? [];
+  const employee = data?.employee ?? { id: "", name: "", cargo: "" };
   const totalFields  = indicators.length;
   const filledFields = Object.keys(scores).length;
 
-  // Indicadores com notas extremas que precisam de justificativa (mínimo 10 palavras)
-  const extremeIds = indicators
-    .filter(ind => scores[ind.id] === 1 || scores[ind.id] === 5)
-    .map(ind => ind.id);
-  const allJustified = extremeIds.every(id => {
-    const words = (justifications[id] || "").trim().split(/\s+/).filter(Boolean).length;
-    return words >= 10;
-  });
-  // Observação agora é opcional — não bloqueia envio
-  const allFilled = filledFields === totalFields && totalFields > 0 && allJustified;
+  // Auto-avaliação: justificativa opcional (nunca bloqueia)
+  const allFilled = filledFields === totalFields && totalFields > 0;
 
-  // Paleta Grupo Voetur
-  const primaryBg     = "bg-[#00694E]";
-  const primaryText   = "text-[#00694E]";
-  const primaryBorder = "border-[#00694E]";
-  const primaryBtn    = "bg-[#00694E] hover:bg-[#004F3A]";
-  const progressColor = "bg-[#00694E]";
+  const primaryBg   = "bg-[#00694E]";
+  const primaryBtn  = "bg-[#00694E] hover:bg-[#004F3A]";
 
   async function handleConfirmSubmit() {
     setSubmitting(true);
@@ -336,31 +284,30 @@ export default function PublicEvaluationPage() {
         score,
         justification: justifications[indicator_id]?.trim() || null,
       })),
-      observations: observations.trim(),
+      observations: observations.trim() || null,
     };
     try {
-      const res  = await fetch(`/api/performance/public/avaliar/${token}`, {
+      const res  = await fetch(`/api/performance/public/auto-avaliar/${token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       const json = await res.json();
       if (!res.ok) {
-        setSubmitError(json.detail || "Erro ao enviar.");
+        setSubmitError(json.detail || "Erro ao enviar. Tente novamente.");
         setSubmitting(false);
         return;
       }
       setShowModal(false);
       setState("success");
     } catch {
-      setSubmitError("Erro de conexão. Tente novamente.");
+      setSubmitError("Erro de conexão. Verifique sua internet e tente novamente.");
       setSubmitting(false);
     }
   }
 
   function handleScoreChange(indicatorId: string, value: number) {
     setScores(prev => ({ ...prev, [indicatorId]: value }));
-    // Limpar justificativa se sair de nota extrema
     if (value !== 1 && value !== 5) {
       setJustifications(prev => {
         const next = { ...prev };
@@ -370,46 +317,37 @@ export default function PublicEvaluationPage() {
     }
   }
 
-  // Motivo pelo qual o botão está desabilitado (para o tooltip/msg)
-  function getBlockReason(): string {
-    if (filledFields < totalFields) return `Preencha todos os indicadores (${filledFields}/${totalFields})`;
-    if (!allJustified) return "Justificativas de notas EE (5) ou NAE (1) precisam ter pelo menos 10 palavras";
-    return "";
-  }
-
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-950">
 
       {/* Modal de confirmação */}
-      {showModal && data && employee && (
+      {showModal && data && (
         <ConfirmModal
           indicators={indicators}
           scores={scores}
-          justifications={justifications}
           observations={observations}
           employeeName={employee.name}
           primaryBg={primaryBg}
           primaryBtn={primaryBtn}
-          onClose={() => { setShowModal(false); setSubmitError(""); }}
+          onClose={() => { if (!submitting) { setShowModal(false); setSubmitError(""); } }}
           onConfirm={handleConfirmSubmit}
           submitting={submitting}
           submitError={submitError}
         />
       )}
 
-      {/* ── Header ── */}
       <header className={`${primaryBg} shadow-lg`}>
         <div className="h-1 bg-[#004F3A]" />
         <div className="max-w-3xl mx-auto px-5 py-4 flex items-center justify-between">
           <CompanyLogo />
           <div className="text-right">
-            <div className="text-white font-semibold text-sm">Sistema Jarvis</div>
-            <div className="text-white/60 text-xs">Gestão de Desempenho</div>
+            <p className="text-white/70 text-[10px] font-semibold uppercase tracking-widest">Sistema Jarvis</p>
+            <p className="text-white text-xs font-bold">Auto-Avaliação de Desempenho</p>
           </div>
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-4 py-8">
+      <main className="max-w-3xl mx-auto px-4 py-6 space-y-4">
 
         {/* Loading */}
         {state === "loading" && (
@@ -423,11 +361,7 @@ export default function PublicEvaluationPage() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-10 text-center shadow border border-gray-200 dark:border-gray-700">
             <div className="text-5xl mb-4">⚠️</div>
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Link Inválido</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">{errorMsg}</p>
-            <p className="text-sm text-gray-500">
-              Em caso de dúvidas, entre em contato com o RH:{" "}
-              <a href={`mailto:${HR_EMAIL}`} className="hover:underline text-[#00694E]">{HR_EMAIL}</a>
-            </p>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">{errorMsg}</p>
           </div>
         )}
 
@@ -439,71 +373,34 @@ export default function PublicEvaluationPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
               </svg>
             </div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Avaliação Registrada!</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-1">
-              Obrigado, <strong>{data?.evaluator_name}</strong>.
-            </p>
-            <p className="text-gray-600 dark:text-gray-400 mb-4">
-              A avaliação de <strong>{data?.employee?.name}</strong> foi salva com sucesso.
-            </p>
-            <p className="text-sm text-gray-400">
-              Caso haja mais colaboradores para avaliar, acesse o link específico de cada um.
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Auto-Avaliação Enviada!</h2>
+            <p className="text-gray-500 dark:text-gray-400 text-sm">
+              Sua auto-avaliação foi registrada com sucesso. Obrigado pela sua participação!
             </p>
           </div>
         )}
 
-        {/* ── Formulário ── */}
-        {state === "form" && data && employee && (
-          <div className="space-y-5">
-
-            {/* Banner do ciclo */}
-            <div className={`${primaryBg} text-white rounded-2xl shadow-lg overflow-hidden`}>
-              <div className="h-1 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
-              <div className="p-6">
-                <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
-                  Formulário de Avaliação de Desempenho
-                </p>
-                <h1 className="text-xl font-bold mb-3">{data.cycle_name}</h1>
-                <div className="flex flex-wrap gap-3 text-sm">
-                  <span className="flex items-center gap-1.5 bg-white/15 rounded-full px-3 py-1">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    {data.evaluator_name}
-                  </span>
-                  <span className="flex items-center gap-1.5 bg-white/15 rounded-full px-3 py-1">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                    </svg>
-                    {data.company_name} / {data.branch_name}
-                  </span>
-                </div>
-              </div>
+        {/* Formulário */}
+        {state === "form" && data && (
+          <>
+            {/* Card do colaborador */}
+            <div className={`${primaryBg} rounded-2xl p-5 shadow-lg`}>
+              <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
+                🔄 Ciclo — {data.cycle_name}
+              </p>
+              <p className="text-white text-xl font-bold leading-snug">{employee.name}</p>
+              <p className="text-white/70 text-sm mt-0.5">{employee.cargo}</p>
+              {data.company_name && (
+                <p className="text-white/50 text-xs mt-1">{data.company_name}</p>
+              )}
             </div>
 
-            {/* Colaborador */}
-            <div className={`bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-l-4 ${primaryBorder}`}>
-              <p className={`text-xs font-semibold uppercase tracking-widest ${primaryText} mb-1`}>
-                Colaborador a Avaliar
+            {/* Banner auto-avaliação */}
+            <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-2xl p-4">
+              <p className="text-sm text-blue-800 dark:text-blue-300 leading-relaxed">
+                💡 <strong>Auto-Avaliação:</strong> Avalie seu próprio desempenho com sinceridade.
+                Sua percepção é valiosa para o processo de desenvolvimento. A justificativa é <strong>opcional</strong>.
               </p>
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">{employee.name}</h2>
-              <p className="text-sm text-gray-500 mt-0.5">{employee.cargo} · Matrícula: {employee.matricula}</p>
-            </div>
-
-            {/* Legenda da escala */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow border border-gray-100 dark:border-gray-700">
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-                Escala de Avaliação
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
-                {SCORE_OPTIONS.map(opt => (
-                  <div key={opt.value}
-                    className={`flex flex-col items-center py-2 px-2 rounded-xl border ${opt.color} text-center`}>
-                    <span className="text-xs font-black mb-0.5">{opt.label}</span>
-                    <span className="text-[10px] leading-tight">{opt.desc}</span>
-                  </div>
-                ))}
-              </div>
             </div>
 
             {/* Progresso */}
@@ -511,13 +408,15 @@ export default function PublicEvaluationPage() {
               <div className="flex justify-between text-sm mb-2">
                 <span className="text-gray-500 dark:text-gray-400">Progresso</span>
                 <span className="font-bold text-gray-800 dark:text-white">
-                  {filledFields}/{totalFields} indicadores ({totalFields > 0 ? Math.round(filledFields / totalFields * 100) : 0}%)
+                  {filledFields}/{totalFields} indicadores
                 </span>
               </div>
-              <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-2.5 overflow-hidden">
+              <div className="h-2 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                 <div
-                  className={`${progressColor} h-2.5 rounded-full transition-all duration-300`}
-                  style={{ width: totalFields > 0 ? `${(filledFields / totalFields) * 100}%` : "0%" }}
+                  className={`h-full transition-all duration-500 ${
+                    allFilled ? "bg-[#00694E]" : "bg-[#00694E]/60"
+                  }`}
+                  style={{ width: `${totalFields > 0 ? (filledFields / totalFields) * 100 : 0}%` }}
                 />
               </div>
             </div>
@@ -525,18 +424,16 @@ export default function PublicEvaluationPage() {
             {/* ── Indicadores ── */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
               <div className={`${primaryBg} px-6 py-4`}>
-                <h3 className="text-white font-bold text-sm uppercase tracking-wide">Avaliação por Indicador</h3>
+                <h3 className="text-white font-bold text-sm uppercase tracking-wide">Como você avalia seu desempenho?</h3>
                 <p className="text-white/60 text-xs mt-0.5">
-                  Notas 1 (NAE) e 5 (EE) exigem justificativa obrigatória — mínimo 10 palavras
+                  Para notas extremas (1 ou 5), um campo de comentário opcional é exibido
                 </p>
               </div>
               <div className="divide-y divide-gray-100 dark:divide-gray-700">
                 {indicators.map((ind: Indicator, idx: number) => {
                   const selected = scores[ind.id];
-                  const needsJust  = selected === 1 || selected === 5;
-                  const justVal    = justifications[ind.id] || "";
-                  const wordCount  = justVal.trim() === "" ? 0 : justVal.trim().split(/\s+/).filter(Boolean).length;
-                  const justOk     = wordCount >= 10;
+                  const needsJust = selected === 1 || selected === 5;
+                  const justVal  = justifications[ind.id] || "";
 
                   return (
                     <div key={ind.id} className="p-5">
@@ -549,7 +446,9 @@ export default function PublicEvaluationPage() {
                           {selected ? "✓" : idx + 1}
                         </span>
                         <div>
-                          <p className="font-semibold text-gray-900 dark:text-white text-sm leading-snug">{ind.name}</p>
+                          <p className="font-semibold text-gray-900 dark:text-white text-sm leading-snug">
+                            Como você avalia seu desempenho em: <span className="text-[#00694E]">{ind.name}</span>?
+                          </p>
                           {ind.description && (
                             <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{ind.description}</p>
                           )}
@@ -560,7 +459,6 @@ export default function PublicEvaluationPage() {
                       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 pl-10">
                         {SCORE_OPTIONS.map(opt => {
                           const isSelected = scores[ind.id] === opt.value;
-                          const isExtreme  = opt.value === 1 || opt.value === 5;
                           return (
                             <button
                               key={opt.value}
@@ -574,45 +472,29 @@ export default function PublicEvaluationPage() {
                             >
                               <span className="text-sm font-bold mb-0.5">{opt.label}</span>
                               <span className="text-center leading-tight text-[10px]">{opt.desc}</span>
-                              {isExtreme && (
-                                <span className="mt-1 text-[9px] font-medium opacity-70">
-                                  {opt.value === 5 ? "★ justif." : "⚠ justif."}
-                                </span>
-                              )}
                             </button>
                           );
                         })}
                       </div>
 
-                      {/* Campo de justificativa — aparece só para notas 1 e 5 */}
+                      {/* Campo de comentário — opcional para notas 1 e 5 */}
                       {needsJust && (
-                        <div className={`mt-4 ml-10 rounded-xl border-2 overflow-hidden transition-all
-                          ${justOk
-                            ? "border-[#00694E]/40 dark:border-[#00694E]/50"
-                            : "border-amber-400 dark:border-amber-600"
-                          }`}>
-                          <div className={`px-3 py-2 flex items-center gap-2 text-xs font-semibold
-                            ${justOk
-                              ? "bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400"
-                              : "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
-                            }`}>
+                        <div className="mt-4 ml-10 rounded-xl border-2 border-[#00694E]/30 dark:border-[#00694E]/40 overflow-hidden">
+                          <div className="px-3 py-2 bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
                             {selected === 5
-                              ? <span>🏆 Justificativa obrigatória — nota EE (Excede as Expectativas)</span>
-                              : <span>⚠️ Justificativa obrigatória — nota NAE (Não Atende às Expectativas)</span>
+                              ? <span>💬 Comentário sobre nota máxima (opcional)</span>
+                              : <span>💬 Comentário sobre nota mínima (opcional)</span>
                             }
-                            <span className={`ml-auto font-normal text-[10px] ${justOk ? "opacity-70" : "font-semibold"}`}>
-                              {wordCount} {wordCount === 1 ? "palavra" : "palavras"} (mín. 10)
-                            </span>
                           </div>
                           <textarea
                             value={justVal}
                             onChange={e => setJustifications(prev => ({ ...prev, [ind.id]: e.target.value }))}
                             placeholder={
                               selected === 5
-                                ? "Descreva os comportamentos e resultados excepcionais que justificam esta nota máxima…"
-                                : "Descreva os comportamentos e situações que justificam esta nota mínima, com exemplos concretos…"
+                                ? "Descreva brevemente o que justifica esta avaliação…"
+                                : "Descreva brevemente o que motivou esta avaliação…"
                             }
-                            rows={3}
+                            rows={2}
                             className="w-full text-sm px-3 py-2.5 resize-none focus:outline-none
                                        bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200
                                        placeholder:text-gray-400 dark:placeholder:text-gray-500"
@@ -625,14 +507,14 @@ export default function PublicEvaluationPage() {
               </div>
             </div>
 
-            {/* ── Observações gerais do gestor (opcional) ── */}
+            {/* ── Observações (opcional) ── */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
               <div className={`${primaryBg} px-6 py-4 flex items-center justify-between`}>
                 <div>
                   <h3 className="text-white font-bold text-sm uppercase tracking-wide">
-                    Observações do Gestor
+                    Observações
                   </h3>
-                  <p className="text-white/60 text-xs mt-0.5">(opcional) — comentário livre sobre o desempenho</p>
+                  <p className="text-white/60 text-xs mt-0.5">(opcional) — comentário livre sobre este ciclo</p>
                 </div>
                 {observations.trim().length > 0 && (
                   <span className="text-xs font-semibold bg-white/20 text-white px-2.5 py-1 rounded-full">
@@ -645,7 +527,7 @@ export default function PublicEvaluationPage() {
                   <textarea
                     value={observations}
                     onChange={e => setObservations(e.target.value)}
-                    placeholder={`Ex.: ${employee.name.split(" ")[0]} demonstrou bom comprometimento ao longo do ciclo. Pontos a desenvolver: organização das tarefas diárias.`}
+                    placeholder="Ex.: Foi um ciclo de grandes aprendizados. Gostaria de aprimorar minha organização nas demandas diárias."
                     rows={2}
                     className="w-full text-sm px-4 py-3 resize-none focus:outline-none
                                bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200
@@ -655,11 +537,11 @@ export default function PublicEvaluationPage() {
               </div>
             </div>
 
-            {/* ── Botão ver resumo / confirmar ── */}
+            {/* ── Botão enviar ── */}
             <div className="sticky bottom-4 pt-2">
-              {!allFilled && getBlockReason() && (
+              {!allFilled && (
                 <p className="text-center text-xs text-gray-500 dark:text-gray-400 mb-2 px-4">
-                  ⏳ {getBlockReason()}
+                  ⏳ Preencha todos os indicadores ({filledFields}/{totalFields})
                 </p>
               )}
               <button
@@ -672,16 +554,14 @@ export default function PublicEvaluationPage() {
                     : "bg-gray-300 dark:bg-gray-700 text-gray-500 dark:text-gray-400 cursor-not-allowed"
                 }`}
               >
-                {allFilled
-                  ? "Ver Resumo e Confirmar →"
-                  : `Preencha todos os campos (${filledFields}/${totalFields} indicadores)`}
+                {allFilled ? "Ver Resumo e Confirmar Auto-Avaliação →" : `Preencha todos os indicadores (${filledFields}/${totalFields})`}
               </button>
             </div>
-          </div>
+          </>
         )}
-      </main>
 
-      <GrupoVoeturFooter />
+        <GrupoVoeturFooter />
+      </main>
     </div>
   );
 }

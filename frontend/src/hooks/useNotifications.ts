@@ -54,10 +54,10 @@ export function useNotifications() {
       if (summary.pending_users > 0) {
         const n = summary.pending_users;
         next.push({
-          id: "pending-users",
+          id: `pending-users-${n}`,   // ID dinâmico: novo pedido = novo alerta
           type: "pending_user",
-          title: `${n} solicitaç${n > 1 ? "ões" : "ão"} pendente${n > 1 ? "s" : ""}`,
-          body: "Novos usuários aguardando ativação",
+          title: `${n} solicitaç${n > 1 ? "ões" : "ão"} de acesso pendente${n > 1 ? "s" : ""}`,
+          body: "Clique para aprovar ou recusar",
           link: "/admin/acesso",
         });
       }
@@ -90,7 +90,7 @@ export function useNotifications() {
 
   useEffect(() => {
     fetch();
-    intervalRef.current = setInterval(fetch, 90_000);
+    intervalRef.current = setInterval(fetch, 30_000);   // 30s — alerta chega em até 30s
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [fetch]);
 

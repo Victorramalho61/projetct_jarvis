@@ -2,10 +2,11 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 
 const SCORE_MAP: Record<number, { label: string; desc: string; color: string }> = {
-  4: { label: "SE",  desc: "Supera o Esperado",              color: "bg-emerald-100 text-emerald-700 border-emerald-300" },
-  3: { label: "AE",  desc: "Atende o Esperado",              color: "bg-blue-100 text-blue-700 border-blue-300" },
-  2: { label: "APE", desc: "Atende Parcialmente o Esperado", color: "bg-amber-100 text-amber-700 border-amber-300" },
-  1: { label: "NAE", desc: "Não Atende o Esperado",          color: "bg-red-100 text-red-700 border-red-300" },
+  5: { label: "EE",  desc: "Excede as Expectativas",              color: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700" },
+  4: { label: "SE",  desc: "Supera as Expectativas",              color: "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700" },
+  3: { label: "AE",  desc: "Atende as Expectativas",              color: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700" },
+  2: { label: "APE", desc: "Atende Parcialmente as Expectativas", color: "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700" },
+  1: { label: "NAE", desc: "Não Atende às Expectativas",          color: "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700" },
 };
 
 const SOCIALS = [
@@ -16,8 +17,8 @@ const SOCIALS = [
 ];
 
 const HR_EMAIL    = "rh@voetur.com.br";
-const PRIMARY_BG  = "bg-[#003D73]";
-const PRIMARY_COL = "#003D73";
+const PRIMARY_BG  = "bg-[#00694E]";
+const PRIMARY_COL = "#00694E";
 
 type Step = "busca" | "resultado" | "confirmado";
 
@@ -35,6 +36,14 @@ function ScoreBadge({ score }: { score: number }) {
       {s.label} <span className="font-normal">— {s.desc}</span>
     </span>
   );
+}
+
+function avgLabel(avg: number): string {
+  if (avg >= 4.5) return "Excede as Expectativas";
+  if (avg >= 3.5) return "Supera as Expectativas";
+  if (avg >= 2.5) return "Atende as Expectativas";
+  if (avg >= 1.5) return "Atende Parcialmente";
+  return "Não Atende às Expectativas";
 }
 
 function formatDate(iso: string) {
@@ -65,12 +74,8 @@ function GrupoVoeturFooter() {
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mb-4">
         {SOCIALS.map((s, i) => (
           <span key={s.label} className="flex items-center gap-x-4">
-            <a
-              href={s.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-gray-500 hover:text-[#003D73] transition-colors"
-            >
+            <a href={s.href} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-gray-500 hover:text-[#00694E] transition-colors">
               {s.label}
             </a>
             {i < SOCIALS.length - 1 && (
@@ -82,29 +87,27 @@ function GrupoVoeturFooter() {
 
       <p className="text-xs text-gray-400 mb-1">
         Dúvidas?{" "}
-        <a href={`mailto:${HR_EMAIL}`} className="text-[#003D73] dark:text-blue-400 hover:underline">
+        <a href={`mailto:${HR_EMAIL}`} className="text-[#00694E] hover:underline">
           {HR_EMAIL}
         </a>
       </p>
-      <p className="text-xs text-gray-400">Voetur Viagens · VTC Operadora Logística</p>
-      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Sistema Jarvis © 2025</p>
+      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Sistema Jarvis &copy; 2026 — Grupo Voetur</p>
     </footer>
   );
 }
 
 export default function PublicCienciaPresencialPage() {
-  const [step,                  setStep]                  = useState<Step>("busca");
-  const [nome,                  setNome]                  = useState("");
-  const [cpf,                   setCpf]                   = useState("");
-  const [searching,             setSearching]             = useState(false);
-  const [searchError,           setSearchError]           = useState("");
-  const [data,                  setData]                  = useState<any>(null);
-  const [showModal,             setShowModal]             = useState(false);
-  const [submitting,            setSubmitting]            = useState(false);
-  const [submitError,           setSubmitError]           = useState("");
-  const [acknowledgedAt,        setAcknowledgedAt]        = useState("");
-  const [alreadyAcknowledged,   setAlreadyAcknowledged]   = useState(false);
-  const [alreadyAcknowledgedAt, setAlreadyAcknowledgedAt] = useState("");
+  const [step,        setStep]        = useState<Step>("busca");
+  const [nome,        setNome]        = useState("");
+  const [cpf,         setCpf]         = useState("");
+  const [searching,   setSearching]   = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [data,        setData]        = useState<any>(null);
+  const [showModal,   setShowModal]   = useState(false);
+  const [submitting,  setSubmitting]  = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [viewOnly,    setViewOnly]    = useState(false);   // true quando ciência já registrada
+  const [acknowledgedAt, setAcknowledgedAt] = useState("");
 
   function validateForm(): string | null {
     const cpfDigits = cpf.replace(/\D/g, "");
@@ -128,15 +131,11 @@ export default function PublicCienciaPresencialPage() {
       });
       const json = await res.json();
       if (!res.ok) { setSearchError(json.detail || "Colaborador não encontrado."); setSearching(false); return; }
-      if (json.already_acknowledged) {
-        setAlreadyAcknowledged(true);
-        setAlreadyAcknowledgedAt(json.acknowledged_at || "");
-        setData(json);
-      } else {
-        setAlreadyAcknowledged(false);
-        setData(json);
-        setStep("resultado");
-      }
+
+      setData(json);
+      setViewOnly(json.already_acknowledged === true);
+      setAcknowledgedAt(json.acknowledged_at || "");
+      setStep("resultado");
     } catch {
       setSearchError("Erro de conexão. Tente novamente.");
     } finally {
@@ -174,8 +173,7 @@ export default function PublicCienciaPresencialPage() {
     setNome(""); setCpf("");
     setSearchError(""); setSubmitError("");
     setData(null); setShowModal(false);
-    setAlreadyAcknowledged(false);
-    setAlreadyAcknowledgedAt(""); setAcknowledgedAt("");
+    setViewOnly(false); setAcknowledgedAt("");
   }
 
   return (
@@ -183,17 +181,14 @@ export default function PublicCienciaPresencialPage() {
 
       {/* ── Header ── */}
       <header className={`${PRIMARY_BG} shadow-lg`}>
-        <div className="h-1.5 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
+        <div className="h-1 bg-[#004F3A]" />
         <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img
-              src="https://voeturviagens.com.br/wp-content/uploads/2025/07/voetur-viagens-logo-site.png"
-              alt="Voetur Viagens"
-              className="h-9 max-w-[190px] object-contain brightness-0 invert"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
-            />
-            <span className="text-white/60 text-xs hidden sm:block">| Grupo Voetur</span>
-          </div>
+          <img
+            src="https://grupovoetur.com.br/wp-content/uploads/2024/09/Grupo-Logo-Branco.svg"
+            alt="Grupo Voetur"
+            className="h-8 max-w-[200px] object-contain"
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
           <div className="flex items-center gap-4">
             <div className="text-right">
               <div className="text-white font-semibold text-sm">Sistema Jarvis</div>
@@ -218,11 +213,11 @@ export default function PublicCienciaPresencialPage() {
               <div className="h-1 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
               <div className="p-6">
                 <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
-                  Registro de Ciência
+                  Avaliação de Desempenho
                 </p>
-                <h1 className="text-xl font-bold mb-1">Ciência Presencial</h1>
+                <h1 className="text-xl font-bold mb-1">Consulta e Ciência Presencial</h1>
                 <p className="text-white/80 text-sm">
-                  Para colaboradores sem e-mail corporativo. Informe os dados abaixo para buscar sua avaliação.
+                  Para colaboradores sem e-mail corporativo. Informe seus dados para consultar sua avaliação e registrar ciência.
                 </p>
               </div>
             </div>
@@ -236,7 +231,7 @@ export default function PublicCienciaPresencialPage() {
                   <input
                     type="text"
                     value={nome}
-                    onChange={e => { setNome(e.target.value); setSearchError(""); setAlreadyAcknowledged(false); }}
+                    onChange={e => { setNome(e.target.value); setSearchError(""); }}
                     placeholder="Ex: João Silva Santos"
                     autoComplete="name"
                     style={{ "--tw-ring-color": PRIMARY_COL } as React.CSSProperties}
@@ -254,7 +249,7 @@ export default function PublicCienciaPresencialPage() {
                   <input
                     type="text"
                     value={cpf}
-                    onChange={e => { setCpf(applyCpfMask(e.target.value)); setSearchError(""); setAlreadyAcknowledged(false); }}
+                    onChange={e => { setCpf(applyCpfMask(e.target.value)); setSearchError(""); }}
                     placeholder="000.000.000-00"
                     inputMode="numeric"
                     autoComplete="off"
@@ -274,37 +269,13 @@ export default function PublicCienciaPresencialPage() {
                   </div>
                 )}
 
-                {alreadyAcknowledged && data && (
-                  <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-5 text-center">
-                    <div className="w-14 h-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <svg className="w-7 h-7 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <p className="font-bold text-green-800 dark:text-green-200 mb-1">Ciência já registrada</p>
-                    <p className="text-sm text-green-700 dark:text-green-300">
-                      <strong>{data.employee_name}</strong>, sua ciência foi registrada em{" "}
-                      <strong>{formatDate(alreadyAcknowledgedAt)}</strong>.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={resetForm}
-                      className="mt-4 text-sm text-[#003D73] hover:underline dark:text-blue-400"
-                    >
-                      Registrar outro colaborador →
-                    </button>
-                  </div>
-                )}
-
-                {!alreadyAcknowledged && (
-                  <button
-                    type="submit"
-                    disabled={searching}
-                    className={`w-full py-3.5 ${PRIMARY_BG} hover:bg-[#002d57] text-white font-bold rounded-xl transition-all disabled:opacity-60`}
-                  >
-                    {searching ? "Buscando..." : "Buscar Avaliação"}
-                  </button>
-                )}
+                <button
+                  type="submit"
+                  disabled={searching}
+                  className={`w-full py-3.5 ${PRIMARY_BG} hover:bg-[#002d57] text-white font-bold rounded-xl transition-all disabled:opacity-60`}
+                >
+                  {searching ? "Buscando..." : "Consultar Avaliação"}
+                </button>
               </form>
             </div>
           </div>
@@ -333,8 +304,26 @@ export default function PublicCienciaPresencialPage() {
               </div>
             </div>
 
+            {/* Banner de ciência já registrada (view-only) */}
+            {viewOnly && (
+              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 flex items-center gap-3">
+                <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div>
+                  <p className="text-sm font-semibold text-green-800 dark:text-green-200">Ciência já registrada</p>
+                  {acknowledgedAt && (
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                      em {formatDate(acknowledgedAt)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Avaliador */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl p-4 shadow border-l-4 border-[#003D73] flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <div className="w-9 h-9 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center flex-shrink-0">
                 <svg className="w-5 h-5 text-[#003D73]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                 </svg>
@@ -345,29 +334,64 @@ export default function PublicCienciaPresencialPage() {
               </div>
             </div>
 
+            {/* Notas por indicador */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
               <div className={`${PRIMARY_BG} px-5 py-3`}>
                 <h3 className="text-white font-bold text-sm uppercase tracking-wide">Notas por Indicador</h3>
               </div>
               <div className="divide-y divide-gray-50 dark:divide-gray-700">
                 {data.indicator_scores?.map((s: any) => (
-                  <div key={s.indicator_id} className="flex items-center justify-between px-5 py-3 gap-3">
-                    <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
-                    <ScoreBadge score={s.score} />
+                  <div key={s.indicator_id}>
+                    <div className="flex items-center justify-between px-5 py-3 gap-3">
+                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
+                      <ScoreBadge score={s.score} />
+                    </div>
+                    {s.justification && (
+                      <div className="px-5 pb-3 -mt-1">
+                        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-gray-300 dark:border-gray-600">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                            Justificativa do gestor
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
+                            "{s.justification}"
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 border-[#003D73] flex items-center justify-between">
-              <span className="font-bold text-gray-900 dark:text-white text-lg">Nota Final (Média)</span>
+            {/* Nota final */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 border-[#00694E] flex items-center justify-between">
+              <div>
+                <span className="font-bold text-gray-900 dark:text-white text-lg">Nota Final</span>
+                <p className="text-xs text-gray-400 mt-0.5">{avgLabel(data.final_score ?? 0)}</p>
+              </div>
               <div className="text-right">
-                <span className="text-3xl font-black text-[#003D73] dark:text-blue-400">
+                <span className="text-3xl font-black text-[#00694E] dark:text-emerald-400">
                   {data.final_score?.toFixed(2)}
                 </span>
-                <span className="text-sm text-gray-400 ml-1">/ 4,00</span>
+                <span className="text-sm text-gray-400 ml-1">/ 5,00</span>
               </div>
             </div>
+
+            {/* Observações do gestor */}
+            {data.observations && (
+              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
+                <div className="bg-gray-50 dark:bg-gray-700/50 px-5 py-3">
+                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+                    📝 Observações do Gestor
+                  </h3>
+                </div>
+                <div className="px-5 py-4">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                    {data.observations}
+                  </p>
+                </div>
+              </div>
+            )}
 
             {submitError && (
               <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">
@@ -375,12 +399,19 @@ export default function PublicCienciaPresencialPage() {
               </div>
             )}
 
-            <button
-              onClick={() => setShowModal(true)}
-              className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-2xl shadow-lg transition-all"
-            >
-              Dar Ciência da Avaliação
-            </button>
+            {/* Botão de ciência — só se ainda não registrou */}
+            {!viewOnly ? (
+              <button
+                onClick={() => setShowModal(true)}
+                className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-2xl shadow-lg transition-all"
+              >
+                ✓ Dar Ciência da Avaliação
+              </button>
+            ) : (
+              <div className="w-full py-4 bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500 font-semibold text-base rounded-2xl text-center border border-gray-200 dark:border-gray-700">
+                ✓ Ciência já registrada — visualização apenas
+              </div>
+            )}
           </div>
         )}
 
@@ -406,7 +437,7 @@ export default function PublicCienciaPresencialPage() {
                 onClick={resetForm}
                 className={`w-full py-3.5 ${PRIMARY_BG} hover:bg-[#002d57] text-white font-bold rounded-xl transition-all`}
               >
-                Registrar ciência de outro colaborador
+                Consultar outro colaborador
               </button>
             </div>
           </div>

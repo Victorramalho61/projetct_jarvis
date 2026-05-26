@@ -62,6 +62,8 @@ export default function Icon({ name, size = 18, strokeWidth = 1.75, className = 
       return <svg {...common}><path d="M20 12V8a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-4"/><path d="M2 10h18"/><circle cx="17" cy="15" r="2"/></svg>;
     case "zap":
       return <svg {...common}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>;
+    case "clipboard":
+      return <svg {...common}><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 14l2 2 4-4"/></svg>;
     default:
       return <svg {...common}><circle cx="12" cy="12" r="9"/></svg>;
   }

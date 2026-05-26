@@ -7,19 +7,24 @@ from db import get_settings
 
 _logger = logging.getLogger(__name__)
 
-# ── Brand ─────────────────────────────────────────────────────────────────────
-_VOETUR_BLUE = "#003D73"
-_VTC_TEAL    = "#005F6B"
-_ACCENT      = "#F0A500"
+# ── Brand — Grupo Voetur ──────────────────────────────────────────────────────
+_BRAND_GREEN = "#00694E"   # cor primária exata do logo Grupo Voetur
+_BRAND_DARK  = "#004F3A"   # hover / bordo escuro
+_BRAND_LIGHT = "#E6F4F0"   # fundo suave
 _TEXT_DARK   = "#1A1A2E"
 _TEXT_MUTED  = "#6B7280"
 _BG          = "#F4F6FB"
 _WHITE       = "#FFFFFF"
 _FOOTER_BG   = "#111827"
-_LINK_BLUE   = "#60A5FA"
+_LINK_GREEN  = "#4FC49A"   # links sobre fundo escuro
 
-_LOGO_VOETUR = "https://voeturviagens.com.br/wp-content/uploads/2025/07/voetur-viagens-logo-site.png"
-_LOGO_VTC    = "https://www.vtclog.com.br/wp-content/uploads/logo-vtclog.png"
+# Logo Grupo Voetur — versão branca (para header verde) e verde (para fundo branco)
+_LOGO_BRANCO = "https://grupovoetur.com.br/wp-content/uploads/2024/09/Grupo-Logo-Branco.svg"
+_LOGO_VERDE  = "https://grupovoetur.com.br/wp-content/uploads/2024/09/Grupo-Logo-Verde.svg"
+
+# Retrocompatibilidade — manter aliases que o resto do código não usa diretamente
+_VOETUR_BLUE = _BRAND_GREEN
+_VTC_TEAL    = _BRAND_DARK
 
 _HR_EMAIL = "rh@voetur.com.br"
 
@@ -33,16 +38,17 @@ _SOCIALS = [
 
 def _footer_html() -> str:
     social_items = " &nbsp;&middot;&nbsp; ".join(
-        f'<a href="{url}" style="color:{_LINK_BLUE};text-decoration:none;font-size:11px;">{name}</a>'
+        f'<a href="{url}" style="color:{_LINK_GREEN};text-decoration:none;font-size:11px;">{name}</a>'
         for name, url in _SOCIALS
     )
     return f"""
 <table width="100%" cellpadding="0" cellspacing="0" border="0">
   <tr>
     <td style="padding-bottom:14px;border-bottom:1px solid #1F2937;">
-      <p style="margin:0 0 2px;color:{_WHITE};font-size:13px;font-weight:bold;letter-spacing:1px;">
-        GRUPO VOETUR
-      </p>
+      <!-- Logo Grupo Voetur branco no footer -->
+      <img src="{_LOGO_BRANCO}" alt="Grupo Voetur" height="22"
+           style="display:block;height:22px;max-width:160px;object-fit:contain;margin-bottom:6px;"
+           onerror="this.style.display='none'"/>
       <p style="margin:0;color:#6B7280;font-size:11px;font-style:italic;">
         Movimentamos o melhor do Brasil
       </p>
@@ -58,17 +64,16 @@ def _footer_html() -> str:
             </p>
             <p style="margin:0;font-size:11px;line-height:1.6;">
               <a href="mailto:{_HR_EMAIL}"
-                 style="color:{_LINK_BLUE};text-decoration:none;">{_HR_EMAIL}</a>
+                 style="color:{_LINK_GREEN};text-decoration:none;">{_HR_EMAIL}</a>
             </p>
             <p style="margin:8px 0 0;color:#4B5563;font-size:10px;line-height:1.6;">
-              Voetur Viagens &nbsp;&middot;&nbsp; VTC Operadora Log&iacute;stica<br/>
               E-mail autom&aacute;tico &mdash; n&atilde;o responda a esta mensagem.
             </p>
           </td>
           <td align="right" style="vertical-align:top;">
             <p style="margin:0 0 8px;color:#D1D5DB;font-size:11px;font-weight:600;">Siga-nos</p>
             <p style="margin:0 0 10px;line-height:1.8;">{social_items}</p>
-            <p style="margin:0;color:#374151;font-size:10px;">&copy; 2025 Grupo Voetur</p>
+            <p style="margin:0;color:#374151;font-size:10px;">&copy; 2026 Grupo Voetur</p>
           </td>
         </tr>
       </table>
@@ -78,9 +83,8 @@ def _footer_html() -> str:
 
 
 def _email_base(header_html: str, body_html: str, is_vtclog: bool = False) -> str:
-    primary       = _VTC_TEAL    if is_vtclog else _VOETUR_BLUE
-    logo_url      = _LOGO_VTC    if is_vtclog else _LOGO_VOETUR
-    company_label = "VTC Operadora Logística" if is_vtclog else "Voetur Viagens"
+    # Grupo Voetur — marca única para todos os colaboradores
+    primary = _BRAND_GREEN
 
     return f"""<!DOCTYPE html>
 <html lang="pt-BR">
@@ -97,20 +101,20 @@ def _email_base(header_html: str, body_html: str, is_vtclog: bool = False) -> st
     <table width="600" cellpadding="0" cellspacing="0" border="0"
            style="max-width:600px;width:100%;">
 
-      <!-- Barra dourada superior -->
+      <!-- Barra superior — tom mais escuro do verde -->
       <tr>
-        <td style="background:{_ACCENT};height:5px;
+        <td style="background:{_BRAND_DARK};height:5px;
                    border-radius:12px 12px 0 0;font-size:0;">&nbsp;</td>
       </tr>
 
-      <!-- Header com logo -->
+      <!-- Header com logo Grupo Voetur -->
       <tr>
         <td style="background:{primary};padding:24px 32px 28px;">
           <table width="100%" cellpadding="0" cellspacing="0" border="0">
             <tr>
               <td style="vertical-align:middle;">
-                <img src="{logo_url}" alt="{company_label}" height="38"
-                     style="display:block;height:38px;max-width:210px;object-fit:contain;filter:brightness(0) invert(1);"
+                <img src="{_LOGO_BRANCO}" alt="Grupo Voetur" height="32"
+                     style="display:block;height:32px;max-width:200px;object-fit:contain;"
                      onerror="this.style.display='none'"/>
               </td>
               <td align="right" style="vertical-align:middle;">
@@ -156,8 +160,13 @@ def send_email(to_email: str, display_name: str, subject: str, html: str) -> boo
         return False
     try:
         msg = MIMEMultipart("alternative")
+        smtp_from_val = s.smtp_from or s.smtp_user or ""
+        # Se smtp_from já tem formato "Nome <email>", usa direto; senão envolve
+        if "<" in smtp_from_val:
+            msg["From"] = smtp_from_val
+        else:
+            msg["From"] = f"Sistema Jarvis <{smtp_from_val}>"
         msg["Subject"] = subject
-        msg["From"]    = f"Sistema Jarvis <{s.smtp_from or s.smtp_user}>"
         msg["To"]      = to_email
 
         # Parte texto simples — obrigatória para evitar "e-mail vazio" em
@@ -194,8 +203,8 @@ def send_evaluation_token_email(
         "logística" in company_name.lower() or
         "logistica" in company_name.lower()
     )
-    primary  = _VTC_TEAL if is_vtclog else _VOETUR_BLUE
-    light_bg = "#DCEEFB" if not is_vtclog else "#D1EEF2"
+    primary  = _BRAND_GREEN
+    light_bg = _BRAND_LIGHT
 
     subject = f"Avaliação de Desempenho — {employee_name} | {cycle_name}"
     link    = f"{frontend_url}/avaliar/{token}"
@@ -275,6 +284,90 @@ def send_evaluation_token_email(
                       _email_base(header_html, body_html, is_vtclog))
 
 
+def send_self_evaluation_email(
+    employee_name: str, employee_email: str,
+    cycle_name: str, token: str, frontend_url: str,
+    company_name: str = "",
+) -> bool:
+    primary  = _BRAND_GREEN
+    light_bg = _BRAND_LIGHT
+
+    subject = f"Auto-Avaliação de Desempenho — {cycle_name}"
+    link    = f"{frontend_url}/auto-avaliar/{token}"
+
+    header_html = f"""
+    <p style="margin:18px 0 0;color:rgba(255,255,255,0.85);
+              font-size:13px;font-weight:600;letter-spacing:0.3px;">
+      &#128100; Auto-Avaliação &mdash; {cycle_name}
+    </p>"""
+
+    body_html = f"""
+    <p style="margin:0 0 24px;color:{_TEXT_DARK};font-size:16px;font-weight:600;line-height:1.4;">
+      Olá, <span style="color:{primary};">{employee_name}</span>!
+    </p>
+    <p style="margin:0 0 24px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      Chegou o momento da sua <strong style="color:{_TEXT_DARK};">auto-avaliação de desempenho</strong>
+      do ciclo <strong style="color:{_TEXT_DARK};">{cycle_name}</strong>.
+      Reserve alguns minutos para refletir sobre sua trajetória e registrar como você avalia
+      seu próprio desempenho neste período.
+    </p>
+
+    <!-- Info box -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:{light_bg};border-left:5px solid {primary};
+                  border-radius:0 10px 10px 0;margin:0 0 28px;">
+      <tr>
+        <td style="padding:16px 20px;">
+          <p style="margin:0;font-size:14px;color:{_TEXT_DARK};line-height:1.7;">
+            &#10003; Responda com honestidade — sua percepção é fundamental para o processo.<br/>
+            &#10003; Não há resposta certa ou errada; reflita sobre seus pontos fortes e de desenvolvimento.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Aviso -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:#FFFBEB;border:1px solid #FCD34D;
+                  border-radius:8px;margin:0 0 28px;">
+      <tr>
+        <td style="padding:12px 18px;">
+          <p style="margin:0;font-size:13px;color:#92400E;line-height:1.6;">
+            &#9888;&#65039; <strong>Link individual e intransferível.</strong>
+            Este formulário é exclusivo para a sua auto-avaliação. Não compartilhe este link.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Botão CTA -->
+    <table cellpadding="0" cellspacing="0" border="0"
+           style="margin:0 auto 28px;">
+      <tr>
+        <td align="center"
+            style="border-radius:8px;background:{primary};">
+          <a href="{link}"
+             style="display:inline-block;padding:15px 44px;color:{_WHITE};
+                    font-size:16px;font-weight:bold;text-decoration:none;
+                    border-radius:8px;letter-spacing:0.5px;">
+            Iniciar Auto-Avaliação &rarr;
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0 0 4px;color:{_TEXT_MUTED};font-size:12px;text-align:center;">
+      Caso o botão não funcione, copie e cole o link abaixo:
+    </p>
+    <p style="margin:0;text-align:center;">
+      <a href="{link}"
+         style="color:{primary};font-size:11px;word-break:break-all;">{link}</a>
+    </p>"""
+
+    return send_email(employee_email, employee_name, subject,
+                      _email_base(header_html, body_html))
+
+
 def send_ciencia_email(
     employee_name: str, employee_email: str,
     evaluator_name: str, cycle_name: str,
@@ -286,8 +379,8 @@ def send_ciencia_email(
         "logística" in company_name.lower() or
         "logistica" in company_name.lower()
     )
-    primary  = _VTC_TEAL if is_vtclog else _VOETUR_BLUE
-    light_bg = "#DCEEFB" if not is_vtclog else "#D1EEF2"
+    primary  = _BRAND_GREEN
+    light_bg = _BRAND_LIGHT
 
     subject = f"Resultado da Sua Avaliação de Desempenho — {cycle_name}"
     link    = f"{frontend_url}/ciencia/{token}"
@@ -328,7 +421,7 @@ def send_ciencia_email(
            style="margin:0 auto 28px;">
       <tr>
         <td align="center"
-            style="border-radius:8px;background:#166534;">
+            style="border-radius:8px;background:{_BRAND_GREEN};">
           <a href="{link}"
              style="display:inline-block;padding:15px 44px;color:{_WHITE};
                     font-size:16px;font-weight:bold;text-decoration:none;

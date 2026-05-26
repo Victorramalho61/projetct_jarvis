@@ -32,6 +32,7 @@ const HermesPage = lazy(() => import("./pages/admin/HermesPage"));
 const PublicEvaluationPage = lazy(() => import("./pages/PublicEvaluationPage"));
 const PublicCienciaPage = lazy(() => import("./pages/PublicCienciaPage"));
 const PublicCienciaPresencialPage = lazy(() => import("./pages/PublicCienciaPresencialPage"));
+const PublicSelfEvaluationPage = lazy(() => import("./pages/PublicSelfEvaluationPage"));
 
 function PageLoader() {
   return (
@@ -60,6 +61,8 @@ export default function App() {
           <Route path="/desempenho/ciencia/:token" element={<PublicCienciaPage />} />
           <Route path="/ciencia-presencial" element={<PublicCienciaPresencialPage />} />
           <Route path="/desempenho/ciencia-presencial" element={<PublicCienciaPresencialPage />} />
+          <Route path="/auto-avaliar/:token" element={<PublicSelfEvaluationPage />} />
+          <Route path="/desempenho/auto-avaliar/:token" element={<PublicSelfEvaluationPage />} />
 
           <Route
             element={

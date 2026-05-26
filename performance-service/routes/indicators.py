@@ -6,7 +6,7 @@ from auth import require_role
 from db import get_supabase
 from services.audit import log_action
 
-router = APIRouter(prefix="/api/performance/indicators")
+router = APIRouter(prefix="/api/performance/indicators", redirect_slashes=False)
 _logger = logging.getLogger(__name__)
 _RH_ADMIN = ("admin", "rh")
 
@@ -21,6 +21,7 @@ class IndicatorUpdate(BaseModel):
     active: bool | None = None
     hierarchy_level: int | None = None
 
+@router.get("")
 @router.get("/")
 def list_indicators(
     _: Annotated[dict, Depends(require_role("admin", "rh", "gerente", "coordenador_supervisor"))],
@@ -35,6 +36,7 @@ def list_indicators(
         query = query.eq("hierarchy_level", hierarchy_level)
     return query.order("hierarchy_level").order("created_at").execute().data
 
+@router.post("", status_code=status.HTTP_201_CREATED)
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_indicator(
     body: IndicatorCreate,

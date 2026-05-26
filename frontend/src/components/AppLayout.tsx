@@ -11,6 +11,7 @@ type NavItem = {
   path: string;
   icon: string;
   roles: Role[];
+  external?: boolean;   // true = abre em nova aba (link externo ao app)
 };
 
 // ── SidebarContent definido FORA do AppLayout para evitar remontagem a cada render ──
@@ -29,31 +30,54 @@ function SidebarContent({ visible, onLinkClick }: SidebarContentProps) {
           Navegação
         </div>
         <nav className="space-y-0.5">
-          {visible.map((item) => (
-            <NavLink
-              key={item.id}
-              to={item.path}
-              end={item.path === "/"}
-              onClick={onLinkClick}
-              className={({ isActive }) =>
-                `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
-                  isActive
-                    ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
-                    : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  {isActive && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
-                  )}
-                  <Icon name={item.icon} size={17} strokeWidth={isActive ? 2 : 1.75} />
-                  <span className="flex-1">{item.label}</span>
-                </>
-              )}
-            </NavLink>
-          ))}
+          {visible.map((item) =>
+            item.external ? (
+              // Link externo — abre em nova aba sem sair do app
+              <a
+                key={item.id}
+                href={item.path}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={onLinkClick}
+                className="relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors
+                  text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
+              >
+                <Icon name={item.icon} size={17} strokeWidth={1.75} />
+                <span className="flex-1">{item.label}</span>
+                {/* Ícone indicando nova aba */}
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                  <polyline points="15 3 21 3 21 9"/>
+                  <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
+              </a>
+            ) : (
+              <NavLink
+                key={item.id}
+                to={item.path}
+                end={item.path === "/"}
+                onClick={onLinkClick}
+                className={({ isActive }) =>
+                  `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
+                    isActive
+                      ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
+                      : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    {isActive && (
+                      <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
+                    )}
+                    <Icon name={item.icon} size={17} strokeWidth={isActive ? 2 : 1.75} />
+                    <span className="flex-1">{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            )
+          )}
         </nav>
       </div>
 
@@ -89,7 +113,7 @@ function SidebarContent({ visible, onLinkClick }: SidebarContentProps) {
 const NAV_ITEMS: NavItem[] = [
   { id: "home",        label: "Início",          path: "/",                     icon: "home",      roles: ["admin", "user", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
   { id: "moneypenny", label: "Moneypenny",       path: "/moneypenny",           icon: "sparkle",   roles: ["admin", "user"] },
-  { id: "desempenho", label: "Gestão de Desempenho", path: "/desempenho",         icon: "chart",     roles: ["admin", "rh", "gerente", "coordenador_supervisor"] },
+  { id: "desempenho", label: "Gestão de Desempenho", path: "/desempenho",         icon: "chart",     roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
   { id: "access",     label: "Gestão de Acesso",  path: "/admin/acesso",         icon: "users",     roles: ["admin", "user"] },
   { id: "logs",       label: "Logs",              path: "/admin/logs",           icon: "file",      roles: ["admin"] },
   { id: "monitoring",   label: "Monitoramento",   path: "/admin/monitoramento",  icon: "chart",     roles: ["admin"] },

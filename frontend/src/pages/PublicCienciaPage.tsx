@@ -2,10 +2,11 @@ import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 
 const SCORE_MAP: Record<number, { label: string; desc: string; color: string }> = {
-  4: { label: "SE",  desc: "Supera o Esperado",              color: "bg-emerald-100 text-emerald-700 border-emerald-300" },
-  3: { label: "AE",  desc: "Atende o Esperado",              color: "bg-blue-100 text-blue-700 border-blue-300" },
-  2: { label: "APE", desc: "Atende Parcialmente o Esperado", color: "bg-amber-100 text-amber-700 border-amber-300" },
-  1: { label: "NAE", desc: "Não Atende o Esperado",          color: "bg-red-100 text-red-700 border-red-300" },
+  5: { label: "EE",  desc: "Excede as Expectativas",              color: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700" },
+  4: { label: "SE",  desc: "Supera as Expectativas",              color: "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700" },
+  3: { label: "AE",  desc: "Atende as Expectativas",              color: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700" },
+  2: { label: "APE", desc: "Atende Parcialmente as Expectativas", color: "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700" },
+  1: { label: "NAE", desc: "Não Atende às Expectativas",          color: "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700" },
 };
 
 const SOCIALS = [
@@ -17,10 +18,9 @@ const SOCIALS = [
 
 const HR_EMAIL = "rh@voetur.com.br";
 
-function isVTCCompany(name?: string) {
-  const n = name?.toLowerCase() || "";
-  return n.includes("vtc") || n.includes("logística") || n.includes("logistica");
-}
+// Grupo Voetur — paleta única
+const BRAND    = "#00694E";
+const BRAND_DARK = "#004F3A";
 
 function ScoreBadge({ score }: { score: number }) {
   const rounded = Math.round(score);
@@ -38,37 +38,40 @@ function ScoreBadge({ score }: { score: number }) {
   );
 }
 
-function CompanyLogo({ companyName }: { companyName?: string }) {
-  const vtc = isVTCCompany(companyName);
+function avgLabel(avg: number): string {
+  if (avg >= 4.5) return "Excede as Expectativas";
+  if (avg >= 3.5) return "Supera as Expectativas";
+  if (avg >= 2.5) return "Atende as Expectativas";
+  if (avg >= 1.5) return "Atende Parcialmente";
+  return "Não Atende às Expectativas";
+}
+
+function CompanyLogo() {
   return (
     <img
-      src={vtc
-        ? "https://www.vtclog.com.br/wp-content/uploads/logo-vtclog.png"
-        : "https://voeturviagens.com.br/wp-content/uploads/2025/07/voetur-viagens-logo-site.png"}
-      alt={vtc ? "VTC Operadora Logística" : "Voetur Viagens"}
-      className="h-9 max-w-[200px] object-contain brightness-0 invert"
+      src="https://grupovoetur.com.br/wp-content/uploads/2024/09/Grupo-Logo-Branco.svg"
+      alt="Grupo Voetur"
+      className="h-8 max-w-[200px] object-contain"
       onError={(e) => { e.currentTarget.style.display = "none"; }}
     />
   );
 }
 
-function GrupoVoeturFooter({ vtc }: { vtc: boolean }) {
+function GrupoVoeturFooter() {
   return (
     <footer className="mt-6 border-t border-gray-200 dark:border-gray-800 pt-8 pb-10 text-center">
-      <p className="text-sm font-bold tracking-widest text-gray-700 dark:text-gray-300 uppercase mb-0.5">
-        Grupo Voetur
-      </p>
+      <img
+        src="https://grupovoetur.com.br/wp-content/uploads/2024/09/Grupo-Logo-Verde.svg"
+        alt="Grupo Voetur"
+        className="h-7 mx-auto mb-2 object-contain"
+        onError={(e) => { e.currentTarget.style.display = "none"; }}
+      />
       <p className="text-xs text-gray-400 italic mb-5">Movimentamos o melhor do Brasil</p>
-
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mb-4">
         {SOCIALS.map((s, i) => (
           <span key={s.label} className="flex items-center gap-x-4">
-            <a
-              href={s.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`text-xs transition-colors ${vtc ? "text-gray-500 hover:text-teal-700" : "text-gray-500 hover:text-[#003D73]"}`}
-            >
+            <a href={s.href} target="_blank" rel="noopener noreferrer"
+              className="text-xs text-gray-500 hover:text-[#00694E] transition-colors">
               {s.label}
             </a>
             {i < SOCIALS.length - 1 && (
@@ -77,30 +80,163 @@ function GrupoVoeturFooter({ vtc }: { vtc: boolean }) {
           </span>
         ))}
       </div>
-
       <p className="text-xs text-gray-400 mb-1">
         Dúvidas?{" "}
-        <a
-          href={`mailto:${HR_EMAIL}`}
-          className={`hover:underline ${vtc ? "text-teal-700 dark:text-teal-400" : "text-[#003D73] dark:text-blue-400"}`}
-        >
+        <a href={`mailto:${HR_EMAIL}`} className="text-[#00694E] hover:underline">
           {HR_EMAIL}
         </a>
       </p>
-      <p className="text-xs text-gray-400">Voetur Viagens · VTC Operadora Logística</p>
-      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Sistema Jarvis © 2025</p>
+      <p className="text-xs text-gray-300 dark:text-gray-600 mt-1">Sistema Jarvis &copy; 2026 — Grupo Voetur</p>
     </footer>
+  );
+}
+
+// ── Painel de resultado (reutilizado em info + acknowledged) ──────────────────
+function ResultPanel({
+  data, vtc, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal,
+}: {
+  data: any; vtc: boolean; primaryBg: string; primaryText: string; primaryBorder: string;
+  acknowledged: boolean; acknowledgedAt?: string; onOpenModal?: () => void;
+}) {
+  function formatDate(iso: string) {
+    try { return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
+    catch { return iso; }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Banner */}
+      <div className={`${primaryBg} text-white rounded-2xl shadow-lg overflow-hidden`}>
+        <div className="h-1 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
+        <div className="p-6">
+          <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
+            Resultado da Avaliação de Desempenho
+          </p>
+          <h1 className="text-xl font-bold mb-1">{data.cycle_name}</h1>
+          <p className="text-white/80 text-sm mt-2">
+            Olá, <strong>{data.employee_name}</strong>
+          </p>
+        </div>
+      </div>
+
+      {/* Ciência já registrada — banner informativo (não bloqueia visualização) */}
+      {acknowledged && (
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 flex items-center gap-3">
+          <svg className="w-5 h-5 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-semibold text-green-800 dark:text-green-200">Ciência já registrada</p>
+            {acknowledgedAt && (
+              <p className="text-xs text-green-600 dark:text-green-400 mt-0.5">
+                em {formatDate(acknowledgedAt)}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Avaliador */}
+      <div className={`bg-white dark:bg-gray-800 rounded-2xl p-4 shadow border-l-4 ${primaryBorder} flex items-center gap-3`}>
+        <div className="w-9 h-9 rounded-full bg-[#E6F4F0] dark:bg-[#00694E]/20 flex items-center justify-center flex-shrink-0">
+          <svg className={`w-5 h-5 ${primaryText}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-xs text-gray-500">Avaliado por</p>
+          <p className="font-semibold text-gray-900 dark:text-white">{data.evaluator_name}</p>
+        </div>
+      </div>
+
+      {/* Notas por indicador */}
+      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
+        <div className={`${primaryBg} px-5 py-3`}>
+          <h3 className="text-white font-bold text-sm uppercase tracking-wide">Notas por Indicador</h3>
+        </div>
+        <div className="divide-y divide-gray-50 dark:divide-gray-700">
+          {data.indicator_scores?.map((s: any) => (
+            <div key={s.indicator_id}>
+              <div className="flex items-center justify-between px-5 py-3 gap-3">
+                <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
+                <ScoreBadge score={s.score} />
+              </div>
+              {/* Justificativa para notas extremas */}
+              {s.justification && (
+                <div className="px-5 pb-3 -mt-1">
+                  <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-gray-300 dark:border-gray-600">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
+                      Justificativa do gestor
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
+                      "{s.justification}"
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Nota final */}
+      <div className={`bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 ${primaryBorder} flex items-center justify-between`}>
+        <div>
+          <span className="font-bold text-gray-900 dark:text-white text-lg">Nota Final</span>
+          <p className="text-xs text-gray-400 mt-0.5">{avgLabel(data.final_score ?? 0)}</p>
+        </div>
+        <div className="text-right">
+          <span className={`text-3xl font-black ${primaryText} dark:text-blue-400`}>
+            {data.final_score?.toFixed(2)}
+          </span>
+          <span className="text-sm text-gray-400 ml-1">/ 5,00</span>
+        </div>
+      </div>
+
+      {/* Observações do gestor */}
+      {data.observations && (
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
+          <div className="bg-gray-50 dark:bg-gray-700/50 px-5 py-3">
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+              📝 Observações do Gestor
+            </h3>
+          </div>
+          <div className="px-5 py-4">
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+              {data.observations}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Botão de ciência — apenas se ainda não registrou */}
+      {!acknowledged && onOpenModal && (
+        <button
+          onClick={onOpenModal}
+          className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-2xl shadow-lg transition-all"
+        >
+          ✓ Dar Ciência da Avaliação
+        </button>
+      )}
+
+      {/* Se já confirmou — botão desativado para clareza */}
+      {acknowledged && (
+        <div className="w-full py-4 bg-gray-100 dark:bg-gray-700/50 text-gray-400 dark:text-gray-500 font-semibold text-base rounded-2xl text-center border border-gray-200 dark:border-gray-700">
+          ✓ Ciência registrada — obrigado(a)
+        </div>
+      )}
+    </div>
   );
 }
 
 export default function PublicCienciaPage() {
   const { token } = useParams<{ token: string }>();
-  const [state,          setState]          = useState<"loading" | "error" | "info" | "acknowledged">("loading");
+  const [state,          setState]          = useState<"loading" | "error" | "info">("loading");
   const [errorMsg,       setErrorMsg]       = useState("");
   const [data,           setData]           = useState<any>(null);
   const [showModal,      setShowModal]      = useState(false);
   const [submitting,     setSubmitting]     = useState(false);
-  const [acknowledgedAt, setAcknowledgedAt] = useState("");
+  const [submitError,    setSubmitError]    = useState("");
 
   useEffect(() => {
     if (!token) { setState("error"); setErrorMsg("Link inválido."); return; }
@@ -108,20 +244,15 @@ export default function PublicCienciaPage() {
       .then(r => r.json().then(j => ({ ok: r.ok, data: j })))
       .then(({ ok, data }) => {
         if (!ok) { setState("error"); setErrorMsg(data.detail || "Link inválido."); return; }
-        if (data.already_acknowledged) {
-          setState("acknowledged");
-          setAcknowledgedAt(data.acknowledged_at || "");
-          setData(data);
-        } else {
-          setState("info");
-          setData(data);
-        }
+        setState("info");
+        setData(data);
       })
       .catch(() => { setState("error"); setErrorMsg("Erro de conexão."); });
   }, [token]);
 
   async function handleCiencia(feedbackReceived: boolean) {
     setSubmitting(true);
+    setSubmitError("");
     try {
       const res  = await fetch(`/api/performance/public/ciencia/${token}`, {
         method: "POST",
@@ -129,40 +260,32 @@ export default function PublicCienciaPage() {
         body: JSON.stringify({ feedback_received: feedbackReceived }),
       });
       const json = await res.json();
-      if (!res.ok) { setErrorMsg(json.detail || "Erro."); setSubmitting(false); return; }
+      if (!res.ok) { setSubmitError(json.detail || "Erro."); setSubmitting(false); return; }
       setShowModal(false);
-      setAcknowledgedAt(json.acknowledged_at || "");
-      setState("acknowledged");
+      // Atualiza data com acknowledged e acknowledged_at para mostrar o banner
+      setData((prev: any) => ({
+        ...prev,
+        already_acknowledged: true,
+        acknowledged_at: json.acknowledged_at || new Date().toISOString(),
+      }));
     } catch {
-      setErrorMsg("Erro de conexão."); setSubmitting(false);
+      setSubmitError("Erro de conexão."); setSubmitting(false);
     }
   }
 
-  function formatDate(iso: string) {
-    try {
-      return new Date(iso).toLocaleString("pt-BR", {
-        day: "2-digit", month: "2-digit", year: "numeric",
-        hour: "2-digit", minute: "2-digit",
-      });
-    } catch { return iso; }
-  }
-
-  const vtc         = isVTCCompany(data?.company_name);
-  const primaryBg   = vtc ? "bg-teal-800"   : "bg-[#003D73]";
-  const primaryText = vtc ? "text-teal-800"  : "text-[#003D73]";
-  const primaryBorder = vtc ? "border-teal-600" : "border-[#003D73]";
+  // Grupo Voetur — paleta única
+  const primaryBg     = "bg-[#00694E]";
+  const primaryText   = "text-[#00694E]";
+  const primaryBorder = "border-[#00694E]";
 
   return (
     <div className="min-h-screen bg-gray-100 dark:bg-gray-950">
 
       {/* ── Header ── */}
       <header className={`${primaryBg} shadow-lg`}>
-        <div className="h-1.5 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
+        <div className="h-1 bg-[#004F3A]" />
         <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <CompanyLogo companyName={data?.company_name} />
-            <span className="text-white/60 text-xs hidden sm:block">| Grupo Voetur</span>
-          </div>
+          <CompanyLogo />
           <div className="text-right">
             <div className="text-white font-semibold text-sm">Sistema Jarvis</div>
             <div className="text-white/60 text-xs">Resultado da Avaliação</div>
@@ -175,7 +298,7 @@ export default function PublicCienciaPage() {
         {/* Loading */}
         {state === "loading" && (
           <div className="flex justify-center py-20">
-            <div className={`w-10 h-10 border-4 ${vtc ? "border-teal-600" : "border-[#003D73]"} border-t-transparent rounded-full animate-spin`} />
+            <div className="w-10 h-10 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
@@ -187,93 +310,30 @@ export default function PublicCienciaPage() {
             <p className="text-gray-600 dark:text-gray-400 mb-3">{errorMsg}</p>
             <p className="text-sm text-gray-500">
               Em caso de dúvidas:{" "}
-              <a href={`mailto:${HR_EMAIL}`} className={`hover:underline ${vtc ? "text-teal-700" : "text-[#003D73]"}`}>{HR_EMAIL}</a>
+              <a href={`mailto:${HR_EMAIL}`} className="hover:underline text-[#00694E]">{HR_EMAIL}</a>
             </p>
           </div>
         )}
 
-        {/* Ciência já registrada */}
-        {state === "acknowledged" && (
-          <div className="bg-white dark:bg-gray-800 rounded-2xl p-10 text-center shadow border border-green-200">
-            <div className="w-20 h-20 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-5">
-              <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Ciência Registrada</h2>
-            {acknowledgedAt && (
-              <p className="text-gray-600 dark:text-gray-400 mb-1">
-                Registrada em: <strong>{formatDate(acknowledgedAt)}</strong>
-              </p>
-            )}
-            <p className="text-sm text-gray-500">Seu registro foi salvo com sucesso.</p>
-          </div>
-        )}
-
-        {/* Resultado + botão de ciência */}
+        {/* Resultado — acessível a qualquer momento, ciência ou não */}
         {state === "info" && data && (
-          <div className="space-y-4">
-
-            {/* Banner */}
-            <div className={`${primaryBg} text-white rounded-2xl shadow-lg overflow-hidden`}>
-              <div className="h-1 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
-              <div className="p-6">
-                <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
-                  Resultado da Avaliação de Desempenho
-                </p>
-                <h1 className="text-xl font-bold mb-1">{data.cycle_name}</h1>
-                <p className="text-white/80 text-sm mt-2">
-                  Olá, <strong>{data.employee_name}</strong>
-                </p>
+          <>
+            {submitError && (
+              <div className="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">
+                <p className="text-sm text-red-700 dark:text-red-300">{submitError}</p>
               </div>
-            </div>
-
-            {/* Avaliador */}
-            <div className={`bg-white dark:bg-gray-800 rounded-2xl p-4 shadow border-l-4 ${primaryBorder} flex items-center gap-3`}>
-              <div className={`w-9 h-9 rounded-full ${vtc ? "bg-teal-100" : "bg-blue-100"} flex items-center justify-center flex-shrink-0`}>
-                <svg className={`w-5 h-5 ${primaryText}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Avaliado por</p>
-                <p className="font-semibold text-gray-900 dark:text-white">{data.evaluator_name}</p>
-              </div>
-            </div>
-
-            {/* Notas por indicador */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
-              <div className={`${primaryBg} px-5 py-3`}>
-                <h3 className="text-white font-bold text-sm uppercase tracking-wide">Notas por Indicador</h3>
-              </div>
-              <div className="divide-y divide-gray-50 dark:divide-gray-700">
-                {data.indicator_scores?.map((s: any) => (
-                  <div key={s.indicator_id} className="flex items-center justify-between px-5 py-3 gap-3">
-                    <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
-                    <ScoreBadge score={s.score} />
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Nota final */}
-            <div className={`bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 ${primaryBorder} flex items-center justify-between`}>
-              <span className="font-bold text-gray-900 dark:text-white text-lg">Nota Final (Média)</span>
-              <div className="text-right">
-                <span className={`text-3xl font-black ${primaryText} dark:text-blue-400`}>
-                  {data.final_score?.toFixed(2)}
-                </span>
-                <span className="text-sm text-gray-400 ml-1">/ 4,00</span>
-              </div>
-            </div>
-
-            <button
-              onClick={() => setShowModal(true)}
-              className="w-full py-4 bg-green-600 hover:bg-green-700 text-white font-bold text-lg rounded-2xl shadow-lg transition-all"
-            >
-              Dar Ciência da Avaliação
-            </button>
-          </div>
+            )}
+            <ResultPanel
+              data={data}
+              vtc={vtc}
+              primaryBg={primaryBg}
+              primaryText={primaryText}
+              primaryBorder={primaryBorder}
+              acknowledged={data.already_acknowledged}
+              acknowledgedAt={data.acknowledged_at}
+              onOpenModal={() => setShowModal(true)}
+            />
+          </>
         )}
       </main>
 
@@ -282,7 +342,7 @@ export default function PublicCienciaPage() {
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-800 rounded-2xl p-7 max-w-md w-full shadow-2xl">
             <div className="flex items-center gap-3 mb-4">
-              <div className={`w-10 h-10 rounded-xl ${vtc ? "bg-teal-600" : "bg-[#003D73]"} flex items-center justify-center`}>
+              <div className="w-10 h-10 rounded-xl bg-[#00694E] flex items-center justify-center">
                 <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
@@ -301,6 +361,12 @@ export default function PublicCienciaPage() {
                 Você recebeu feedback presencial do gestor explicando os motivos das notas?
               </p>
             </div>
+
+            {submitError && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3 mb-4">
+                <p className="text-sm text-red-700 dark:text-red-300">{submitError}</p>
+              </div>
+            )}
 
             <div className="flex flex-col gap-3">
               <button
@@ -329,7 +395,7 @@ export default function PublicCienciaPage() {
         </div>
       )}
 
-      <GrupoVoeturFooter vtc={vtc} />
+      <GrupoVoeturFooter />
     </div>
   );
 }

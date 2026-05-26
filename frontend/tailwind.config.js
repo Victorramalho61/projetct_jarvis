@@ -23,15 +23,15 @@ export default {
           100: "#D5F5E3",
           50:  "#EAFAF1",
         },
-        // Palette semântica (usada nos novos componentes de design)
+        // Palette semântica — Grupo Voetur (#00694E)
         brand: {
-          ink:   "#0C2D1C",
-          ink2:  "#0a2417",
-          ink3:  "#082018",
-          green: "#1E7A46",
-          mid:   "#27AE60",
-          soft:  "#EAFAF1",
-          deep:  "#1A5C38",
+          ink:   "#002B1E",   // header/fundo escuro
+          ink2:  "#001F16",
+          ink3:  "#001810",
+          green: "#00694E",   // primary brand — exato do logo
+          mid:   "#009971",   // brand mais claro (dark mode text)
+          soft:  "#E6F4F0",   // fundo suave (active sidebar)
+          deep:  "#004F3A",   // texto sobre fundo claro
           line:  "#E5E7EB",
         },
       },

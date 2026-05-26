@@ -1,6 +1,7 @@
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
+from limiter import limiter
 
 router = APIRouter()
 _START = time.monotonic()
@@ -9,7 +10,8 @@ _VERSION = "1.0.0"
 
 
 @router.get("/health")
-def health():
+@limiter.limit("60/minute")
+def health(request: Request):
     return {
         "status": "ok",
         "service": _SERVICE,
@@ -19,7 +21,8 @@ def health():
 
 
 @router.get("/ready")
-def ready():
+@limiter.limit("30/minute")
+def ready(request: Request):
     import time as _time
     from db import get_settings
 

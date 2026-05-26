@@ -579,6 +579,11 @@ services:
       SQL_SERVER_DB: ${SQL_SERVER_BENNER_HR_DB:-}
       SQL_SERVER_USER: ${SQL_SERVER_USER:-}
       SQL_SERVER_PASSWORD: ${SQL_SERVER_PASSWORD:-}
+      SMTP_HOST: ${SMTP_HOST:-smtp.office365.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     networks:
       - app_net
     healthcheck:

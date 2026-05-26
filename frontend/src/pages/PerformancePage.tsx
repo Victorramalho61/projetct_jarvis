@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../lib/api";
+
+const PublicCienciaPresencialInline = lazy(() => import("./PublicCienciaPresencialPage"));
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -13,12 +15,13 @@ type AppRole = "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | 
 type TabDef = { id: string; label: string; icon: string; roles: AppRole[] };
 
 const TABS: TabDef[] = [
-  { id: "dashboard",   label: "Dashboard",   icon: "📊", roles: ["admin", "rh", "gerente"] },
-  { id: "indicadores", label: "Indicadores", icon: "📋", roles: ["admin", "rh"] },
-  { id: "hierarquia",  label: "Hierarquia",  icon: "🏢", roles: ["admin", "rh"] },
-  { id: "gestao-rh",   label: "Gestão RH",  icon: "⚙️", roles: ["admin", "rh"] },
-  { id: "ciclo",       label: "Ciclo",       icon: "🔄", roles: ["admin", "rh"] },
-  { id: "avaliacoes",  label: "Avaliações",  icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
+  { id: "dashboard",          label: "Dashboard",          icon: "📊", roles: ["admin", "rh", "gerente"] },
+  { id: "indicadores",        label: "Indicadores",        icon: "📋", roles: ["admin", "rh"] },
+  { id: "hierarquia",         label: "Hierarquia",         icon: "🏢", roles: ["admin", "rh"] },
+  { id: "gestao-rh",          label: "Gestão RH",          icon: "⚙️", roles: ["admin", "rh"] },
+  { id: "ciclo",              label: "Ciclo",              icon: "🔄", roles: ["admin", "rh"] },
+  { id: "avaliacoes",         label: "Avaliações",         icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
+  { id: "ciencia-presencial", label: "Ciência Presencial", icon: "📋", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -49,7 +52,7 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
 
 function StatCard({ label, value, color = "blue", onClick }: { label: string; value: string | number; color?: string; onClick?: () => void }) {
   const colorMap: Record<string, string> = {
-    blue: "text-blue-700 dark:text-blue-400",
+    blue: "text-[#00694E] dark:text-emerald-400",
     green: "text-green-700 dark:text-green-400",
     amber: "text-amber-700 dark:text-amber-400",
     red: "text-red-700 dark:text-red-400",
@@ -57,7 +60,7 @@ function StatCard({ label, value, color = "blue", onClick }: { label: string; va
   };
   const clickable = !!onClick;
   return (
-    <Card className={`p-5 ${clickable ? "cursor-pointer hover:shadow-md hover:border-blue-300 dark:hover:border-blue-600 transition-all" : ""}`}>
+    <Card className={`p-5 ${clickable ? "cursor-pointer hover:shadow-md hover:border-[#00694E]/40 dark:hover:border-[#00694E]/40 transition-all" : ""}`}>
       {clickable ? (
         <button onClick={onClick} className="w-full text-left">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">{label}</p>
@@ -102,6 +105,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
   const [drilldown, setDrilldown] = useState<DrilldownModal>(null);
   const [drilldownData, setDrilldownData] = useState<any[]>([]);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
+  const [expandedManagers, setExpandedManagers] = useState<Set<number>>(new Set());
   // Tracks whether the initial load (cycles + dashboard) has completed
   const initialLoaded = useRef(false);
 
@@ -151,7 +155,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
         <select
           value={filters.empresa}
           onChange={e => setFilters(f => ({ ...f, empresa: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]"
         >
           <option value="">Todas as empresas</option>
           {companies.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -159,7 +163,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
         <select
           value={filters.ciclo}
           onChange={e => setFilters(f => ({ ...f, ciclo: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]"
         >
           <option value="">Ciclo atual</option>
           {cycles.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -167,12 +171,12 @@ function TabDashboard({ companies }: { companies: any[] }) {
       </Card>
 
       {loading ? (
-        <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+        <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
       ) : !stats ? (
         <Card className="p-8 text-center text-gray-500">Nenhum dado disponível.</Card>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
             <StatCard label="Total Avaliados" value={stats.total_evaluated ?? "—"} color="blue" />
             <StatCard label="Completude" value={`${stats.completion_pct ?? 0}%`} color="green" />
             <StatCard
@@ -187,6 +191,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
               color="red"
               onClick={() => openDrilldown("pending-evaluators")}
             />
+            <StatCard label="Auto-Avaliações" value={`${stats.self_eval_pct ?? 0}%`} color="violet" />
           </div>
           {stats.indicator_averages?.length > 0 && (
             <Card className="p-5">
@@ -197,7 +202,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
                   <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
                   <YAxis domain={[0, 5]} tick={{ fontSize: 11 }} />
                   <Tooltip formatter={(v: any) => [Number(v).toFixed(2), "Média"]} />
-                  <Bar dataKey="avg" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  <Bar dataKey="avg" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={48} />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
@@ -205,33 +210,74 @@ function TabDashboard({ companies }: { companies: any[] }) {
         </>
       )}
 
-      {/* Drilldown: Gestores pendentes de avaliação */}
+      {/* Drilldown: Gestores pendentes de avaliação — colapsável por gestor */}
       <ModalWrapper
         open={drilldown === "pending-evaluators"}
-        onClose={() => setDrilldown(null)}
+        onClose={() => { setDrilldown(null); setExpandedManagers(new Set()); }}
         title="Gestores com Avaliações Pendentes"
       >
         {drilldownLoading ? (
-          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-4">Nenhum gestor com avaliações pendentes.</p>
         ) : (
-          <div className="space-y-4">
-            {drilldownData.map((mgr: any, i: number) => (
-              <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-lg p-4">
-                <p className="font-semibold text-gray-900 dark:text-white text-sm">{mgr.manager_name}</p>
-                {mgr.manager_email && <p className="text-xs text-gray-400 mb-3">{mgr.manager_email}</p>}
-                <div className="space-y-1 mt-2">
-                  {mgr.pending_employees?.map((emp: any, j: number) => (
-                    <div key={j} className="flex items-center gap-2 text-xs">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
-                      <span className="text-gray-700 dark:text-gray-300 font-medium">{emp.name}</span>
-                      <span className="text-gray-400">— {emp.cargo}</span>
+          <div className="space-y-2">
+            <p className="text-xs text-gray-400 mb-3">
+              {drilldownData.length} gestor{drilldownData.length !== 1 ? "es" : ""} com avaliações pendentes — clique para expandir
+            </p>
+            {drilldownData.map((mgr: any, i: number) => {
+              const isOpen = expandedManagers.has(i);
+              const count = mgr.pending_employees?.length ?? 0;
+              return (
+                <div key={i} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                  {/* Header do gestor — clicável */}
+                  <button
+                    onClick={() => setExpandedManagers(prev => {
+                      const next = new Set(prev);
+                      isOpen ? next.delete(i) : next.add(i);
+                      return next;
+                    })}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-[#E6F4F0] dark:bg-[#00694E]/20 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-[#00694E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 dark:text-white text-sm truncate">{mgr.manager_name}</p>
+                        {mgr.manager_email && (
+                          <p className="text-xs text-gray-400 truncate">{mgr.manager_email}</p>
+                        )}
+                      </div>
                     </div>
-                  ))}
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
+                        {count} pendente{count !== 1 ? "s" : ""}
+                      </span>
+                      <svg
+                        className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
+                      </svg>
+                    </div>
+                  </button>
+                  {/* Subordinados — visíveis só quando expandido */}
+                  {isOpen && (
+                    <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30 px-4 py-3 space-y-2">
+                      {mgr.pending_employees?.map((emp: any, j: number) => (
+                        <div key={j} className="flex items-center gap-2 text-xs">
+                          <span className="w-1.5 h-1.5 rounded-full bg-red-400 flex-shrink-0" />
+                          <span className="text-gray-700 dark:text-gray-300 font-medium">{emp.name}</span>
+                          <span className="text-gray-400">— {emp.cargo}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </ModalWrapper>
@@ -243,7 +289,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
         title="Colaboradores Pendentes de Ciência"
       >
         {drilldownLoading ? (
-          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-4">Nenhum colaborador pendente de ciência.</p>
         ) : (
@@ -326,18 +372,18 @@ function TabIndicadores() {
         <div className="flex items-center gap-3">
           <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Indicadores de Avaliação</h2>
           <select value={levelFilter} onChange={e => setLevelFilter(e.target.value)}
-            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
             <option value="">Todos os níveis</option>
             <option value="1">N1 — Gerente</option>
             <option value="2">N2 — Coord./Supervisor</option>
             <option value="3">N3 — Oper./Admin.</option>
           </select>
         </div>
-        <button onClick={openCreate} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">+ Novo Indicador</button>
+        <button onClick={openCreate} className="px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all">+ Novo Indicador</button>
       </div>
       <Card>
         {loading ? (
-          <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : (
           <table className="w-full">
             <thead>
@@ -359,7 +405,7 @@ function TabIndicadores() {
                   <td className="px-4 py-3"><Badge color={it.active ? "green" : "gray"}>{it.active ? "Ativo" : "Inativo"}</Badge></td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => openEdit(it)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">Editar</button>
+                      <button onClick={() => openEdit(it)} className="text-xs text-[#00694E] hover:underline dark:text-emerald-400">Editar</button>
                       <button onClick={() => toggleActive(it)} className="text-xs text-gray-500 hover:underline dark:text-gray-400">{it.active ? "Desativar" : "Ativar"}</button>
                     </div>
                   </td>
@@ -376,7 +422,7 @@ function TabIndicadores() {
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nível Hierárquico *</label>
             <select value={modal.item?.hierarchy_level ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, hierarchy_level: e.target.value ? Number(e.target.value) : null } }))}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Selecione o nível</option>
               <option value="1">N1 — Gerente (Estratégico)</option>
               <option value="2">N2 — Coordenador/Supervisor (Tático)</option>
@@ -387,14 +433,14 @@ function TabIndicadores() {
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nome *</label>
             <input type="text" value={modal.item?.name ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, name: e.target.value } }))}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Descrição (competência)</label>
             <textarea value={modal.item?.description ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, description: e.target.value } }))}
               rows={3}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
           </div>
           <div className="flex items-center gap-2">
             <input type="checkbox" id="active-check" checked={modal.item?.active ?? true}
@@ -404,7 +450,7 @@ function TabIndicadores() {
           </div>
           {formErr && <p className="text-sm text-red-600 dark:text-red-400">{formErr}</p>}
           <div className="flex gap-3 pt-2">
-            <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-60">
+            <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-60">
               {saving ? "Salvando..." : "Salvar"}
             </button>
             <button onClick={closeModal} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm transition-all">Cancelar</button>
@@ -484,8 +530,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   }
 
   async function handleSave() {
-    const it = modal.item!;
-    if (!it.name?.trim()) { setFormErr("Nome é obrigatório."); return; }
+    const it = { ...modal.item!, name: (modal.item!.name || "").trim().toUpperCase() };
+    if (!it.name) { setFormErr("Nome é obrigatório."); return; }
     if (!it.company_id) { setFormErr("Empresa é obrigatória."); return; }
     if (!it.branch_id) { setFormErr("Filial é obrigatória. Selecione na lista acima."); return; }
     const cpfRaw = ((it as any).cpf || "").replace(/\D/g, "");
@@ -500,6 +546,18 @@ function TabHierarquia({ companies }: { companies: any[] }) {
       }
       closeModal(); loadEmployees();
     } catch (e: any) { setFormErr(e.message || "Erro ao salvar."); }
+    finally { setSaving(false); }
+  }
+
+  async function handleDeactivate() {
+    const it = modal.item!;
+    if (!it.id) return;
+    if (!confirm(`Desativar "${it.name}"? Ele não aparecerá mais na lista.`)) return;
+    setSaving(true);
+    try {
+      await apiFetch(`/api/performance/admin/employees/${it.id}`, { token, method: "PUT", json: { active: false } });
+      closeModal(); loadEmployees();
+    } catch (e: any) { setFormErr(e.message || "Erro ao desativar."); }
     finally { setSaving(false); }
   }
 
@@ -546,13 +604,13 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     <div>
       <div className="flex flex-wrap gap-3 items-center mb-4">
         <select value={selCompany} onChange={e => setSelCompany(e.target.value)}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-gray-200">
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Selecione a empresa</option>
           {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         {branches.length > 0 && (
           <select value={selBranch} onChange={e => setSelBranch(e.target.value)}
-            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-gray-200">
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
             <option value="">Todas as filiais</option>
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
@@ -560,7 +618,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
         <div className="flex-1" />
         {selCompany && (
           <>
-            <button onClick={openCreate} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">+ Colaborador</button>
+            <button onClick={openCreate} className="px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all">+ Colaborador</button>
             <button onClick={handleDownloadTemplate} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all">⬇ Template Excel</button>
             <label className={`px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all cursor-pointer ${importing ? "opacity-60 cursor-not-allowed" : ""}`}>
               {importing ? "Importando..." : "📤 Importar Planilha"}
@@ -585,12 +643,11 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           </Card>
         );
       })()}
-      )}
 
       {!selCompany ? (
         <Card className="p-8 text-center text-gray-400">Selecione uma empresa para visualizar a hierarquia.</Card>
       ) : loading ? (
-        <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+        <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
       ) : (
         <Card>
           <div className="overflow-x-auto">
@@ -615,7 +672,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
                       {emp.email ? <span className="text-green-600 text-base" title={emp.email}>✓</span> : <span className="text-gray-300 text-base">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => openEdit(emp)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">Editar</button>
+                      <button onClick={() => openEdit(emp)} className="text-xs text-[#00694E] hover:underline dark:text-emerald-400">Editar</button>
                     </td>
                   </tr>
                 ))}
@@ -632,7 +689,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Filial *</label>
             <select value={(modal.item as any)?.branch_id ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, branch_id: e.target.value } }))}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Selecione a filial</option>
               {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
@@ -646,8 +703,11 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <div key={f.key}>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{f.label}</label>
               <input type={f.type} value={(modal.item as any)?.[f.key] ?? ""}
-                onChange={e => setModal(m => ({ ...m, item: { ...m.item!, [f.key]: e.target.value } }))}
-                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+                onChange={e => {
+                  const val = f.key === "name" ? e.target.value.toUpperCase() : e.target.value;
+                  setModal(m => ({ ...m, item: { ...m.item!, [f.key]: val } }));
+                }}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
               {f.hint && <p className="text-xs text-gray-400 mt-0.5">{f.hint}</p>}
             </div>
           ))}
@@ -655,7 +715,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nível *</label>
             <select value={modal.item?.level ?? "administrativo_operacional"}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, level: e.target.value } }))}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="gerente">Gerente</option>
               <option value="coordenador_supervisor">Coordenador / Supervisor</option>
               <option value="administrativo_operacional">Administrativo / Operacional</option>
@@ -665,7 +725,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Gestor Direto</label>
             <select value={(modal.item as any)?.manager_id ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, manager_id: e.target.value || undefined } }))}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Sem gestor direto</option>
               {managersForModal.filter(m => m.id !== modal.item?.id).map(m => (
                 <option key={m.id} value={m.id}>{m.name} ({LEVEL_LABELS[m.level] ?? m.level})</option>
@@ -674,11 +734,19 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           </div>
           {formErr && <p className="text-sm text-red-600 dark:text-red-400">{formErr}</p>}
           <div className="flex gap-3 pt-2">
-            <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-60">
+            <button onClick={handleSave} disabled={saving} className="flex-1 py-2.5 bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold rounded-lg text-sm transition-all disabled:opacity-60">
               {saving ? "Salvando..." : "Salvar"}
             </button>
             <button onClick={closeModal} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm transition-all">Cancelar</button>
           </div>
+          {modal.item?.id && (
+            <div className="pt-1 border-t border-gray-100 dark:border-gray-700">
+              <button onClick={handleDeactivate} disabled={saving}
+                className="w-full py-2 text-xs font-semibold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-50">
+                🗑 Desativar colaborador
+              </button>
+            </div>
+          )}
         </div>
       </ModalWrapper>
     </div>
@@ -701,6 +769,12 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [resetModal, setResetModal] = useState(false);
   const [resetConfirm, setResetConfirm] = useState("");
   const [resetting, setResetting] = useState(false);
+
+  // Nova Avaliação (override RH)
+  const [newEvalModal, setNewEvalModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
+  const [newEvalJust, setNewEvalJust] = useState("");
+  const [newEvalErr, setNewEvalErr] = useState("");
+  const [newEvalSaving, setNewEvalSaving] = useState(false);
 
   useEffect(() => {
     apiFetch<any>("/api/performance/admin/cycle/status", { token })
@@ -739,6 +813,20 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
     finally { setCalibSaving(false); }
   }
 
+  async function handleNewEvaluation() {
+    if (!newEvalJust.trim()) { setNewEvalErr("Justificativa é obrigatória."); return; }
+    setNewEvalSaving(true); setNewEvalErr("");
+    try {
+      await apiFetch(`/api/performance/admin/employees/${newEvalModal.item?.employee_id}/new-evaluation`, {
+        token, method: "POST", json: { justification: newEvalJust }
+      });
+      setNewEvalModal({ open: false, item: null });
+      setNewEvalJust("");
+      loadList();
+    } catch (e: any) { setNewEvalErr(e.message || "Erro ao criar nova avaliação."); }
+    finally { setNewEvalSaving(false); }
+  }
+
   async function handleExportCSV() {
     try {
       const params = new URLSearchParams();
@@ -761,12 +849,41 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
   return (
     <div className="space-y-4">
+
+      {/* ── Acesso rápido: Ciência Presencial ── */}
+      <div className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 dark:border-[#00694E]/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg bg-[#00694E]/10 dark:bg-[#00694E]/20 flex items-center justify-center flex-shrink-0">
+            <span className="text-lg">📋</span>
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-[#00694E] dark:text-emerald-300">Ciência Presencial</p>
+            <p className="text-xs text-[#00694E]/80 dark:text-emerald-400/80 mt-0.5">
+              Colaboradores sem e-mail acessam aqui para consultar e registrar ciência da avaliação.
+            </p>
+          </div>
+        </div>
+        <a
+          href="/ciencia-presencial"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all"
+        >
+          Abrir página
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </a>
+      </div>
+
       <Card className="p-4 flex flex-wrap gap-3 items-end">
         <input type="text" placeholder="Buscar colaborador..." value={filters.search}
           onChange={e => setFilters(f => ({ ...f, search: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-gray-200 w-56" />
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200 w-56" />
         <select value={filters.status} onChange={e => setFilters(f => ({ ...f, status: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-gray-200">
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Todos os status</option>
           <option value="pending">Pendente</option>
           <option value="completed">Avaliado</option>
@@ -774,7 +891,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <option value="calibrated">Calibrado</option>
         </select>
         <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-800 dark:text-gray-200">
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Todas as empresas</option>
           {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
@@ -784,19 +901,19 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
       <Card>
         {loading ? (
-          <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[700px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Colaborador", "Gestor", "Nota Final", "Status", "Ações"].map(h => (
+                  {["Colaborador", "Gestor", "Nota Final", "Status", "Auto-Aval.", "Ações"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {list.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
+                {list.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
                 {list.map(ev => (
                   <tr key={ev.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
@@ -808,11 +925,37 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => openCalib(ev)} disabled={!cycleOpen}
-                        title={!cycleOpen ? "Ciclo fechado — reabra o ciclo para calibrar" : "Calibrar nota"}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded transition-all ${cycleOpen ? "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400" : "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800"}`}>
-                        Calibrar
-                      </button>
+                      {ev.self_eval_status === "completed"
+                        ? <Badge color="green">✅ Concluída</Badge>
+                        : ev.self_eval_status === "pending"
+                        ? <Badge color="amber">⏳ Pendente</Badge>
+                        : <Badge color="gray">—</Badge>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-wrap gap-1.5 items-center">
+                        {/* Calibrar */}
+                        <button onClick={() => openCalib(ev)} disabled={!cycleOpen || ev.status === "pending"}
+                          title={!cycleOpen ? "Ciclo fechado" : ev.status === "pending" ? "Aguardando avaliação do gestor" : "Calibrar nota"}
+                          className={`text-xs font-semibold px-2.5 py-1 rounded transition-all ${cycleOpen && ev.status !== "pending" ? "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400" : "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800"}`}>
+                          Calibrar
+                        </button>
+                        {/* Ciência Presencial — apenas para colaboradores sem e-mail */}
+                        {!ev.has_email && (
+                          <a href="/ciencia-presencial" target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 transition-all">
+                            📋 Ciência
+                          </a>
+                        )}
+                        {/* Nova Avaliação — apenas RH/admin, quando avaliação já foi submetida */}
+                        {ev.status !== "pending" && (
+                          <button
+                            onClick={() => { setNewEvalModal({ open: true, item: ev }); setNewEvalJust(""); setNewEvalErr(""); }}
+                            title="Criar nova avaliação (substitui a anterior — requer justificativa)"
+                            className="text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all">
+                            🔄 Nova Aval.
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -834,22 +977,76 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         <div className="space-y-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Colaborador: <strong>{calibModal.item?.employee_name}</strong><br />
+            Avaliador: <span className="text-gray-500">{calibModal.item?.evaluator_name}</span><br />
             Nota atual: <strong>{calibModal.item?.final_score?.toFixed(2) ?? "—"}</strong>
           </p>
+          {/* Observações do gestor — visível para o RH durante calibração */}
+          {calibModal.item?.observations && (
+            <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
+                📝 Observações do Gestor
+              </p>
+              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                {calibModal.item.observations}
+              </p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nova Nota (0–5)</label>
             <input type="number" min="0" max="5" step="0.01" value={calibNota} onChange={e => setCalibNota(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Justificativa *</label>
             <textarea value={calibJust} onChange={e => setCalibJust(e.target.value)} rows={3}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
           </div>
           {calibErr && <p className="text-sm text-red-600 dark:text-red-400">{calibErr}</p>}
           <div className="flex gap-3">
             <button onClick={handleCalibrate} disabled={calibSaving} className="flex-1 py-2.5 bg-violet-700 hover:bg-violet-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">{calibSaving ? "Salvando..." : "Calibrar"}</button>
             <button onClick={() => setCalibModal({ open: false, item: null })} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Cancelar</button>
+          </div>
+        </div>
+      </ModalWrapper>
+
+      {/* ── Modal Nova Avaliação (override RH) ── */}
+      <ModalWrapper open={newEvalModal.open} onClose={() => setNewEvalModal({ open: false, item: null })} title="Nova Avaliação — Override RH">
+        <div className="space-y-4">
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
+            <p className="text-sm text-amber-800 dark:text-amber-300 font-semibold mb-1">⚠️ Ação auditada e irreversível</p>
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Um novo token de avaliação será criado para o gestor de <strong>{newEvalModal.item?.employee_name}</strong>.
+              O token anterior será invalidado. A avaliação anterior continuará registrada no histórico de auditoria.
+              Esta ação ficará registrada com seu usuário e justificativa.
+            </p>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Colaborador: <strong>{newEvalModal.item?.employee_name}</strong><br />
+            Nota atual: <strong>{newEvalModal.item?.final_score?.toFixed(2) ?? "—"}</strong> &bull;{" "}
+            Status: <strong>{newEvalModal.item?.status}</strong>
+          </p>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              Justificativa obrigatória *
+            </label>
+            <textarea
+              value={newEvalJust}
+              onChange={e => setNewEvalJust(e.target.value)}
+              rows={4}
+              placeholder="Descreva o motivo para criar uma nova avaliação (ex: erro grave na avaliação original, critérios diferentes, decisão da diretoria...)"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-900 dark:text-gray-100"
+            />
+          </div>
+          {newEvalErr && <p className="text-sm text-red-600 dark:text-red-400">{newEvalErr}</p>}
+          <div className="flex gap-3">
+            <button onClick={handleNewEvaluation} disabled={newEvalSaving || !newEvalJust.trim()}
+              className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-sm disabled:opacity-60 transition-all">
+              {newEvalSaving ? "Criando..." : "Criar Nova Avaliação"}
+            </button>
+            <button onClick={() => setNewEvalModal({ open: false, item: null })}
+              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
+              Cancelar
+            </button>
           </div>
         </div>
       </ModalWrapper>
@@ -901,8 +1098,38 @@ function TabCiclo({ companies }: { companies: any[] }) {
   const [sendResult, setSendResult] = useState<{ sent: number; no_email: number; created: number } | null>(null);
   const [sendError,  setSendError]  = useState("");
 
+  // ── Estado do modal de envio de auto-avaliações ──────────────────────────────
+  const [selfEvalModal,  setSelfEvalModal]  = useState(false);
+  const [selfEvalSending, setSelfEvalSending] = useState(false);
+  const [selfEvalResult, setSelfEvalResult] = useState<{ sent: number; no_email: number; created: number } | null>(null);
+  const [selfEvalError,  setSelfEvalError]  = useState("");
+  // Tokens de auto-avaliação
+  const [selfEvalTokens, setSelfEvalTokens] = useState<any[]>([]);
+  const [showSelfEvalTokens, setShowSelfEvalTokens] = useState(false);
+
   function openSendAll() { setSendTarget("all"); setSendResult(null); setSendError(""); setSendModal(true); }
   function openSendOne(tokenId: string) { setSendTarget(tokenId); setSendResult(null); setSendError(""); setSendModal(true); }
+
+  async function loadSelfEvalTokens() {
+    try {
+      const data = await apiFetch<any[]>("/api/performance/admin/cycle/self-evaluation-tokens", { token });
+      setSelfEvalTokens(data || []);
+      setShowSelfEvalTokens(true);
+    } catch { /* ignore */ }
+  }
+
+  async function handleSendSelfEval() {
+    setSelfEvalSending(true); setSelfEvalError("");
+    try {
+      const r = await apiFetch<any>("/api/performance/admin/cycle/send-self-evaluation-tokens", { token, method: "POST" });
+      setSelfEvalResult({ sent: r.sent_emails, no_email: r.no_email_count, created: r.tokens_created });
+      await loadSelfEvalTokens();
+    } catch (e: any) {
+      setSelfEvalError(e?.message || "Erro ao enviar auto-avaliações.");
+    } finally {
+      setSelfEvalSending(false);
+    }
+  }
 
   function load() {
     setLoading(true);
@@ -977,7 +1204,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
     try { return new Date(iso).toLocaleString("pt-BR"); } catch { return iso; }
   }
 
-  if (loading) return <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>;
+  if (loading) return <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>;
 
   return (
     <div className="space-y-6">
@@ -1021,23 +1248,30 @@ function TabCiclo({ companies }: { companies: any[] }) {
         <div className="flex flex-wrap gap-3 mt-5">
           {!cycleStatus && (
             <button onClick={() => { setCreateModal(true); setSaveErr(""); }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
               Criar Ciclo
             </button>
           )}
           {cycleStatus?.status === "draft" && (
             <button onClick={handleOpen}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z"/></svg>
               Abrir Ciclo
             </button>
           )}
           {cycleStatus?.status === "open" && (
             <button onClick={openSendAll}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm">
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-bold rounded-xl transition-all shadow-sm">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-              Enviar Formulários para Todos
+              Enviar Avaliações
+            </button>
+          )}
+          {cycleStatus?.status === "open" && (
+            <button onClick={() => { setSelfEvalResult(null); setSelfEvalError(""); setSelfEvalModal(true); }}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+              Enviar Auto-Avaliações
             </button>
           )}
           {cycleStatus?.status === "open" && (
@@ -1052,6 +1286,13 @@ function TabCiclo({ companies }: { companies: any[] }) {
               className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582M20 20v-5h-.581M4.582 9A8 8 0 0120 15m-15.418 0A8 8 0 014 9"/></svg>
               Reabrir Ciclo
+            </button>
+          )}
+          {cycleStatus && (
+            <button onClick={loadSelfEvalTokens}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 text-sm font-semibold rounded-xl transition-all">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+              Ver Auto-Avaliações
             </button>
           )}
         </div>
@@ -1086,17 +1327,21 @@ function TabCiclo({ companies }: { companies: any[] }) {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
                       <td className="px-4 py-3 text-right">
-                        {t.status !== "completed" && t.status !== "invalidated" && cycleStatus?.status === "open" && (
+                        {t.status !== "completed" && t.status !== "invalidated" && cycleStatus?.status === "open" && t.has_email && (
                           <button onClick={() => openSendOne(t.id)}
+                            title={t.resend_count > 0 ? `Reenviar (${t.resend_count}x enviado)` : "Enviar formulário por e-mail"}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
-                              bg-indigo-50 hover:bg-indigo-100 text-indigo-700
-                              dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300
-                              rounded-lg transition-all border border-indigo-200 dark:border-indigo-700">
+                              bg-[#E6F4F0] hover:bg-[#CCE8E0] text-[#00694E]
+                              dark:bg-[#00694E]/20 dark:hover:bg-[#00694E]/30 dark:text-emerald-300
+                              rounded-lg transition-all border border-[#00694E]/30 dark:border-[#00694E]/40">
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
                             </svg>
-                            Enviar
+                            {t.resend_count > 0 ? `Reenviar (${t.resend_count}×)` : "Enviar"}
                           </button>
+                        )}
+                        {t.status !== "completed" && t.status !== "invalidated" && !t.has_email && (
+                          <span className="text-xs text-gray-400 italic">sem e-mail</span>
                         )}
                       </td>
                     </tr>
@@ -1105,6 +1350,57 @@ function TabCiclo({ companies }: { companies: any[] }) {
               </table>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* ── Tokens de Auto-Avaliação ────────────────────────────────────────── */}
+      {showSelfEvalTokens && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+              Tokens de Auto-Avaliação
+            </h3>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-gray-400">{selfEvalTokens.length} token{selfEvalTokens.length !== 1 ? "s" : ""}</span>
+              <span className="text-xs text-green-600 font-semibold">
+                {selfEvalTokens.filter(t => t.status === "completed").length} concluído{selfEvalTokens.filter(t => t.status === "completed").length !== 1 ? "s" : ""}
+              </span>
+            </div>
+          </div>
+          {selfEvalTokens.length === 0 ? (
+            <Card className="p-6 text-center text-sm text-gray-400">Nenhum token de auto-avaliação encontrado para o ciclo atual.</Card>
+          ) : (
+            <Card>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[560px]">
+                  <thead>
+                    <tr className="border-b border-gray-100 dark:border-gray-700">
+                      {["Colaborador", "Status", "E-mail", "Enviado em", "Reenvios"].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selfEvalTokens.map((st: any) => (
+                      <tr key={st.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{st.employee_name || "—"}</td>
+                        <td className="px-4 py-3">
+                          <Badge color={st.status === "completed" ? "green" : st.status === "invalidated" ? "red" : "gray"}>
+                            {st.status === "completed" ? "Concluído" : st.status === "invalidated" ? "Inválido" : "Pendente"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {st.has_email ? <span className="text-green-600 text-base">✓</span> : <span className="text-gray-300 text-base">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{st.sent_at ? formatDate(st.sent_at) : "—"}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500 text-center">{st.resend_count > 0 ? st.resend_count : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
         </div>
       )}
 
@@ -1165,7 +1461,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
                 Cancelar
               </button>
               <button onClick={handleDoSend} disabled={sending}
-                className="flex-[2] py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white disabled:text-gray-400 font-bold rounded-xl text-sm transition-all">
+                className="flex-[2] py-2.5 bg-[#00694E] hover:bg-[#004F3A] disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white disabled:text-gray-400 font-bold rounded-xl text-sm transition-all">
                 {sending ? (
                   <span className="flex items-center justify-center gap-2">
                     <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
@@ -1214,24 +1510,24 @@ function TabCiclo({ companies }: { companies: any[] }) {
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nome do Ciclo *</label>
             <input type="text" value={newCycle.name} onChange={e => setNewCycle(c => ({ ...c, name: e.target.value }))}
               placeholder="Ex: Avaliação 1º Semestre 2026"
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Início do Período *</label>
               <input type="date" value={newCycle.period_start} onChange={e => setNewCycle(c => ({ ...c, period_start: e.target.value }))}
-                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
             </div>
             <div>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Fim do Período *</label>
               <input type="date" value={newCycle.period_end} onChange={e => setNewCycle(c => ({ ...c, period_end: e.target.value }))}
-                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
             </div>
           </div>
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Escopo da Empresa</label>
             <select value={newCycle.company_id} onChange={e => setNewCycle(c => ({ ...c, company_id: e.target.value }))}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Todas as empresas do grupo</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -1240,7 +1536,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
           {saveErr && <p className="text-sm text-red-600 dark:text-red-400">{saveErr}</p>}
           <div className="flex gap-3">
             <button onClick={handleCreate} disabled={saving}
-              className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">
+              className="flex-1 py-2.5 bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold rounded-lg text-sm disabled:opacity-60">
               {saving ? "Criando..." : "Criar Ciclo"}
             </button>
             <button onClick={() => setCreateModal(false)}
@@ -1258,7 +1554,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Justificativa *</label>
             <textarea value={reopenJust} onChange={e => setReopenJust(e.target.value)} rows={3}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100" />
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
           </div>
           {saveErr && <p className="text-sm text-red-600 dark:text-red-400">{saveErr}</p>}
           <div className="flex gap-3">
@@ -1272,6 +1568,77 @@ function TabCiclo({ companies }: { companies: any[] }) {
             </button>
           </div>
         </div>
+      </ModalWrapper>
+
+      {/* ── Modal: Enviar Auto-Avaliações ────────────────────────────────────── */}
+      <ModalWrapper
+        open={selfEvalModal}
+        onClose={() => { if (!selfEvalSending) setSelfEvalModal(false); }}
+        title="Enviar Auto-Avaliações"
+      >
+        {!selfEvalResult ? (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+              Será criado e enviado um link de auto-avaliação por e-mail para cada colaborador ativo com e-mail corporativo cadastrado.
+            </p>
+            <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-xl p-3">
+              <p className="text-xs text-violet-700 dark:text-violet-400 leading-relaxed">
+                🔄 Todos os colaboradores ativos (Gerentes, Coordenadores/Supervisores e Administrativo/Operacional) receberão o convite.
+                Colaboradores sem e-mail corporativo cadastrado não receberão e-mail, mas o token será criado para controle.
+              </p>
+            </div>
+            {selfEvalError && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">
+                <p className="text-sm text-red-700 dark:text-red-300">{selfEvalError}</p>
+              </div>
+            )}
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setSelfEvalModal(false)} disabled={selfEvalSending}
+                className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
+                Cancelar
+              </button>
+              <button onClick={handleSendSelfEval} disabled={selfEvalSending}
+                className="flex-[2] py-2.5 bg-violet-600 hover:bg-violet-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white disabled:text-gray-400 font-bold rounded-xl text-sm transition-all">
+                {selfEvalSending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Enviando…
+                  </span>
+                ) : "✓ Confirmar Envio"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-2xl p-6 text-center">
+              <div className="w-14 h-14 bg-violet-100 dark:bg-violet-800/50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <svg className="w-7 h-7 text-violet-600 dark:text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <p className="text-3xl font-black text-violet-700 dark:text-violet-400">{selfEvalResult.sent}</p>
+              <p className="text-sm text-violet-600 dark:text-violet-400 font-medium">
+                e-mail{selfEvalResult.sent !== 1 ? "s" : ""} enviado{selfEvalResult.sent !== 1 ? "s" : ""} com sucesso
+              </p>
+            </div>
+            {selfEvalResult.no_email > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {selfEvalResult.no_email} colaborador{selfEvalResult.no_email !== 1 ? "es" : ""} sem e-mail corporativo — não notificado{selfEvalResult.no_email !== 1 ? "s" : ""}.
+                </p>
+              </div>
+            )}
+            {selfEvalResult.created > 0 && (
+              <p className="text-xs text-gray-400 text-center">
+                {selfEvalResult.created} novo{selfEvalResult.created !== 1 ? "s" : ""} token{selfEvalResult.created !== 1 ? "s" : ""} criado{selfEvalResult.created !== 1 ? "s" : ""}.
+              </p>
+            )}
+            <button onClick={() => setSelfEvalModal(false)}
+              className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
+              Fechar
+            </button>
+          </div>
+        )}
       </ModalWrapper>
     </div>
   );
@@ -1303,19 +1670,19 @@ function TabAvaliacoes() {
 
   return (
     <div className="space-y-4">
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 dark:border-[#00694E]/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">Colaboradores sem e-mail?</p>
-          <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">Use a página de ciência presencial para registrar a ciência no tablet/computador.</p>
+          <p className="text-xs text-[#00694E]/80 dark:text-emerald-400/80 mt-0.5">Use a página de ciência presencial para registrar a ciência no tablet/computador.</p>
         </div>
         <button onClick={() => navigate("/ciencia-presencial")}
-          className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">
+          className="px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all">
           Ciência Presencial →
         </button>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
+        <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
       ) : (
         <Card>
           <div className="overflow-x-auto">
@@ -1344,7 +1711,7 @@ function TabAvaliacoes() {
                     <td className="px-4 py-3">
                       {sub.email && (
                         <button onClick={() => handleResend(sub.employee_id)} disabled={resending === sub.employee_id}
-                          className="text-xs text-blue-600 hover:underline dark:text-blue-400 disabled:opacity-60">
+                          className="text-xs text-[#00694E] hover:underline dark:text-emerald-400 disabled:opacity-60">
                           {resending === sub.employee_id ? "Enviando..." : "Reenviar Link"}
                         </button>
                       )}
@@ -1357,6 +1724,20 @@ function TabAvaliacoes() {
         </Card>
       )}
     </div>
+  );
+}
+
+// ─── Tab Ciência Presencial (inline) ─────────────────────────────────────────
+
+function TabCienciaPresencial() {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <PublicCienciaPresencialInline />
+    </Suspense>
   );
 }
 
@@ -1405,12 +1786,13 @@ export default function PerformancePage() {
         ))}
       </div>
 
-      {activeTab === "dashboard"   && <TabDashboard companies={companies} />}
-      {activeTab === "indicadores" && <TabIndicadores />}
-      {activeTab === "hierarquia"  && <TabHierarquia companies={companies} />}
-      {activeTab === "gestao-rh"   && <TabGestaoRH   companies={companies} />}
-      {activeTab === "ciclo"       && <TabCiclo       companies={companies} />}
-      {activeTab === "avaliacoes"  && <TabAvaliacoes />}
+      {activeTab === "dashboard"          && <TabDashboard companies={companies} />}
+      {activeTab === "indicadores"        && <TabIndicadores />}
+      {activeTab === "hierarquia"         && <TabHierarquia companies={companies} />}
+      {activeTab === "gestao-rh"          && <TabGestaoRH   companies={companies} />}
+      {activeTab === "ciclo"              && <TabCiclo       companies={companies} />}
+      {activeTab === "avaliacoes"         && <TabAvaliacoes />}
+      {activeTab === "ciencia-presencial" && <TabCienciaPresencial />}
     </div>
   );
 }
