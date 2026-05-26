@@ -1169,7 +1169,7 @@ Pipeline de monitoramento reputacional completamente embutido no **expenses-serv
 
 ## Módulo Desempenho — performance-service:8008
 
-Gestão completa de ciclos de avaliação de desempenho. Fase 1 MVP em produção; Fase 2 (PDI funcional, relatórios gerenciais) prevista.
+Gestão completa de ciclos de avaliação de desempenho com avaliação do gestor, auto-avaliação, ciência digital/presencial, calibração e indicadores por nível hierárquico.
 
 **Sincronização Benner RH:**
 - APScheduler cron diário 02:00 em `services/benner_sync.py`
@@ -1177,24 +1177,63 @@ Gestão completa de ciclos de avaliação de desempenho. Fase 1 MVP em produçã
 - Popula `performance_departments` e `performance_employees`
 - CircuitBreaker + sql_retry idêntico ao expenses-service
 
-**Momentos de assinatura:**
-- **Momento 1** — colaborador recebe a meta e assina (`performance_goal_acknowledgments`)
-- **Momento 2** — gestor assina o resultado + colaborador toma ciência (`performance_review_acknowledgments`)
+**Níveis hierárquicos e indicadores:**
 
-**Ciclo de vida da avaliação:**
+| Nível | Role | Indicadores |
+|-------|------|-------------|
+| 1 — Gerente | `gerente` | 10 indicadores estratégicos (AVD.N1) |
+| 2 — Coord./Supervisor | `coordenador_supervisor` | 10 indicadores táticos (AVD.N2) |
+| 3 — Adm./Operacional | `administrativo_operacional` | 10 ind. admin (N3.3.1) + 10 operacional (N3.3.3) |
+
+**Ciclo de avaliação:**
 ```
-draft → open → evaluation → calibration → closed
+draft → open → closed
 ```
 
-**Status da meta:**
+**Fluxo de avaliação do gestor:**
+1. RH cria e abre ciclo → clica "Enviar Avaliações"
+2. Tokens criados em `performance_evaluation_tokens` → e-mail enviado ao gestor
+3. Gestor acessa `/avaliar/{token}` → preenche scores + justificativas (mín. 10 palavras em nota 1 ou 5) + observação opcional
+4. Submit: `performance_reviews` (status=completed) + `performance_indicator_scores`
+5. Colaborador toma ciência via e-mail (`/ciencia/{token}`) ou presencialmente (`/ciencia-presencial`)
+6. RH pode calibrar nota final (auditado)
+
+**Fluxo de auto-avaliação:**
+1. RH clica "Enviar Auto-Avaliações" (botão segregado, violeta)
+2. Tokens criados em `performance_self_evaluation_tokens` para TODOS os colaboradores ativos (L1+L2+L3)
+3. Colaborador acessa `/auto-avaliar/{token}` → preenche scores por indicador
+4. Justificativas e observação 100% opcionais (sem mínimo de palavras)
+5. Submit: `performance_reviews` com `is_self_evaluation=True`, `evaluator_id=employee_id`
+6. Dashboard mostra % de conclusão de auto-avaliações; Gestão RH mostra status por colaborador
+
+**Ciência presencial:**
+- Página `/desempenho` → aba "Ciência Presencial" (integrada, não mais item standalone no menu)
+- Também acessível via link direto `/ciencia-presencial` (URL pública preservada)
+
+**Status da revisão (simplificado):**
 ```
-draft → pending_ack → active → in_review → completed | expired | cancelled
+pending → completed → acknowledged | calibrated
 ```
 
-**Status da revisão:**
-```
-pending_self → pending_manager → pending_second_manager → pending_hr → pending_ack → completed | disputed | archived
-```
+**Tabelas principais:**
+
+| Tabela | Descrição |
+|--------|-----------|
+| `performance_cycles` | Ciclos de avaliação (draft/open/closed) |
+| `performance_employees` | Colaboradores com nível hierárquico |
+| `performance_indicators` | Indicadores por nível (hierarchy_level 1/2/3) |
+| `performance_evaluation_tokens` | Tokens de avaliação do gestor |
+| `performance_self_evaluation_tokens` | Tokens de auto-avaliação (todos os níveis) |
+| `performance_reviews` | Avaliações (is_self_evaluation distingue tipo) |
+| `performance_indicator_scores` | Scores individuais por indicador + justificativa |
+| `performance_review_acknowledgments` | Ciência digital do colaborador |
+| `performance_calibrations` | Histórico de calibrações do RH |
+| `performance_audit_logs` | Trilha de auditoria completa |
+
+**Validações backend críticas (public.py):**
+- Nota extrema (1 ou 5) → justificativa com mínimo **10 palavras** (somente avaliação do gestor)
+- Observação do gestor: opcional (campo `observations` nullable)
+- Auto-avaliação: sem nenhuma validação de justificativa ou observação
 
 ---
 
