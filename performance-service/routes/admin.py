@@ -418,22 +418,18 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     ws_inst = wb.create_sheet("Instruções")
     ws_inst["A1"] = "COMO PREENCHER O TEMPLATE"
     ws_inst["A1"].font = Font(bold=True, size=14)
-    ws_inst["A3"] = "Estrutura das colunas (13 colunas — A a M):"
+    ws_inst["A3"] = "Estrutura das colunas (9 colunas — A a I):"
     ws_inst["A3"].font = Font(bold=True, size=12)
     col_desc = [
-        ("A", "Empresa", "Selecione da lista suspensa. Deve existir no sistema."),
-        ("B", "Filial", "Selecione da lista suspensa. Deve ser idêntico ao sistema."),
-        ("C", "Gerência", "Nome da gerência/área. Ex: 'Gerência de Operações'"),
-        ("D", "Nome Completo", "Nome SEM abreviações. Mín. 2 palavras, cada uma com 3+ letras."),
-        ("E", "Matrícula", "Apenas números. Ex: '100001' (NÃO '100.001')"),
-        ("F", "Cargo", "Cargo do colaborador. Ex: 'Supervisor de Logística'"),
-        ("G", "Nível Hierárquico", "Selecione: Gerente / Coordenador-Supervisor / Operacional-Administrativo"),
-        ("H", "E-mail Corporativo", "E-mail corporativo do colaborador. Obrigatório se Tem E-mail = Sim."),
-        ("I", "Tem E-mail Corporativo?", "Sim ou Não."),
-        ("J", "Nome do Gestor Imediato", "Nome completo do gestor direto. Gerentes deixam em branco."),
-        ("K", "Cargo do Gestor Imediato", "Cargo do gestor direto. Gerentes deixam em branco."),
-        ("L", "E-mail do Gestor Imediato", "E-mail corporativo do gestor. Usado para envio do token de avaliação."),
-        ("M", "CPF (opcional)", "CPF do colaborador, apenas para quem NÃO tem e-mail. Usado para acesso presencial. 11 dígitos sem máscara."),
+        ("A", "Empresa",                  "Obrigatório — selecione da lista suspensa."),
+        ("B", "Filial",                   "Obrigatório — selecione da lista suspensa."),
+        ("C", "Gerência",                 "Obrigatório — nome da área. Ex: 'Gerência de Recursos Humanos'"),
+        ("D", "Nome Completo",            "Obrigatório — sem abreviações. Mín. 2 palavras com 3+ letras."),
+        ("E", "Cargo",                    "Obrigatório — cargo do colaborador. Ex: 'Analista de RH Pleno'"),
+        ("F", "Nível Hierárquico",        "Obrigatório — selecione da lista: Gerente / Coordenador-Supervisor / Operacional-Administrativo"),
+        ("G", "E-mail Corporativo",       "Obrigatório se Tem E-mail = Sim; deixe em branco se Não."),
+        ("H", "Tem E-mail Corporativo?",  "Obrigatório — Sim ou Não."),
+        ("I", "CPF",                      "Obrigatório se Tem E-mail = Não. 11 dígitos numéricos sem pontos/traços. Ex: 12345678901"),
     ]
     for row_i, (col, header, desc) in enumerate(col_desc, 4):
         ws_inst.cell(row=row_i, column=1).value = col
@@ -442,53 +438,47 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
         ws_inst.cell(row=row_i, column=2).font = Font(bold=True)
         ws_inst.cell(row=row_i, column=3).value = desc
 
-    ws_inst["A18"] = "REGRAS IMPORTANTES"
-    ws_inst["A18"].font = Font(bold=True, size=12)
+    ws_inst["A14"] = "REGRAS IMPORTANTES"
+    ws_inst["A14"].font = Font(bold=True, size=12)
     rules = [
-        "- Gerentes (nível 1) são avaliadores, não são avaliados. Colunas J, K, L ficam em branco para eles.",
-        "- Coordenadores/Supervisores (nível 2) são avaliados pelo Gerente e também avaliam seus subordinados.",
-        "- Operacionais/Administrativos (nível 3) são avaliados por Coordenador ou Gerente.",
-        "- O e-mail do Gestor (coluna L) é obrigatório para colaboradores com gestor — é para lá que vai o token.",
-        "- CPF (coluna M): apenas para colaboradores SEM e-mail corporativo. 11 dígitos numéricos, sem pontos ou traços.",
-        "- Filiais: os nomes devem ser exatamente como aparecem na aba Listas.",
+        "- CPF é obrigatório para todos os colaboradores (avaliadores e avaliados).",
+        "- Colaboradores SEM e-mail corporativo fazem ciência presencial usando o CPF.",
+        "- Gerentes (nível 1) são avaliadores; Coordenadores/Supervisores (nível 2) avaliam e são avaliados.",
+        "- A hierarquia (quem avalia quem) é configurada manualmente no sistema após a importação.",
+        "- Filiais: os nomes devem ser exatamente como aparecem na aba Listas (lista suspensa).",
     ]
-    for i, rule in enumerate(rules, 19):
+    for i, rule in enumerate(rules, 15):
         ws_inst.cell(row=i, column=1).value = rule
     ws_inst.column_dimensions["A"].width = 8
     ws_inst.column_dimensions["B"].width = 30
     ws_inst.column_dimensions["C"].width = 80
 
-    ws_inst["A26"] = "EXEMPLO:"
-    ws_inst["A26"].font = Font(bold=True, size=12)
-    ex_headers = ["A:Empresa", "B:Filial", "C:Gerência", "D:Nome", "E:Matrícula", "F:Cargo",
-                  "G:Nível", "H:E-mail", "I:Tem E-mail?", "J:Nome Gestor", "K:Cargo Gestor", "L:E-mail Gestor", "M:CPF"]
+    ws_inst["A22"] = "EXEMPLO:"
+    ws_inst["A22"].font = Font(bold=True, size=12)
+    ex_headers = ["A:Empresa", "B:Filial", "C:Gerência", "D:Nome", "E:Cargo", "F:Nível", "G:E-mail", "H:Tem E-mail?", "I:CPF"]
     for ci, h in enumerate(ex_headers, 1):
-        ws_inst.cell(row=27, column=ci).value = h
-        ws_inst.cell(row=27, column=ci).font = Font(bold=True)
+        ws_inst.cell(row=23, column=ci).value = h
+        ws_inst.cell(row=23, column=ci).font = Font(bold=True)
     examples = [
         [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
-         "Gerência de Operações", "João da Silva Santos", "100001",
-         "Gerente de Operações", "Gerente", "joao.santos@empresa.com.br", "Sim", "", "", "", ""],
+         "Gerência de Operações", "João da Silva Santos",
+         "Gerente de Operações", "Gerente", "joao.santos@empresa.com.br", "Sim", "07123456789"],
         [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
-         "Gerência de Operações", "Maria Fernanda Costa", "100002",
-         "Coordenadora de Logística", "Coordenador-Supervisor", "maria.costa@empresa.com.br", "Sim",
-         "João da Silva Santos", "Gerente de Operações", "joao.santos@empresa.com.br", ""],
+         "Gerência de Operações", "Maria Fernanda Costa",
+         "Coordenadora de Logística", "Coordenador-Supervisor", "maria.costa@empresa.com.br", "Sim", "04987654321"],
         [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
-         "Gerência de Operações", "Carlos Eduardo Lima", "100003",
-         "Operador Logístico", "Operacional-Administrativo", "", "Não",
-         "Maria Fernanda Costa", "Coordenadora de Logística", "maria.costa@empresa.com.br", "12345678901"],
+         "Gerência de Operações", "Carlos Eduardo Lima",
+         "Operador Logístico", "Operacional-Administrativo", "", "Não", "12345678901"],
     ]
-    for r_i, row_data in enumerate(examples, 28):
+    for r_i, row_data in enumerate(examples, 24):
         for c_i, val in enumerate(row_data, 1):
             ws_inst.cell(row=r_i, column=c_i).value = val
 
     # ── Dados sheet ──────────────────────────────────────────────────────────
     ws_data = wb.create_sheet("Dados")
     headers = [
-        "Empresa", "Filial", "Gerência", "Nome Completo", "Matrícula", "Cargo",
-        "Nível Hierárquico", "E-mail Corporativo", "Tem E-mail Corporativo?",
-        "Nome do Gestor Imediato", "Cargo do Gestor Imediato", "E-mail do Gestor Imediato",
-        "CPF (opcional — sem máscara)",
+        "Empresa", "Filial", "Gerência", "Nome Completo", "Cargo",
+        "Nível Hierárquico", "E-mail Corporativo", "Tem E-mail Corporativo?", "CPF",
     ]
     hfill = PatternFill("solid", fgColor="1F4E79")
     hfont = Font(bold=True, color="FFFFFF")
@@ -500,11 +490,15 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
     instrucoes = [
-        "Selecione da lista", "Selecione da lista", "Nome da área/gerência",
-        "Nome completo SEM abreviações", "Apenas números", "Cargo do colaborador",
-        "Selecione da lista", "E-mail (obrigatório se Tem E-mail=Sim)", "Sim ou Não",
-        "Nome do gestor (vazio se Gerente)", "Cargo do gestor (vazio se Gerente)",
-        "E-mail do gestor (obrigatório para envio do token)", "11 dígitos numéricos (só sem e-mail)",
+        "Obrigatório — selecione da lista",
+        "Obrigatório — selecione da lista",
+        "Obrigatório — ex: Gerência de Operações",
+        "Obrigatório — nome completo sem abreviações",
+        "Obrigatório — cargo do colaborador",
+        "Obrigatório — selecione da lista",
+        "Obrigatório se Tem E-mail = Sim; em branco se Não",
+        "Obrigatório — Sim ou Não",
+        "Obrigatório se Tem E-mail = Não. 11 dígitos sem pontos/traços. Ex: 12345678901",
     ]
     inst_font = Font(italic=True, color="808080")
     for i, inst in enumerate(instrucoes, 1):
@@ -525,10 +519,10 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     ws_data.add_data_validation(dv_email)
     dv_empresa.sqref = "A3:A502"
     dv_filial.sqref = "B3:B502"
-    dv_nivel.sqref = "G3:G502"
-    dv_email.sqref = "I3:I502"
+    dv_nivel.sqref = "F3:F502"
+    dv_email.sqref = "H3:H502"
 
-    col_widths = [30, 28, 28, 35, 12, 30, 28, 35, 22, 35, 30, 35, 20]
+    col_widths = [30, 28, 28, 40, 35, 28, 38, 26, 18]
     for i, w in enumerate(col_widths, 1):
         ws_data.column_dimensions[get_column_letter(i)].width = w
     ws_data.row_dimensions[1].height = 40
@@ -582,11 +576,11 @@ def list_employees(
 
 class EmployeeBody(BaseModel):
     name: str
-    matricula: str
-    cargo: str
+    matricula: str = ""          # mantido na DB mas não exibido/exigido na UI
+    cargo: str = ""
     level: str = "administrativo_operacional"
     email: str | None = None
-    cpf: str | None = None
+    cpf: str | None = None       # obrigatório quando não há e-mail
     has_corporate_email: bool = True
     manager_id: str | None = None
     branch_id: str | None = None
@@ -602,9 +596,24 @@ def _validate_name(name: str) -> None:
         raise HTTPException(400, detail="Nome deve ser completo, sem abreviações (mínimo 2 partes com 3+ caracteres)")
 
 
-def _validate_matricula(matricula: str) -> None:
-    if not re.match(r"^\d+$", matricula.strip()):
-        raise HTTPException(400, detail="Matrícula deve conter apenas números, sem pontos ou traços")
+def _validate_cpf(cpf: str) -> str:
+    """Valida CPF brasileiro (dígitos verificadores mod-11). Retorna CPF limpo (só dígitos)."""
+    digits = re.sub(r'\D', '', cpf)
+    if len(digits) != 11:
+        raise HTTPException(400, detail="CPF deve ter 11 dígitos numéricos")
+    if len(set(digits)) == 1:   # ex: 00000000000, 11111111111 ...
+        raise HTTPException(400, detail="CPF inválido")
+    # 1º dígito verificador
+    total = sum(int(digits[i]) * (10 - i) for i in range(9))
+    d1 = 0 if total % 11 < 2 else 11 - (total % 11)
+    if int(digits[9]) != d1:
+        raise HTTPException(400, detail="CPF inválido — dígito verificador incorreto")
+    # 2º dígito verificador
+    total = sum(int(digits[i]) * (11 - i) for i in range(10))
+    d2 = 0 if total % 11 < 2 else 11 - (total % 11)
+    if int(digits[10]) != d2:
+        raise HTTPException(400, detail="CPF inválido — dígito verificador incorreto")
+    return digits
 
 
 def _ensure_management(db, branch_id: str | None) -> str | None:
@@ -633,31 +642,36 @@ def create_employee(
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
     _validate_name(body.name)
-    _validate_matricula(body.matricula)
-    hierarchy_level = _LEVEL_MAP.get(body.level, 3)
     has_email = bool(body.email and body.email.strip())
 
-    db = get_supabase()
-    if body.company_id:
-        dup = (
-            db.table("performance_employees")
-            .select("id")
-            .eq("matricula", body.matricula.strip())
-            .eq("company_id", body.company_id)
-            .execute()
-        )
-        if dup.data:
-            raise HTTPException(400, detail=f"Matrícula {body.matricula} já cadastrada nesta empresa")
+    # CPF obrigatório para todos os colaboradores; validado com dígito verificador
+    if not body.cpf or not body.cpf.strip():
+        raise HTTPException(400, detail="CPF é obrigatório para todos os colaboradores")
+    cpf_clean = _validate_cpf(body.cpf)
 
+    # Verificar CPF duplicado
+    if cpf_clean:
+        dup_cpf = db_dup = get_supabase() if False else None  # lazy init
+        db = get_supabase()
+        dup = db.table("performance_employees").select("id,name").eq("cpf", cpf_clean).eq("active", True).execute()
+        if dup.data:
+            raise HTTPException(400, detail=f"CPF já cadastrado para: {dup.data[0]['name']}")
+    else:
+        db = get_supabase()
+
+    hierarchy_level = _LEVEL_MAP.get(body.level, 3)
     mgmt_id = body.management_id or _ensure_management(db, body.branch_id)
 
-    cpf_clean = re.sub(r'\D', '', body.cpf or "").strip() or None
+    # Matrícula: usar CPF quando disponível, senão gerar sequencial único
+    import uuid as _uuid
+    matricula = cpf_clean or _uuid.uuid4().hex[:10].upper()
+
     result = db.table("performance_employees").insert({
         "name": body.name.strip(),
-        "matricula": body.matricula.strip(),
+        "matricula": matricula,
         "email": body.email or None,
         "cpf": cpf_clean,
-        "cargo": body.cargo,
+        "cargo": body.cargo or "",
         "has_corporate_email": has_email,
         "hierarchy_level": hierarchy_level,
         "manager_id": body.manager_id or None,
@@ -746,40 +760,41 @@ async def import_employees(
 
     companies = {c["name"]: c for c in db.table("performance_companies").select("*").execute().data}
     branches_all = db.table("performance_branches").select("*").execute().data
-    existing_matriculas = {
-        f"{e['matricula']}_{e['company_id']}": True
-        for e in db.table("performance_employees").select("matricula,company_id").execute().data
+    existing_cpfs = {
+        e["cpf"]: True
+        for e in db.table("performance_employees").select("cpf").execute().data
+        if e.get("cpf")
     }
     NIVEL_MAP = {"gerente": 1, "coordenador-supervisor": 2, "operacional-administrativo": 3}
 
     errors: list[dict] = []
     rows_data: list[dict] = []
-    file_matriculas: dict[str, str] = {}
+    file_cpfs: dict[str, int] = {}   # cpf → first line seen (dedup within file)
 
     for row_idx, row in enumerate(ws.iter_rows(min_row=3, values_only=True), start=3):
         if all(v is None or str(v).strip() == "" for v in row):
             break
 
-        empresa_name = str(row[0] or "").strip()
-        filial_name = str(row[1] or "").strip()
-        gerencia_name = str(row[2] or "").strip()
-        nome = str(row[3] or "").strip()
-        matricula = str(row[4] or "").strip()
-        cargo = str(row[5] or "").strip()
-        nivel_str = str(row[6] or "").strip()
-        email = str(row[7] or "").strip() or None
-        tem_email_str = str(row[8] or "").strip()
-        gestor_nome = str(row[9] or "").strip() if len(row) > 9 else ""
-        gestor_cargo = str(row[10] or "").strip() if len(row) > 10 else ""
-        gestor_email = str(row[11] or "").strip() if len(row) > 11 else ""
-        cpf_raw = re.sub(r'\D', '', str(row[12] or "")) if len(row) > 12 else ""
-        cpf = cpf_raw if cpf_raw else None
+        # ── Novo formato de 9 colunas (sem Matrícula, sem Gestor) ──────────
+        empresa_name  = str(row[0] or "").strip()          # A
+        filial_name   = str(row[1] or "").strip()          # B
+        gerencia_name = str(row[2] or "").strip()          # C
+        nome          = str(row[3] or "").strip()          # D
+        cargo         = str(row[4] or "").strip()          # E
+        nivel_str     = str(row[5] or "").strip()          # F
+        email         = str(row[6] or "").strip() or None  # G
+        tem_email_str = str(row[7] or "").strip()          # H
+        cpf_raw       = re.sub(r'\D', '', str(row[8] or "")) if len(row) > 8 else ""  # I
+        cpf           = cpf_raw if cpf_raw else None
 
         row_errors: list[dict] = []
+
+        # Empresa
         company = companies.get(empresa_name)
         if not company:
             row_errors.append({"linha": row_idx, "campo": "Empresa", "erro": f"Empresa '{empresa_name}' inválida"})
 
+        # Filial
         branch = None
         if company:
             branch_matches = [b for b in branches_all if b["company_id"] == company["id"] and b["name"].lower() == filial_name.lower()]
@@ -788,38 +803,41 @@ async def import_employees(
             else:
                 branch = branch_matches[0]
 
-        parts = nome.split()
+        # Nome
+        parts = [p for p in nome.split() if p]
         if len(parts) < 2 or any(len(p) < 3 for p in parts):
-            row_errors.append({"linha": row_idx, "campo": "Nome Completo", "erro": "Nome deve ser completo, sem abreviações"})
+            row_errors.append({"linha": row_idx, "campo": "Nome Completo", "erro": "Nome deve ser completo, sem abreviações (mín. 2 palavras com 3+ letras)"})
 
-        if not re.match(r"^\d+$", matricula):
-            row_errors.append({"linha": row_idx, "campo": "Matrícula", "erro": "Matrícula deve conter apenas números"})
-        elif company:
-            key = f"{matricula}_{company['id']}"
-            if key in existing_matriculas:
-                row_errors.append({"linha": row_idx, "campo": "Matrícula", "erro": f"Matrícula {matricula} já cadastrada"})
-            elif key in file_matriculas:
-                row_errors.append({"linha": row_idx, "campo": "Matrícula", "erro": f"Matrícula {matricula} duplicada no arquivo (linha {file_matriculas[key]})"})
-            else:
-                file_matriculas[key] = str(row_idx)
-
+        # Nível
         nivel_key = nivel_str.lower()
         hierarchy_level = NIVEL_MAP.get(nivel_key)
         if hierarchy_level is None:
-            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido"})
+            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido. Use: Gerente / Coordenador-Supervisor / Operacional-Administrativo"})
 
+        # E-mail
         tem_email = tem_email_str.lower() in ("sim", "s", "yes")
         if tem_email and not email:
             row_errors.append({"linha": row_idx, "campo": "E-mail Corporativo", "erro": "E-mail obrigatório quando Tem E-mail = Sim"})
 
-        # L2/L3 precisam ter gestor
-        if hierarchy_level and hierarchy_level > 1:
-            if not gestor_nome and not gestor_email:
-                row_errors.append({"linha": row_idx, "campo": "Gestor Imediato", "erro": "Nome ou e-mail do gestor é obrigatório para Coordenador/Supervisor e Operacional"})
+        # CPF — obrigatório para todos
+        if not cpf:
+            row_errors.append({"linha": row_idx, "campo": "CPF", "erro": "CPF é obrigatório para todos os colaboradores. 11 dígitos numéricos."})
+        elif len(cpf) != 11:
+            row_errors.append({"linha": row_idx, "campo": "CPF", "erro": f"CPF deve ter 11 dígitos numéricos (encontrado: {len(cpf)})"})
+        else:
+            if cpf in existing_cpfs:
+                row_errors.append({"linha": row_idx, "campo": "CPF", "erro": f"CPF {cpf} já cadastrado no sistema"})
+            elif cpf in file_cpfs:
+                row_errors.append({"linha": row_idx, "campo": "CPF", "erro": f"CPF {cpf} duplicado no arquivo (linha {file_cpfs[cpf]})"})
+            else:
+                file_cpfs[cpf] = row_idx
 
         if row_errors:
             errors.extend(row_errors)
         else:
+            # Matrícula auto-gerada a partir do CPF
+            import uuid as _uuid
+            matricula = cpf if cpf else f"IMP{str(_uuid.uuid4().int)[:8]}"
             rows_data.append({
                 "company_id": company["id"] if company else None,
                 "branch_id": branch["id"] if branch else None,
@@ -827,9 +845,6 @@ async def import_employees(
                 "name": nome, "matricula": matricula, "cargo": cargo,
                 "hierarchy_level": hierarchy_level, "email": email,
                 "has_corporate_email": tem_email,
-                "gestor_nome": gestor_nome,
-                "gestor_cargo": gestor_cargo,
-                "gestor_email": gestor_email.lower() if gestor_email else "",
                 "cpf": cpf,
             })
 
@@ -838,31 +853,11 @@ async def import_employees(
     if not rows_data:
         return {"errors": ["Nenhuma linha de dados encontrada (preencha a partir da linha 3)"], "imported": 0}
 
-    # Build lookup: email→id and name(lower)→id from existing employees
-    all_existing_emps = db.table("performance_employees").select("id,name,email").execute().data
-    existing_by_email: dict[str, str] = {e["email"].lower(): e["id"] for e in all_existing_emps if e.get("email")}
-    existing_by_name: dict[str, str] = {e["name"].lower(): e["id"] for e in all_existing_emps}
-
-    saved_map: dict[str, str] = {}  # matricula_companyid → id (newly inserted in this batch)
-    saved_by_email: dict[str, str] = {}  # email→id for newly inserted
-    saved_by_name: dict[str, str] = {}   # name.lower()→id for newly inserted
-
     existing_mgmts = {
         f"{m['branch_id']}_{m['name'].lower()}": m["id"]
         for m in db.table("performance_managements").select("*").execute().data
     }
     imported = 0
-
-    def _resolve_manager(gestor_email: str, gestor_nome: str) -> str | None:
-        if gestor_email:
-            mid = existing_by_email.get(gestor_email) or saved_by_email.get(gestor_email)
-            if mid:
-                return mid
-        if gestor_nome:
-            mid = existing_by_name.get(gestor_nome.lower()) or saved_by_name.get(gestor_nome.lower())
-            if mid:
-                return mid
-        return None
 
     for row in sorted(rows_data, key=lambda x: x["hierarchy_level"]):
         mgmt_key = f"{row['branch_id']}_{row['gerencia_name'].lower()}"
@@ -875,24 +870,18 @@ async def import_employees(
                 mgmt_id = mgmt_res.data[0]["id"]
                 existing_mgmts[mgmt_key] = mgmt_id
 
-        manager_id = _resolve_manager(row.get("gestor_email", ""), row.get("gestor_nome", ""))
-
         emp_res = db.table("performance_employees").insert({
             "name": row["name"], "matricula": row["matricula"],
             "email": row["email"], "cargo": row["cargo"],
             "has_corporate_email": row["has_corporate_email"],
             "cpf": row.get("cpf"),
             "hierarchy_level": row["hierarchy_level"],
-            "manager_id": manager_id, "management_id": mgmt_id,
+            "manager_id": None,           # hierarquia definida via UI
+            "management_id": mgmt_id,
             "branch_id": row["branch_id"], "company_id": row["company_id"],
             "active": True,
         }).execute()
         if emp_res.data:
-            new_id = emp_res.data[0]["id"]
-            saved_map[f"{row['matricula']}_{row['company_id']}"] = new_id
-            if row.get("email"):
-                saved_by_email[row["email"].lower()] = new_id
-            saved_by_name[row["name"].lower()] = new_id
             imported += 1
 
     log_action("system", "import-excel", "bulk_import", None, {"imported": imported}, current_user["username"], request)

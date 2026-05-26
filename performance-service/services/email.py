@@ -110,7 +110,7 @@ def _email_base(header_html: str, body_html: str, is_vtclog: bool = False) -> st
             <tr>
               <td style="vertical-align:middle;">
                 <img src="{logo_url}" alt="{company_label}" height="38"
-                     style="display:block;height:38px;max-width:210px;object-fit:contain;"
+                     style="display:block;height:38px;max-width:210px;object-fit:contain;filter:brightness(0) invert(1);"
                      onerror="this.style.display='none'"/>
               </td>
               <td align="right" style="vertical-align:middle;">

@@ -189,7 +189,7 @@ def _extract_ticket_row(raw: dict) -> dict:
     }
 
 
-_UPSERT_BATCH = 5
+_UPSERT_BATCH = 50  # era 5 — 50 reduz round-trips HTTP ao PostgREST em ~10x
 
 
 def _upsert_tickets(db, rows: list[dict]) -> None:

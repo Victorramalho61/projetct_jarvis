@@ -10,11 +10,22 @@ Sistema interno da Voetur/VTCLog com autenticação própria e nove módulos:
 | Monitoramento | monitoring-service | 8002 | Health checks agendados, dashboard em tempo real |
 | Freshservice | freshservice-service | 8003 | Dashboard e sync de tickets do helpdesk |
 | Moneypenny | moneypenny-service | 8004 | Resumo diário de e-mails e agenda via Microsoft 365 |
-| Agentes | agents-service | 8005 | Jobs agendados + criação de agentes via Claude AI / LangGraph |
-| Gastos TI | expenses-service | 8006 | Dashboard financeiro executivo — despesas de TI via ERP Benner |
+| ~~Agentes~~ | ~~agents-service~~ | ~~8005~~ | ❌ **DESABILITADO** — consumo excessivo CPU/RAM. Ver `agents-service/DISABLED.md` |
+| Gastos TI | expenses-service | 8006 | Dashboard financeiro, PayFly viagens e Mídia & Redes Sociais |
 | VoeIA | support-service | 8007 | Bot WhatsApp de suporte com abertura de chamados no Freshservice |
 | Desempenho | performance-service | 8008 | Gestão de ciclos, metas, avaliações e KPIs de desempenho |
 | Fiscal | fiscal-service | 8009 | Validação NFe/NFSe — sync NDD Digital, busca full-text, dashboard |
+
+### Serviços suspensos (❌ não sobem automaticamente)
+
+| Serviço | Motivo | Localização da doc |
+|---|---|---|
+| `agents-service` | Consumo CPU/RAM excessivo causava lentidão geral | `agents-service/DISABLED.md` |
+| `hermes-service` | CPU alta (>80%) | `hermes-service/DISABLED.md` |
+| `evolution-api` | 52% CPU constante sem usuários ativos | `evolution-api-patched/DISABLED.md` |
+| `ollama` | 2 GB RAM reservado em servidor com recursos limitados | `ollama/DISABLED.md` |
+
+> ⚠️ **NÃO religar sem autorização humana explícita.** Todos usam `restart: "no"` + `profiles: ["agents"]` — não sobem no `docker compose up -d` padrão.
 
 ---
 
@@ -877,6 +888,12 @@ erDiagram
 | GET | `/api/expenses/empresas` | user | lista filiais disponíveis |
 | GET | `/api/expenses/comparativo` | user | comparação entre dois anos |
 | POST | `/api/expenses/sync` | admin | sincroniza cache do Benner |
+| GET | `/api/expenses/payfly/media/posts` | user | lista publicações coletadas |
+| GET | `/api/expenses/payfly/media/metrics` | user | rollup mensal por plataforma |
+| GET | `/api/expenses/payfly/media/daily-metrics` | user | rollup diário (últimos N dias) |
+| GET | `/api/expenses/payfly/media/crisis` | user | status de crise (ok/warning/critical) |
+| GET | `/api/expenses/payfly/media/categories` | user | breakdown por categoria |
+| POST | `/api/expenses/payfly/media/fetch` | admin | dispara coleta imediata (trigger manual) |
 
 ### support-service:8007
 | Método | Rota | Acesso | Descrição |
@@ -1111,6 +1128,42 @@ Integração com a API PayFly de reservas corporativas (voos e hotéis), separad
 - Período padrão: `2026-01-01` → hoje
 - Botão **"Carga Histórica (jan/2026→hoje)"**: dispara `sync/bulk` desde 01/01/2026, sobrescreve dados existentes via upsert
 - Botão **"Sincronizar período"**: sync do intervalo selecionado nos filtros
+
+---
+
+### PayFly Mídia & Redes Sociais
+
+Pipeline de monitoramento reputacional completamente embutido no **expenses-service** (independente do agents-service).
+
+**Pipeline** (`services/media_pipeline.py`) — 8 etapas:
+1. `fetch_all()` — RSS paralelo: Google News (×2), Bing News, Reddit, Reclame Aqui, Skift, Panrotas, Startups BR, Finsiders, BrasilTuris, RevistaHoteis, DiárioTurismo, MercadoEventos
+2. `extract_full_articles()` — newspaper3k/BS4 nos top-10 mais relevantes
+3. `classify_articles_llm()` — Gemini 2.0 Flash → `category` + `sentiment_label` (opcional: requer `GOOGLE_API_KEY`)
+4. `embed_articles()` — text-embedding-004 → vector(768) via pgvector (opcional: requer `GOOGLE_API_KEY`)
+5. `_store()` — bulk upsert em `payfly_media_posts` (deduplicação por URL)
+6. **`_recompute_metrics()`** — relê banco para os meses/datas afetados e reconstrói: `payfly_media_metrics` (mensal × plataforma) + `payfly_media_daily_metrics` (diário, todas plataformas)
+7. `detect_crisis()` — compara 24h vs baseline 30d
+8. `send_crisis_webhook()` — POST ao webhook configurado se `warning` ou `critical`
+
+**Scheduler** (`services/media_scheduler.py`):
+- APScheduler embutido no expenses-service — **não depende do agents-service**
+- Job `payfly_media_6h`: cron **a cada 6h** (00h, 06h, 12h, 18h BRT)
+- `misfire_grace_time=600s`
+
+**Tabelas:**
+| Tabela | Conteúdo |
+|---|---|
+| `payfly_media_posts` | Artigos coletados — upsert por URL |
+| `payfly_media_metrics` | Rollup mensal: `platform × ref_month`, contagens pos/neg/neutro |
+| `payfly_media_daily_metrics` | Rollup diário: `date`, contagens combinadas de todas as plataformas |
+
+**Frontend** (`PayFlyPage.tsx` — tab Mídia & Redes Sociais):
+- Banner de status reputacional (🟢 Estável / 🟡 Atenção / 🔴 Crise)
+- KPIs mensais com comparativo mês anterior
+- Gráfico de tendência diária (30 dias) + breakdown por categoria
+- Lista de publicações com filtros por sentimento e categoria
+- **Botão "Coletar agora"** — chama `POST /api/expenses/payfly/media/fetch` (admin), exibe resultado e recarrega dados
+- **Botão "Recarregar"** — relê endpoints sem nova coleta
 
 ---
 
@@ -1411,3 +1464,73 @@ Após isso: `_get_ndd_token(company_id)` em `nfse_fetcher.py` auto-renova usando
 - **WhatsApp**: Evolution API (instâncias `voetur` e `voetur-support`)
 - **SMTP**: `smtp.office365.com`, `noreply@voetur.com.br`
 - **NDD Digital**: `spaceportalprod.e-datacenter.nddigital.com.br` — portal fiscal NFe/CTe/NFSe; OAuth2 PKCE via `ndd-identity-space-gateway`; token TTL 1800s + refresh automático
+
+---
+
+## Infraestrutura — PostgreSQL (Tuning 2026-05-25)
+
+Parâmetros aplicados via `command:` no `docker-compose.yml` (seção `db`):
+
+| Parâmetro | Valor | Motivo |
+|---|---|---|
+| `listen_addresses` | `*` | **Crítico** — sem isso PostgreSQL recusa conexões TCP da rede Docker |
+| `shared_buffers` | `256MB` | Cache compartilhado (~25% RAM disponível) |
+| `effective_cache_size` | `4GB` | Hint ao planner sobre cache total do SO |
+| `work_mem` | `10MB` | Memória por operação de sort/hash |
+| `maintenance_work_mem` | `128MB` | VACUUM, CREATE INDEX |
+| `wal_buffers` | `16MB` | Buffer WAL antes de flush |
+| `random_page_cost` | `1.5` | Favorece index scans (SSD) |
+| `effective_io_concurrency` | `200` | Prefetch paralelo (NVMe) |
+| `checkpoint_completion_target` | `0.9` | Suaviza I/O de checkpoint |
+| `default_statistics_target` | `200` | Estimativas mais precisas no planner |
+
+CPU do container `db` aumentado de `1` → `1.5`.
+
+> ⚠️ O parâmetro `listen_addresses=*` **deve ser o primeiro** na lista `command:`. Se omitido, PostgreSQL escuta apenas `localhost` e recusa toda conexão TCP dos serviços Docker → todos os serviços falham com `PGRST000: Connection refused`.
+
+---
+
+## Banco de Dados — Otimizações 2026-05-25
+
+Scripts: `fix_missing_columns.sql` e `optimize_queries.sql` na raiz do projeto.
+
+### Colunas adicionadas (`fix_missing_columns.sql`)
+
+5 colunas que estavam faltando e causavam loops de erro (42703) em múltiplos serviços (~614 rollbacks/ciclo):
+
+| Tabela | Coluna | Tipo |
+|---|---|---|
+| `monitored_systems` | `consecutive_down_count` | `integer DEFAULT 0` |
+| `monitored_systems` | `validation_status` | `text` |
+| `performance_cycle_reopens` | `created_at` | `timestamptz DEFAULT now()` |
+| `profiles` | `teams_chat_id` | `text` |
+| `profiles` | `teams_mode` | `text DEFAULT 'individual'` |
+
+### Índices criados (`optimize_queries.sql`)
+
+| Tabela | Índice | Motivo |
+|---|---|---|
+| `freshservice_sync_log` | `idx_fsl_started_at` | 188 seq_scans — order by started_at DESC |
+| `freshservice_sync_log` | `idx_fsl_sync_type_started_at` | filtro sync_type + order |
+| `monitored_systems` | `idx_monitored_systems_enabled` (parcial) | 100% seq_scan no dashboard |
+| `payfly_reservations` | `idx_pf_res_status_choice_date` | listagem com filtro status |
+| `payfly_reservations` | `idx_pf_res_company_choice_date` | filtro por empresa |
+| `freshservice_tickets` | `idx_fst_updated_at` | sync incremental por updated_at |
+| `freshservice_tickets` | `idx_fst_workspace_updated` | sync por workspace_id |
+
+### Índices removidos (duplicatas)
+
+3 índices duplicados em `fiscal_documents` que dobrariam o custo de INSERT/UPDATE/DELETE:
+`idx_fiscal_docs_chave`, `idx_fiscal_docs_emit_cnpj`, `idx_fiscal_docs_dest_cnpj`
+
+### Funções reescritas
+
+**`fiscal_nfse_stats`**: reescrita de 3 passes separados para 1 CTE único. `EXTRACT(YEAR FROM data_emissao)` substituído por comparação com range `timestamptz` → planner usa índice btree em `data_emissao`. Tempo de resposta: ~3-4s → <100ms.
+
+**`payfly_dashboard`**: `choice_date::date` substituído por `choice_date >= p_start_date::timestamptz` → elimina cast linha-a-linha, índice btree passa a ser utilizado.
+
+### Freshservice sync — batch size
+
+`freshservice-service/services/freshservice.py`: `_UPSERT_BATCH` aumentado de `5` → `50` (10× menos chamadas ao Supabase por sync).
+
+---

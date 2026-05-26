@@ -16,13 +16,37 @@ services:
     image: supabase/postgres:15.1.1.78
     restart: unless-stopped
     logging: *logging
-    mem_limit: 1500m
-    cpus: "1"
+    mem_limit: 1500m   # shared_buffers=256MB + overhead → ~600 MB; limite atual é seguro
+    cpus: "1.5"        # era 1.0 — queries de agregação fiscal beneficiam do CPU extra
     healthcheck:
       test: pg_isready -U postgres -h localhost
       interval: 30s
       timeout: 5s
       retries: 10
+    # Parâmetros PostgreSQL passados no startup (evita necessidade de ALTER SYSTEM com superuser)
+    # Tuning aplicado em 2026-05-25 para Jarvis com 10 GB RAM host / 468 MB banco
+    command:
+      - postgres
+      - -c
+      - listen_addresses=*            # OBRIGATÓRIO: aceita conexões TCP da rede Docker
+      - -c
+      - shared_buffers=256MB          # era 128 MB — 25% da RAM alocada ao container
+      - -c
+      - effective_cache_size=4GB      # hint ao planner: SO+PG cache estimado (não aloca RAM)
+      - -c
+      - work_mem=10MB                 # era 4 MB — sort/hash mais rápidos (max_conn=100 → ok)
+      - -c
+      - maintenance_work_mem=128MB    # era 64 MB — VACUUM, CREATE INDEX, sync mais rápidos
+      - -c
+      - wal_buffers=16MB              # era 4 MB — menos flushes de WAL por sync fiscal
+      - -c
+      - random_page_cost=1.5          # era 4.0 (HDD) — ajustado para SSD/NVMe
+      - -c
+      - effective_io_concurrency=200  # era 1 — I/O paralelo para SSD
+      - -c
+      - checkpoint_completion_target=0.9  # era 0.5 — checkpoints mais suaves
+      - -c
+      - default_statistics_target=200    # era 100 — planos mais precisos para fiscal_documents
     ports:
       - "127.0.0.1:5432:5432"
     environment:
@@ -601,7 +625,8 @@ services:
   hermes-service:
     build:
       context: ./hermes-service
-    restart: unless-stopped
+    # ❌ DESABILITADO MANUALMENTE — não religar sem autorização humana explícita (ver hermes-service/DISABLED.md)
+    restart: "no"
     logging: *logging
     mem_limit: 512m
     memswap_limit: 512m
@@ -682,7 +707,8 @@ services:
   evolution-api:
     build:
       context: ./evolution-api-patched
-    restart: unless-stopped
+    # ❌ DESABILITADO MANUALMENTE — não religar sem autorização humana explícita (ver evolution-api-patched/DISABLED.md)
+    restart: "no"
     logging: *logging
     mem_limit: 512m
     cpus: "0.5"

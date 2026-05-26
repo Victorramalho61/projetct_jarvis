@@ -93,34 +93,30 @@ function ModalWrapper({ open, onClose, title, children }: { open: boolean; onClo
 
 type DrilldownModal = "pending-evaluators" | "pending-ciencia" | null;
 
-function TabDashboard() {
+function TabDashboard({ companies }: { companies: any[] }) {
   const { token } = useAuth();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ empresa: "", ciclo: "" });
-  const [companies, setCompanies] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
   const [drilldown, setDrilldown] = useState<DrilldownModal>(null);
   const [drilldownData, setDrilldownData] = useState<any[]>([]);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
-  // Tracks whether the initial load (companies + cycles + dashboard) has completed
+  // Tracks whether the initial load (cycles + dashboard) has completed
   const initialLoaded = useRef(false);
 
-  // On mount / token refresh: load selects + dashboard together in one round-trip
+  // On mount / token refresh: load cycles + dashboard (companies já vêm do pai)
   useEffect(() => {
     initialLoaded.current = false;
     setLoading(true);
     Promise.all([
-      apiFetch<any[]>("/api/performance/admin/companies", { token }),
-      apiFetch<any[]>("/api/performance/admin/cycles", { token }),
-      apiFetch<any>("/api/performance/admin/dashboard", { token }),
-    ]).then(([c, cy, d]) => {
-      setCompanies(c || []);
+      apiFetch<any[]>("/api/performance/admin/cycles", { token }).catch(() => []),
+      apiFetch<any>("/api/performance/admin/dashboard", { token }).catch(() => null),
+    ]).then(([cy, d]) => {
       setCycles(cy || []);
       setStats(d);
       initialLoaded.current = true;
-    }).catch(() => {})
-      .finally(() => setLoading(false));
+    }).finally(() => setLoading(false));
   }, [token]);
 
   // Re-fetch only dashboard when filters change (skip the initial render)
@@ -438,9 +434,8 @@ function LevelBadge({ level }: { level: string }) {
   return <Badge color={colors[level] ?? "gray"}>{LEVEL_LABELS[level] ?? level}</Badge>;
 }
 
-function TabHierarquia() {
+function TabHierarquia({ companies }: { companies: any[] }) {
   const { token } = useAuth();
-  const [companies, setCompanies] = useState<any[]>([]);
   const [branches, setBranches] = useState<any[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(false);
@@ -452,10 +447,6 @@ function TabHierarquia() {
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    apiFetch<any[]>("/api/performance/admin/companies", { token }).then(setCompanies).catch(() => {});
-  }, [token]);
 
   useEffect(() => {
     if (!selCompany) { setBranches([]); setSelBranch(""); return; }
@@ -482,12 +473,24 @@ function TabHierarquia() {
   function openEdit(e: Employee) { setModal({ open: true, item: { ...e } }); setFormErr(""); }
   function closeModal() { setModal({ open: false, item: null }); setFormErr(""); }
 
+  function validateCPF(cpf: string): boolean {
+    const d = cpf.replace(/\D/g, "");
+    if (d.length !== 11 || /^(\d)\1+$/.test(d)) return false;
+    const calc = (n: number) => {
+      const s = d.slice(0, n).split("").reduce((acc, c, i) => acc + parseInt(c) * (n + 1 - i), 0);
+      const r = s % 11; return r < 2 ? 0 : 11 - r;
+    };
+    return calc(9) === parseInt(d[9]) && calc(10) === parseInt(d[10]);
+  }
+
   async function handleSave() {
     const it = modal.item!;
     if (!it.name?.trim()) { setFormErr("Nome é obrigatório."); return; }
-    if (!it.matricula?.trim()) { setFormErr("Matrícula é obrigatória."); return; }
     if (!it.company_id) { setFormErr("Empresa é obrigatória."); return; }
-    if (!it.branch_id) { setFormErr("Filial é obrigatória."); return; }
+    if (!it.branch_id) { setFormErr("Filial é obrigatória. Selecione na lista acima."); return; }
+    const cpfRaw = ((it as any).cpf || "").replace(/\D/g, "");
+    if (!cpfRaw) { setFormErr("CPF é obrigatório para todos os colaboradores."); return; }
+    if (!validateCPF(cpfRaw)) { setFormErr("CPF inválido. Verifique os dígitos verificadores."); return; }
     setSaving(true);
     try {
       if (it.id) {
@@ -525,7 +528,12 @@ function TabHierarquia() {
       const json = await res.json();
       if (!res.ok) {
         setImportErrors(json.errors || [json.detail || "Erro na importação."]);
+      } else if (json.errors?.length > 0) {
+        // O servidor retorna 200 mesmo com erros de validação — exibir aqui
+        setImportErrors(json.errors);
       } else {
+        // Sucesso real
+        setImportErrors([`✅ ${json.imported} colaborador(es) importado(s) com sucesso!`]);
         loadEmployees();
       }
     } catch { setImportErrors(["Erro de conexão."]); }
@@ -562,13 +570,21 @@ function TabHierarquia() {
         )}
       </div>
 
-      {importErrors.length > 0 && (
-        <Card className="p-4 mb-4 border-red-200 dark:border-red-800">
-          <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-2">Erros na importação:</p>
-          <ul className="space-y-1">
-            {importErrors.map((err, i) => <li key={i} className="text-xs text-red-600 dark:text-red-400">• {err}</li>)}
-          </ul>
-        </Card>
+      {importErrors.length > 0 && (() => {
+        const isSuccess = importErrors.length === 1 && importErrors[0].startsWith("✅");
+        return (
+          <Card className={`p-4 mb-4 ${isSuccess ? "border-green-200 dark:border-green-800" : "border-red-200 dark:border-red-800"}`}>
+            {!isSuccess && <p className="text-sm font-semibold text-red-700 dark:text-red-400 mb-2">Erros na importação:</p>}
+            <ul className="space-y-1">
+              {importErrors.map((err, i) => (
+                <li key={i} className={`text-xs ${isSuccess ? "text-green-700 dark:text-green-400 font-semibold" : "text-red-600 dark:text-red-400"}`}>
+                  {!isSuccess && "• "}{err}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        );
+      })()}
       )}
 
       {!selCompany ? (
@@ -611,12 +627,21 @@ function TabHierarquia() {
 
       <ModalWrapper open={modal.open} onClose={closeModal} title={modal.item?.id ? "Editar Colaborador" : "Novo Colaborador"}>
         <div className="space-y-4">
+          {/* Filial — obrigatório */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Filial *</label>
+            <select value={(modal.item as any)?.branch_id ?? ""}
+              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, branch_id: e.target.value } }))}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 dark:text-gray-100">
+              <option value="">Selecione a filial</option>
+              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          </div>
           {[
             { label: "Nome Completo *", key: "name", type: "text", hint: "Como consta no sistema RH." },
-            { label: "Matrícula *", key: "matricula", type: "text", hint: "Apenas números." },
             { label: "Cargo", key: "cargo", type: "text" },
-            { label: "E-mail corporativo", key: "email", type: "email", hint: "Opcional — usado para envio do link de ciência." },
-            { label: "CPF", key: "cpf", type: "text", hint: "Apenas para colaboradores SEM e-mail. 11 dígitos numéricos." },
+            { label: "E-mail corporativo", key: "email", type: "email", hint: "Obrigatório para envio do link de ciência." },
+            { label: "CPF *", key: "cpf", type: "text", hint: "Obrigatório para todos. 11 dígitos numéricos (validado)." },
           ].map(f => (
             <div key={f.key}>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{f.label}</label>
@@ -662,12 +687,11 @@ function TabHierarquia() {
 
 // ─── Tab Gestão RH ────────────────────────────────────────────────────────────
 
-function TabGestaoRH() {
+function TabGestaoRH({ companies }: { companies: any[] }) {
   const { token, user } = useAuth();
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ status: "", company_id: "", search: "" });
-  const [companies, setCompanies] = useState<any[]>([]);
   const [cycleOpen, setCycleOpen] = useState(true);
   const [calibModal, setCalibModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
   const [calibNota, setCalibNota] = useState("");
@@ -679,8 +703,8 @@ function TabGestaoRH() {
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
-    apiFetch<any>("/api/performance/admin/cycle/status", { token }).then(s => setCycleOpen(s.is_open ?? true)).catch(() => {});
-    apiFetch<any[]>("/api/performance/admin/companies", { token }).then(setCompanies).catch(() => {});
+    apiFetch<any>("/api/performance/admin/cycle/status", { token })
+      .then(s => setCycleOpen(s?.is_open ?? true)).catch(() => {});
   }, [token]);
 
   function loadList() {
@@ -857,33 +881,40 @@ function TabGestaoRH() {
 
 // ─── Tab Ciclo ─────────────────────────────────────────────────────────────────
 
-function TabCiclo() {
+function TabCiclo({ companies }: { companies: any[] }) {
   const { token } = useAuth();
   const [cycleStatus, setCycleStatus] = useState<any>(null);
-  const [tokens, setTokens] = useState<any[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [tokens,      setTokens]      = useState<any[]>([]);
+  const [history,     setHistory]     = useState<any[]>([]);
+  const [loading,     setLoading]     = useState(true);
   const [createModal, setCreateModal] = useState(false);
   const [reopenModal, setReopenModal] = useState(false);
-  const [newCycle, setNewCycle] = useState({ name: "", period_start: "", period_end: "", company_id: "" });
-  const [companies, setCompanies] = useState<any[]>([]);
-  const [reopenJust, setReopenJust] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState("");
+  const [newCycle,    setNewCycle]    = useState({ name: "", period_start: "", period_end: "", company_id: "" });
+  const [reopenJust,  setReopenJust]  = useState("");
+  const [saving,      setSaving]      = useState(false);
+  const [saveErr,     setSaveErr]     = useState("");
+
+  // ── Estado do modal de envio de formulários ──────────────────────────────────
+  const [sendModal,  setSendModal]  = useState(false);
+  const [sendTarget, setSendTarget] = useState<"all" | string>("all"); // "all" ou token_id
+  const [sending,    setSending]    = useState(false);
+  const [sendResult, setSendResult] = useState<{ sent: number; no_email: number; created: number } | null>(null);
+  const [sendError,  setSendError]  = useState("");
+
+  function openSendAll() { setSendTarget("all"); setSendResult(null); setSendError(""); setSendModal(true); }
+  function openSendOne(tokenId: string) { setSendTarget(tokenId); setSendResult(null); setSendError(""); setSendModal(true); }
 
   function load() {
     setLoading(true);
+    // Cada promise tem seu próprio fallback — uma falha não cancela as outras
     Promise.all([
-      apiFetch<any>("/api/performance/admin/cycle/status", { token }),
-      apiFetch<any[]>("/api/performance/admin/cycle/tokens", { token }),
-      apiFetch<any[]>("/api/performance/admin/cycle/reopen-history", { token }),
+      apiFetch<any>("/api/performance/admin/cycle/status", { token }).catch(() => null),
+      apiFetch<any[]>("/api/performance/admin/cycle/tokens", { token }).catch(() => []),
+      apiFetch<any[]>("/api/performance/admin/cycle/reopen-history", { token }).catch(() => []),
     ]).then(([s, t, h]) => { setCycleStatus(s); setTokens(t || []); setHistory(h || []); })
-      .catch(() => {}).finally(() => setLoading(false));
+      .finally(() => setLoading(false));
   }
   useEffect(() => { load(); }, [token]);
-  useEffect(() => {
-    apiFetch<any[]>("/api/performance/admin/companies", { token }).then(setCompanies).catch(() => {});
-  }, [token]);
 
   async function handleCreate() {
     if (!newCycle.name.trim()) { setSaveErr("Nome é obrigatório."); return; }
@@ -904,17 +935,26 @@ function TabCiclo() {
   }
 
   async function handleOpen() {
-    if (!confirm("Abrir o ciclo? Após aberto será possível enviar tokens de avaliação.")) return;
+    if (!confirm("Abrir o ciclo? Após aberto será possível enviar os formulários de avaliação.")) return;
     try { await apiFetch("/api/performance/admin/cycle/open", { token, method: "POST" }); load(); } catch {}
   }
 
-  async function handleSendTokens() {
-    if (!confirm("Enviar tokens de avaliação por e-mail para todos os avaliadores com e-mail corporativo?")) return;
+  async function handleDoSend() {
+    setSending(true); setSendError("");
     try {
-      const r = await apiFetch<any>("/api/performance/admin/cycle/send-tokens", { token, method: "POST" });
-      alert(`Tokens enviados: ${r.sent_emails} e-mails. Sem e-mail: ${r.no_email_count}. Tokens criados: ${r.tokens_created}.`);
+      if (sendTarget === "all") {
+        const r = await apiFetch<any>("/api/performance/admin/cycle/send-tokens", { token, method: "POST" });
+        setSendResult({ sent: r.sent_emails, no_email: r.no_email_count, created: r.tokens_created });
+      } else {
+        await apiFetch(`/api/performance/admin/cycle/tokens/${sendTarget}/resend`, { token, method: "POST" });
+        setSendResult({ sent: 1, no_email: 0, created: 0 });
+      }
       load();
-    } catch {}
+    } catch (e: any) {
+      setSendError(e.message || "Erro ao enviar. Tente novamente.");
+    } finally {
+      setSending(false);
+    }
   }
 
   async function handleClose() {
@@ -925,13 +965,12 @@ function TabCiclo() {
   async function handleReopen() {
     if (!reopenJust.trim()) { setSaveErr("Justificativa é obrigatória."); return; }
     setSaving(true); setSaveErr("");
-    try { await apiFetch("/api/performance/admin/cycle/reopen", { token, method: "POST", json: { justification: reopenJust } }); setReopenModal(false); setReopenJust(""); load(); }
+    try {
+      await apiFetch("/api/performance/admin/cycle/reopen", { token, method: "POST", json: { justification: reopenJust } });
+      setReopenModal(false); setReopenJust(""); load();
+    }
     catch (e: any) { setSaveErr(e.message || "Erro."); }
     finally { setSaving(false); }
-  }
-
-  async function handleResendToken(tokenId: string) {
-    try { await apiFetch(`/api/performance/admin/cycle/tokens/${tokenId}/resend`, { token, method: "POST" }); load(); } catch {}
   }
 
   function formatDate(iso: string) {
@@ -978,34 +1017,59 @@ function TabCiclo() {
                 : <Badge color="gray">Fechado</Badge>
           )}
         </div>
+
         <div className="flex flex-wrap gap-3 mt-5">
           {!cycleStatus && (
-            <button onClick={() => { setCreateModal(true); setSaveErr(""); }} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">+ Criar Ciclo</button>
+            <button onClick={() => { setCreateModal(true); setSaveErr(""); }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
+              Criar Ciclo
+            </button>
           )}
           {cycleStatus?.status === "draft" && (
-            <button onClick={handleOpen} className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-lg transition-all">Abrir Ciclo</button>
+            <button onClick={handleOpen}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-700 hover:bg-blue-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 3l14 9-14 9V3z"/></svg>
+              Abrir Ciclo
+            </button>
           )}
           {cycleStatus?.status === "open" && (
-            <button onClick={handleSendTokens} className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg transition-all">Enviar Tokens</button>
+            <button onClick={openSendAll}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+              Enviar Formulários para Todos
+            </button>
           )}
           {cycleStatus?.status === "open" && (
-            <button onClick={handleClose} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-lg transition-all">Fechar Ciclo</button>
+            <button onClick={handleClose}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+              Fechar Ciclo
+            </button>
           )}
           {cycleStatus?.status === "closed" && (
-            <button onClick={() => { setReopenModal(true); setSaveErr(""); }} className="px-4 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-lg transition-all">Reabrir Ciclo</button>
+            <button onClick={() => { setReopenModal(true); setSaveErr(""); }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582M20 20v-5h-.581M4.582 9A8 8 0 0120 15m-15.418 0A8 8 0 014 9"/></svg>
+              Reabrir Ciclo
+            </button>
           )}
         </div>
       </Card>
 
+      {/* ── Tabela de tokens ─────────────────────────────────────────────────── */}
       {tokens.length > 0 && (
         <div>
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Tokens de Avaliação</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Formulários de Avaliação</h3>
+            <span className="text-xs text-gray-400">{tokens.length} formulário{tokens.length !== 1 ? "s" : ""}</span>
+          </div>
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[600px]">
+              <table className="w-full min-w-[620px]">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Colaborador", "Avaliador (Gestor)", "Status", "Enviado em", "Ações"].map(h => (
+                    {["Colaborador", "Avaliador (Gestor)", "Status", "Enviado em", ""].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                     ))}
                   </tr>
@@ -1015,11 +1079,24 @@ function TabCiclo() {
                     <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{t.employee_name || "—"}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{t.evaluator_name}</td>
-                      <td className="px-4 py-3"><Badge color={t.status === "completed" ? "green" : t.status === "invalidated" ? "red" : "gray"}>{t.status === "completed" ? "Concluído" : t.status === "invalidated" ? "Inválido" : "Pendente"}</Badge></td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
                       <td className="px-4 py-3">
-                        {t.status !== "completed" && t.status !== "invalidated" && (
-                          <button onClick={() => handleResendToken(t.id)} className="text-xs text-blue-600 hover:underline dark:text-blue-400">Reenviar</button>
+                        <Badge color={t.status === "completed" ? "green" : t.status === "invalidated" ? "red" : "gray"}>
+                          {t.status === "completed" ? "Concluído" : t.status === "invalidated" ? "Inválido" : "Pendente"}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
+                      <td className="px-4 py-3 text-right">
+                        {t.status !== "completed" && t.status !== "invalidated" && cycleStatus?.status === "open" && (
+                          <button onClick={() => openSendOne(t.id)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                              bg-indigo-50 hover:bg-indigo-100 text-indigo-700
+                              dark:bg-indigo-900/30 dark:hover:bg-indigo-900/50 dark:text-indigo-300
+                              rounded-lg transition-all border border-indigo-200 dark:border-indigo-700">
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                            </svg>
+                            Enviar
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -1031,6 +1108,7 @@ function TabCiclo() {
         </div>
       )}
 
+      {/* ── Histórico de reaberturas ─────────────────────────────────────────── */}
       {history.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Histórico de Reaberturas</h3>
@@ -1057,6 +1135,79 @@ function TabCiclo() {
         </div>
       )}
 
+      {/* ── Modal: Enviar Formulários ─────────────────────────────────────────── */}
+      <ModalWrapper
+        open={sendModal}
+        onClose={() => { if (!sending) setSendModal(false); }}
+        title={sendTarget === "all" ? "Enviar Formulários de Avaliação" : "Reenviar Formulário"}
+      >
+        {!sendResult ? (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600 dark:text-gray-400 leading-relaxed">
+              {sendTarget === "all"
+                ? "Será criado e enviado um formulário individual por e-mail para cada gestor/coordenador com avaliações pendentes neste ciclo."
+                : "Um novo e-mail com o formulário de avaliação será reenviado para o avaliador responsável."}
+            </p>
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
+              <p className="text-xs text-amber-700 dark:text-amber-400 leading-relaxed">
+                ⚠️ Avaliadores que já concluíram a avaliação não receberão novo e-mail.
+                {sendTarget === "all" && " Gestores sem e-mail corporativo cadastrado também serão ignorados."}
+              </p>
+            </div>
+            {sendError && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">
+                <p className="text-sm text-red-700 dark:text-red-300">{sendError}</p>
+              </div>
+            )}
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setSendModal(false)} disabled={sending}
+                className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
+                Cancelar
+              </button>
+              <button onClick={handleDoSend} disabled={sending}
+                className="flex-[2] py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white disabled:text-gray-400 font-bold rounded-xl text-sm transition-all">
+                {sending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/>
+                    Enviando…
+                  </span>
+                ) : "Confirmar Envio"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {/* Resultado */}
+            <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-2xl p-6 text-center">
+              <div className="w-14 h-14 bg-green-100 dark:bg-green-800/50 rounded-full flex items-center justify-center mx-auto mb-3">
+                <svg className="w-7 h-7 text-green-600 dark:text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+              </div>
+              <p className="text-3xl font-black text-green-700 dark:text-green-400">{sendResult.sent}</p>
+              <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                e-mail{sendResult.sent !== 1 ? "s" : ""} enviado{sendResult.sent !== 1 ? "s" : ""} com sucesso
+              </p>
+            </div>
+            {sendResult.no_email > 0 && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  {sendResult.no_email} gestor{sendResult.no_email !== 1 ? "es" : ""} sem e-mail corporativo — não notificado{sendResult.no_email !== 1 ? "s" : ""}.
+                </p>
+              </div>
+            )}
+            {sendResult.created > 0 && (
+              <p className="text-xs text-gray-400 text-center">{sendResult.created} novo{sendResult.created !== 1 ? "s" : ""} formulário{sendResult.created !== 1 ? "s" : ""} criado{sendResult.created !== 1 ? "s" : ""}.</p>
+            )}
+            <button onClick={() => setSendModal(false)}
+              className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-xl text-sm hover:bg-gray-200 dark:hover:bg-gray-600 transition-all">
+              Fechar
+            </button>
+          </div>
+        )}
+      </ModalWrapper>
+
+      {/* ── Modal: Criar Ciclo ────────────────────────────────────────────────── */}
       <ModalWrapper open={createModal} onClose={() => setCreateModal(false)} title="Criar Novo Ciclo de Avaliação">
         <div className="space-y-4">
           <div>
@@ -1088,12 +1239,19 @@ function TabCiclo() {
           </div>
           {saveErr && <p className="text-sm text-red-600 dark:text-red-400">{saveErr}</p>}
           <div className="flex gap-3">
-            <button onClick={handleCreate} disabled={saving} className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">{saving ? "Criando..." : "Criar Ciclo"}</button>
-            <button onClick={() => setCreateModal(false)} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Cancelar</button>
+            <button onClick={handleCreate} disabled={saving}
+              className="flex-1 py-2.5 bg-blue-700 hover:bg-blue-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">
+              {saving ? "Criando..." : "Criar Ciclo"}
+            </button>
+            <button onClick={() => setCreateModal(false)}
+              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
+              Cancelar
+            </button>
           </div>
         </div>
       </ModalWrapper>
 
+      {/* ── Modal: Reabrir ────────────────────────────────────────────────────── */}
       <ModalWrapper open={reopenModal} onClose={() => setReopenModal(false)} title="Reabrir Ciclo">
         <div className="space-y-4">
           <p className="text-sm text-gray-600 dark:text-gray-400">Informe a justificativa para reabrir o ciclo. Este registro ficará no histórico.</p>
@@ -1104,8 +1262,14 @@ function TabCiclo() {
           </div>
           {saveErr && <p className="text-sm text-red-600 dark:text-red-400">{saveErr}</p>}
           <div className="flex gap-3">
-            <button onClick={handleReopen} disabled={saving} className="flex-1 py-2.5 bg-green-700 hover:bg-green-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">{saving ? "Reabrindo..." : "Reabrir"}</button>
-            <button onClick={() => setReopenModal(false)} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Cancelar</button>
+            <button onClick={handleReopen} disabled={saving}
+              className="flex-1 py-2.5 bg-green-700 hover:bg-green-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">
+              {saving ? "Reabrindo..." : "Reabrir"}
+            </button>
+            <button onClick={() => setReopenModal(false)}
+              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
+              Cancelar
+            </button>
           </div>
         </div>
       </ModalWrapper>
@@ -1199,8 +1363,17 @@ function TabAvaliacoes() {
 // ─── Página Principal ─────────────────────────────────────────────────────────
 
 export default function PerformancePage() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const role = user?.role as AppRole | undefined;
+
+  // ── Empresas carregadas UMA VEZ aqui e compartilhadas por todos os tabs ──────
+  const [companies, setCompanies] = useState<any[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<any[]>("/api/performance/admin/companies", { token })
+      .then(c => setCompanies(c || []))
+      .catch(() => {});
+  }, [token]);
 
   const visibleTabs = TABS.filter(t => role && t.roles.includes(role));
   const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.id ?? "dashboard");
@@ -1232,11 +1405,11 @@ export default function PerformancePage() {
         ))}
       </div>
 
-      {activeTab === "dashboard"   && <TabDashboard />}
+      {activeTab === "dashboard"   && <TabDashboard companies={companies} />}
       {activeTab === "indicadores" && <TabIndicadores />}
-      {activeTab === "hierarquia"  && <TabHierarquia />}
-      {activeTab === "gestao-rh"   && <TabGestaoRH />}
-      {activeTab === "ciclo"       && <TabCiclo />}
+      {activeTab === "hierarquia"  && <TabHierarquia companies={companies} />}
+      {activeTab === "gestao-rh"   && <TabGestaoRH   companies={companies} />}
+      {activeTab === "ciclo"       && <TabCiclo       companies={companies} />}
       {activeTab === "avaliacoes"  && <TabAvaliacoes />}
     </div>
   );

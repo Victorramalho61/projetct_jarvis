@@ -1355,6 +1355,8 @@ function MidiaTab({ token }: { token: string }) {
   const [categoryFilter, setCategoryFilter] = useState<string>('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [syncMsg, setSyncMsg] = useState<{ type: 'ok' | 'err'; text: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1375,6 +1377,27 @@ function MidiaTab({ token }: { token: string }) {
       setPosts([])
     } finally { setLoading(false) }
   }, [token])
+
+  const handleSync = useCallback(async () => {
+    setSyncLoading(true)
+    setSyncMsg(null)
+    try {
+      const res = await apiFetch<{ ok: boolean; result: { fetched: number; inserted: number; metrics: number } }>(
+        '/api/expenses/payfly/media/fetch',
+        { token, method: 'POST' },
+      )
+      setSyncMsg({
+        type: 'ok',
+        text: `Coleta concluída — ${res.result?.fetched ?? 0} artigos coletados, ${res.result?.inserted ?? 0} salvos, ${res.result?.metrics ?? 0} linhas de métricas atualizadas.`,
+      })
+      await load()
+    } catch (e: unknown) {
+      setSyncMsg({
+        type: 'err',
+        text: e instanceof Error ? e.message : 'Erro ao executar coleta de mídia',
+      })
+    } finally { setSyncLoading(false) }
+  }, [token, load])
 
   useEffect(() => { load() }, [load])
 
@@ -1439,6 +1462,62 @@ function MidiaTab({ token }: { token: string }) {
 
   return (
     <div className="space-y-6">
+
+      {/* Barra de ações */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-xs text-gray-400">
+          Coleta automática a cada 6 horas (00h, 06h, 12h, 18h BRT)
+        </p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={load}
+            disabled={loading || syncLoading}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-40"
+          >
+            Recarregar
+          </button>
+          <button
+            onClick={handleSync}
+            disabled={syncLoading || loading}
+            className="flex items-center gap-1.5 px-4 py-1.5 bg-brand-green text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50"
+          >
+            {syncLoading ? (
+              <>
+                <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"/>
+                </svg>
+                Coletando…
+              </>
+            ) : (
+              <>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Coletar agora
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Feedback da coleta */}
+      {syncMsg && (
+        <div className={`flex items-start gap-2 rounded-lg border px-4 py-3 text-sm ${
+          syncMsg.type === 'ok'
+            ? 'border-green-200 dark:border-green-800/40 bg-green-50 dark:bg-green-900/10 text-green-700 dark:text-green-400'
+            : 'border-red-200 dark:border-red-800/40 bg-red-50 dark:bg-red-900/10 text-red-700 dark:text-red-400'
+        }`}>
+          <svg className="mt-0.5 h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            {syncMsg.type === 'ok'
+              ? <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              : <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            }
+          </svg>
+          <span>{syncMsg.text}</span>
+          <button onClick={() => setSyncMsg(null)} className="ml-auto shrink-0 text-xs opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
 
       {/* Badge de crise */}
       {crisis && (

@@ -97,8 +97,8 @@ def submit_evaluation(token: str, body: EvaluationSubmit, request: Request) -> d
     if not scores_list:
         raise HTTPException(400, detail="Nenhuma nota informada.")
     for sc in scores_list:
-        if sc < 1 or sc > 4:
-            raise HTTPException(400, detail=f"Nota {sc} inválida. Use valores de 1 a 4 (NAE/APE/AE/SE).")
+        if sc < 1 or sc > 5:
+            raise HTTPException(400, detail=f"Nota {sc} inválida. Use valores de 1 a 5.")
 
     final_score = round(sum(scores_list) / len(scores_list), 2)
 

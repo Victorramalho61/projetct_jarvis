@@ -53,9 +53,13 @@ export default function App() {
           <Route path="/definir-senha" element={<InitializePasswordPage />} />
           <Route path="/esqueci-senha" element={<ForgotPasswordPage />} />
           <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
+          {/* Rotas públicas de avaliação — com e sem prefixo /desempenho/ */}
           <Route path="/avaliar/:token" element={<PublicEvaluationPage />} />
+          <Route path="/desempenho/avaliar/:token" element={<PublicEvaluationPage />} />
           <Route path="/ciencia/:token" element={<PublicCienciaPage />} />
+          <Route path="/desempenho/ciencia/:token" element={<PublicCienciaPage />} />
           <Route path="/ciencia-presencial" element={<PublicCienciaPresencialPage />} />
+          <Route path="/desempenho/ciencia-presencial" element={<PublicCienciaPresencialPage />} />
 
           <Route
             element={
