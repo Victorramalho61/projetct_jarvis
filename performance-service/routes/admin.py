@@ -81,6 +81,7 @@ def _get_current_cycle(db) -> dict | None:
 def dashboard(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
     company_id: str | None = None,
+    branch_id: str | None = None,
     cycle_id: str | None = None,
 ) -> dict:
     db = get_supabase()
@@ -95,10 +96,10 @@ def dashboard(
             "pending_acknowledgment": 0, "without_evaluation": 0,
             "indicator_averages": [],
             "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
+            "calibrations_count": 0, "calibrations_pct": 0,
         }
 
-    # Cache por (cycle_id, company_id) — invalida ao criar/encerrar ciclos
-    cache_key = f"dashboard:{cycle_id}:{company_id or 'all'}"
+    cache_key = f"dashboard:{cycle_id}:{company_id or 'all'}:{branch_id or 'all'}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
@@ -106,13 +107,15 @@ def dashboard(
     emp_q = db.table("performance_employees").select("id").eq("active", True)
     if company_id:
         emp_q = emp_q.eq("company_id", company_id)
+    if branch_id:
+        emp_q = emp_q.eq("branch_id", branch_id)
     all_employees = emp_q.execute().data
     total_employees = len(all_employees)
     all_emp_ids = {e["id"] for e in all_employees}
 
-    rev_q = db.table("performance_reviews").select("id,employee_id,status").eq("cycle_id", cycle_id)
+    rev_q = db.table("performance_reviews").select("id,employee_id,status").eq("cycle_id", cycle_id).eq("is_self_evaluation", False)
     reviews = rev_q.execute().data
-    if company_id:
+    if company_id or branch_id:
         reviews = [r for r in reviews if r.get("employee_id") in all_emp_ids]
 
     completed = [r for r in reviews if r.get("status") in ("completed", "calibrated")]
@@ -120,20 +123,18 @@ def dashboard(
     without_evaluation = max(0, total_employees - len(reviewed_ids))
     completion_pct = round(len(completed) / total_employees * 100, 1) if total_employees else 0
 
-    # Bulk fetch acks and calibrations
     review_ids = [r["id"] for r in completed]
     acked_ids: set[str] = set()
+    calibrated_ids: set[str] = set()
     if review_ids:
-        acks = (
-            db.table("performance_review_acknowledgments")
-            .select("review_id")
-            .in_("review_id", review_ids)
-            .execute()
-            .data
-        )
+        acks = db.table("performance_review_acknowledgments").select("review_id").in_("review_id", review_ids).execute().data
         acked_ids = {a["review_id"] for a in acks}
+        calibs = db.table("performance_calibrations").select("review_id").in_("review_id", review_ids).execute().data
+        calibrated_ids = {c["review_id"] for c in calibs}
 
     pending_ack = len(completed) - len(acked_ids & {r["id"] for r in completed})
+    calibrations_count = len(calibrated_ids)
+    calibrations_pct = round(calibrations_count / len(completed) * 100, 1) if completed else 0
 
     # Indicator averages
     indicator_averages: list[dict] = []
@@ -159,24 +160,16 @@ def dashboard(
 
     # ── Métricas de auto-avaliação ──────────────────────────────────────────────
     self_eval_sent = len(
-        db.table("performance_self_evaluation_tokens")
-        .select("id")
-        .eq("cycle_id", cycle_id)
-        .execute()
-        .data
+        db.table("performance_self_evaluation_tokens").select("id").eq("cycle_id", cycle_id).execute().data
     )
     self_eval_completed_q = (
-        db.table("performance_reviews")
-        .select("id")
-        .eq("cycle_id", cycle_id)
-        .eq("is_self_evaluation", True)
-        .eq("status", "completed")
+        db.table("performance_reviews").select("id")
+        .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
     )
-    if company_id:
+    if company_id or branch_id:
         self_eval_completed_q = self_eval_completed_q.in_("employee_id", list(all_emp_ids))
     self_eval_completed = len(self_eval_completed_q.execute().data)
-    self_eval_total = len(all_employees)
-    self_eval_pct = round(self_eval_completed / self_eval_total * 100, 1) if self_eval_total else 0
+    self_eval_pct = round(self_eval_completed / total_employees * 100, 1) if total_employees else 0
 
     result = {
         "total_evaluated": len(completed),
@@ -187,6 +180,8 @@ def dashboard(
         "self_eval_sent": self_eval_sent,
         "self_eval_completed": self_eval_completed,
         "self_eval_pct": self_eval_pct,
+        "calibrations_count": calibrations_count,
+        "calibrations_pct": calibrations_pct,
     }
     _cache_set(cache_key, result)
     return result
@@ -197,6 +192,7 @@ def dashboard_pending_evaluators(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
     cycle_id: str | None = None,
     company_id: str | None = None,
+    branch_id: str | None = None,
 ) -> list[dict]:
     """Managers who still have pending employees to evaluate in the current cycle."""
     db = get_supabase()
@@ -215,6 +211,8 @@ def dashboard_pending_evaluators(
     )
     if company_id:
         emp_q = emp_q.eq("company_id", company_id)
+    if branch_id:
+        emp_q = emp_q.eq("branch_id", branch_id)
     employees = emp_q.execute().data
 
     # Employees who already have a completed review in this cycle
@@ -259,6 +257,248 @@ def dashboard_pending_evaluators(
         })
     result.sort(key=lambda x: x["manager_name"])
     return result
+
+
+@router.get("/dashboard/pending-self-eval")
+def dashboard_pending_self_eval(
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    cycle_id: str | None = None,
+    company_id: str | None = None,
+    branch_id: str | None = None,
+) -> list[dict]:
+    """Colaboradores que ainda não concluíram a auto-avaliação."""
+    db = get_supabase()
+    if not cycle_id:
+        cycle = _get_current_cycle(db)
+        cycle_id = cycle["id"] if cycle else None
+    if not cycle_id:
+        return []
+
+    emp_q = db.table("performance_employees").select("id,name,cargo,hierarchy_level,performance_branches(name),performance_companies(name)").eq("active", True)
+    if company_id:
+        emp_q = emp_q.eq("company_id", company_id)
+    if branch_id:
+        emp_q = emp_q.eq("branch_id", branch_id)
+    employees = emp_q.execute().data
+
+    completed_self = {
+        r["employee_id"]
+        for r in db.table("performance_reviews")
+        .select("employee_id")
+        .eq("cycle_id", cycle_id)
+        .eq("is_self_evaluation", True)
+        .eq("status", "completed")
+        .execute()
+        .data
+    }
+
+    level_label = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    result = []
+    for emp in employees:
+        if emp["id"] not in completed_self:
+            branch = emp.get("performance_branches") or {}
+            company = emp.get("performance_companies") or {}
+            result.append({
+                "employee_id": emp["id"],
+                "employee_name": emp["name"],
+                "employee_cargo": emp.get("cargo", ""),
+                "hierarchy_level": level_label.get(emp.get("hierarchy_level"), ""),
+                "branch_name": branch.get("name", "") if isinstance(branch, dict) else "",
+                "company_name": company.get("name", "") if isinstance(company, dict) else "",
+            })
+    return sorted(result, key=lambda x: x["employee_name"])
+
+
+@router.get("/dashboard/export")
+def dashboard_export(
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    company_id: str | None = None,
+    branch_id: str | None = None,
+    cycle_id: str | None = None,
+):
+    """Exporta dashboard completo em XLSX."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from fastapi.responses import StreamingResponse
+
+    db = get_supabase()
+    if not cycle_id:
+        cycle = _get_current_cycle(db)
+        cycle_id = cycle["id"] if cycle else None
+
+    # Obter dados do dashboard
+    dash = dashboard(current_user, company_id, branch_id, cycle_id)
+
+    # Buscar avaliações detalhadas
+    emp_q = db.table("performance_employees").select("id,name,cargo,hierarchy_level,performance_branches(name),performance_companies(name)").eq("active", True)
+    if company_id:
+        emp_q = emp_q.eq("company_id", company_id)
+    if branch_id:
+        emp_q = emp_q.eq("branch_id", branch_id)
+    employees = emp_q.execute().data
+    emp_map = {e["id"]: e for e in employees}
+
+    reviews = (
+        db.table("performance_reviews")
+        .select("id,employee_id,evaluator_id,final_score,status,is_self_evaluation,submitted_at,observations")
+        .eq("cycle_id", cycle_id)
+        .execute()
+        .data
+    )
+
+    self_eval_map = {r["employee_id"]: r for r in reviews if r.get("is_self_evaluation")}
+    manager_reviews = [r for r in reviews if not r.get("is_self_evaluation")]
+
+    # Calibrações
+    review_ids = [r["id"] for r in manager_reviews]
+    calib_map: dict[str, dict] = {}
+    if review_ids:
+        calibs = db.table("performance_calibrations").select("review_id,calibrated_by,calibrated_at,notes").in_("review_id", review_ids).order("calibrated_at", desc=True).execute().data
+        for c in calibs:
+            if c["review_id"] not in calib_map:
+                calib_map[c["review_id"]] = c
+
+    wb = Workbook()
+
+    # ── Paleta de cores ─────────────────────────────────────────────────────────
+    GREEN  = "00694E"
+    LGREEN = "E6F4F0"
+    VIOLET = "7C3AED"
+    AMBER  = "D97706"
+    GRAY   = "F3F4F6"
+    WHITE  = "FFFFFF"
+
+    def header_style(cell, bg=GREEN, bold=True, color=WHITE):
+        cell.font = Font(bold=bold, color=color, size=10)
+        cell.fill = PatternFill("solid", fgColor=bg)
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    def thin_border():
+        s = Side(style="thin", color="DDDDDD")
+        return Border(left=s, right=s, top=s, bottom=s)
+
+    # ── Aba 1: Resumo ────────────────────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Resumo"
+    ws.column_dimensions["A"].width = 34
+    ws.column_dimensions["B"].width = 16
+
+    cycle_name = "—"
+    if cycle_id:
+        cy = db.table("performance_cycles").select("name").eq("id", cycle_id).execute()
+        if cy.data:
+            cycle_name = cy.data[0]["name"]
+
+    rows = [
+        ("Ciclo", cycle_name),
+        ("Total Avaliados", dash.get("total_evaluated", 0)),
+        ("Completude (%)", f"{dash.get('completion_pct', 0)}%"),
+        ("Pendentes Ciência", dash.get("pending_acknowledgment", 0)),
+        ("Sem Avaliação", dash.get("without_evaluation", 0)),
+        ("Auto-Avaliações Enviadas", dash.get("self_eval_sent", 0)),
+        ("Auto-Avaliações Concluídas", dash.get("self_eval_completed", 0)),
+        ("Auto-Avaliações (%)", f"{dash.get('self_eval_pct', 0)}%"),
+        ("Calibrações Realizadas", dash.get("calibrations_count", 0)),
+        ("Calibrações (%)", f"{dash.get('calibrations_pct', 0)}%"),
+    ]
+    ws.append(["Indicador", "Valor"])
+    for cell in ws[1]:
+        header_style(cell)
+    for r in rows:
+        ws.append(list(r))
+        for cell in ws[ws.max_row]:
+            cell.border = thin_border()
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    # ── Aba 2: Avaliações ────────────────────────────────────────────────────────
+    ws2 = wb.create_sheet("Avaliações")
+    headers2 = ["Colaborador", "Cargo", "Nível", "Empresa", "Filial", "Avaliador", "Nota Final", "Status", "Calibrado por", "Obs. Gestor"]
+    ws2.append(headers2)
+    for cell in ws2[1]:
+        header_style(cell)
+
+    level_label = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    status_label = {"pending": "Pendente", "completed": "Avaliado", "acknowledged": "Ciência Dada", "calibrated": "Calibrado"}
+
+    for r in manager_reviews:
+        emp = emp_map.get(r.get("employee_id", ""), {})
+        ev = emp_map.get(r.get("evaluator_id", ""), {})
+        branch = emp.get("performance_branches") or {}
+        company = emp.get("performance_companies") or {}
+        calib = calib_map.get(r["id"])
+        ws2.append([
+            emp.get("name", ""),
+            emp.get("cargo", ""),
+            level_label.get(emp.get("hierarchy_level"), ""),
+            company.get("name", "") if isinstance(company, dict) else "",
+            branch.get("name", "") if isinstance(branch, dict) else "",
+            ev.get("name", ""),
+            float(r["final_score"]) if r.get("final_score") is not None else "",
+            status_label.get(r.get("status", ""), r.get("status", "")),
+            calib["calibrated_by"] if calib else "",
+            r.get("observations") or "",
+        ])
+        for cell in ws2[ws2.max_row]:
+            cell.border = thin_border()
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    for i, col in enumerate(headers2, 1):
+        ws2.column_dimensions[get_column_letter(i)].width = max(14, len(col) + 4)
+
+    # ── Aba 3: Auto-Avaliações ───────────────────────────────────────────────────
+    ws3 = wb.create_sheet("Auto-Avaliações")
+    headers3 = ["Colaborador", "Cargo", "Nível", "Empresa", "Filial", "Status Auto-Aval.", "Obs. Colaborador"]
+    ws3.append(headers3)
+    for cell in ws3[1]:
+        header_style(cell, bg=VIOLET)
+
+    for emp in sorted(employees, key=lambda e: e.get("name", "")):
+        se = self_eval_map.get(emp["id"])
+        branch = emp.get("performance_branches") or {}
+        company = emp.get("performance_companies") or {}
+        ws3.append([
+            emp.get("name", ""),
+            emp.get("cargo", ""),
+            level_label.get(emp.get("hierarchy_level"), ""),
+            company.get("name", "") if isinstance(company, dict) else "",
+            branch.get("name", "") if isinstance(branch, dict) else "",
+            "Concluída" if se else "Pendente",
+            se.get("observations") or "" if se else "",
+        ])
+        row_cells = ws3[ws3.max_row]
+        fill_color = LGREEN if se else "FEF3C7"
+        for cell in row_cells:
+            cell.border = thin_border()
+            cell.fill = PatternFill("solid", fgColor=fill_color)
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+
+    for i, col in enumerate(headers3, 1):
+        ws3.column_dimensions[get_column_letter(i)].width = max(14, len(col) + 4)
+
+    # ── Aba 4: Médias por Indicador ──────────────────────────────────────────────
+    ws4 = wb.create_sheet("Médias por Indicador")
+    ws4.append(["Indicador", "Média"])
+    for cell in ws4[1]:
+        header_style(cell, bg=AMBER)
+    for ind in dash.get("indicator_averages", []):
+        ws4.append([ind["name"], ind["avg"]])
+        for cell in ws4[ws4.max_row]:
+            cell.border = thin_border()
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws4.column_dimensions["A"].width = 40
+    ws4.column_dimensions["B"].width = 12
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"desempenho_{cycle_name.replace(' ', '_')}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/dashboard/pending-ciencia")
@@ -1448,6 +1688,59 @@ def get_self_evaluation_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMI
     return result
 
 
+@router.post("/cycle/self-evaluation-tokens/{token_id}/resend")
+def resend_self_eval_token(
+    token_id: str,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    from services.email import send_self_evaluation_email
+
+    db = get_supabase()
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para reenviar tokens de auto-avaliação")
+
+    tok = db.table("performance_self_evaluation_tokens").select("*").eq("id", token_id).eq("cycle_id", cycle["id"]).execute()
+    if not tok.data:
+        raise HTTPException(404, detail="Token de auto-avaliação não encontrado")
+    t = tok.data[0]
+
+    if t.get("is_used"):
+        raise HTTPException(400, detail="Auto-avaliação já concluída — não é possível reenviar")
+
+    emp_res = db.table("performance_employees").select("*, performance_companies(name)").eq("id", t["employee_id"]).execute()
+    if not emp_res.data:
+        raise HTTPException(404, detail="Colaborador não encontrado")
+    emp = emp_res.data[0]
+
+    if not emp.get("has_corporate_email") or not emp.get("email"):
+        raise HTTPException(400, detail="Colaborador não possui e-mail corporativo cadastrado")
+
+    company_name = (emp.get("performance_companies") or {}).get("name", "")
+
+    ok = send_self_evaluation_email(
+        employee_name=emp["name"],
+        employee_email=emp["email"],
+        cycle_name=cycle["name"],
+        token=t["token"],
+        frontend_url=frontend_url,
+        company_name=company_name,
+    )
+    if ok:
+        new_count = (t.get("resend_count") or 0) + 1
+        db.table("performance_self_evaluation_tokens").update({
+            "resend_count": new_count,
+            "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+        }).eq("id", token_id).execute()
+
+    log_action("self_eval_token", token_id, "resend", None, {"employee_id": t["employee_id"]}, current_user["username"], request)
+    return {"ok": ok}
+
+
 @router.get("/cycle/reopen-history")
 def get_reopen_history(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
     db = get_supabase()
@@ -1630,57 +1923,239 @@ def list_evaluations(
     return result
 
 
-class EvalCalibrateBody(BaseModel):
+# ── Detalhe da avaliação (para modal de calibração) ───────────────────────────
+
+@router.get("/evaluations/{review_id}/detail")
+def get_evaluation_detail(
+    review_id: str,
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """Retorna avaliação do gestor + auto-avaliação + histórico de calibrações."""
+    db = get_supabase()
+
+    rev = db.table("performance_reviews").select("*").eq("id", review_id).execute()
+    if not rev.data:
+        raise HTTPException(404, detail="Avaliação não encontrada")
+    r = rev.data[0]
+
+    # Colaborador e avaliador
+    emp = db.table("performance_employees").select("id,name,cargo,hierarchy_level").eq("id", r["employee_id"]).execute()
+    emp_data = emp.data[0] if emp.data else {}
+    evaluator = db.table("performance_employees").select("id,name").eq("id", r["evaluator_id"]).execute()
+    ev_data = evaluator.data[0] if evaluator.data else {}
+
+    # Indicadores com scores do gestor
+    scores_raw = (
+        db.table("performance_indicator_scores")
+        .select("indicator_id,score,justification,performance_indicators(id,name,description,hierarchy_level)")
+        .eq("review_id", review_id)
+        .execute()
+        .data
+    )
+    manager_scores: dict[str, dict] = {}
+    for s in scores_raw:
+        ind = s.get("performance_indicators") or {}
+        iid = s["indicator_id"]
+        manager_scores[iid] = {
+            "id": iid,
+            "name": ind.get("name", "") if isinstance(ind, dict) else "",
+            "description": ind.get("description", "") if isinstance(ind, dict) else "",
+            "hierarchy_level": ind.get("hierarchy_level") if isinstance(ind, dict) else None,
+            "manager_score": float(s["score"]),
+            "manager_justification": s.get("justification") or "",
+            "current_score": float(s["score"]),  # será sobrescrito por calibração
+        }
+
+    # Auto-avaliação do mesmo colaborador no mesmo ciclo
+    self_rev = (
+        db.table("performance_reviews")
+        .select("id,final_score,observations")
+        .eq("cycle_id", r["cycle_id"])
+        .eq("employee_id", r["employee_id"])
+        .eq("is_self_evaluation", True)
+        .eq("status", "completed")
+        .execute()
+        .data
+    )
+    self_scores: dict[str, float] = {}
+    self_rev_data = None
+    if self_rev:
+        self_rev_data = self_rev[0]
+        s_scores = (
+            db.table("performance_indicator_scores")
+            .select("indicator_id,score")
+            .eq("review_id", self_rev_data["id"])
+            .execute()
+            .data
+        )
+        self_scores = {s["indicator_id"]: float(s["score"]) for s in s_scores}
+
+    # Mesclar self scores nos indicadores
+    for iid, ind in manager_scores.items():
+        ind["self_score"] = self_scores.get(iid)
+
+    # Histórico de calibrações
+    calibs = (
+        db.table("performance_calibrations")
+        .select("id,calibrated_by,calibrated_at,notes,original_score,calibrated_score")
+        .eq("review_id", review_id)
+        .order("calibrated_at", desc=True)
+        .execute()
+        .data
+    )
+    calib_ids = [c["id"] for c in calibs]
+    calib_items_map: dict[str, list] = {}
+    if calib_ids:
+        items_raw = (
+            db.table("performance_calibration_items")
+            .select("*")
+            .in_("calibration_id", calib_ids)
+            .order("created_at")
+            .execute()
+            .data
+        )
+        for item in items_raw:
+            calib_items_map.setdefault(item["calibration_id"], []).append(item)
+
+    calibration_history = []
+    for c in calibs:
+        calibration_history.append({
+            **c,
+            "items": calib_items_map.get(c["id"], []),
+        })
+
+    return {
+        "review": r,
+        "employee": emp_data,
+        "evaluator": ev_data,
+        "indicators": list(manager_scores.values()),
+        "self_eval": self_rev_data,
+        "calibration_history": calibration_history,
+        "observations": r.get("observations"),
+        "self_observations": self_rev_data.get("observations") if self_rev_data else None,
+    }
+
+
+# ── Calibração v2 (por indicador) ─────────────────────────────────────────────
+
+class CalibrationItem(BaseModel):
+    indicator_id: str
     new_score: float
     justification: str
+
+class CalibrateBodyV2(BaseModel):
+    items: list[CalibrationItem]   # apenas os indicadores que o RH alterou
+    notes: str | None = None       # observações gerais da calibração (opcional)
 
 
 @router.post("/evaluations/{review_id}/calibrate", status_code=status.HTTP_201_CREATED)
 def calibrate_evaluation(
     review_id: str,
-    body: EvalCalibrateBody,
+    body: CalibrateBodyV2,
     request: Request,
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
-    if body.new_score < 0 or body.new_score > 5:
-        raise HTTPException(400, detail="Nota deve ser entre 0 e 5")
-    if not body.justification.strip():
-        raise HTTPException(400, detail="Justificativa é obrigatória")
+    if not body.items:
+        raise HTTPException(400, detail="Informe ao menos um indicador a ser calibrado")
+    for item in body.items:
+        if not (1 <= item.new_score <= 5):
+            raise HTTPException(400, detail=f"Nota deve ser entre 1 e 5 (indicador {item.indicator_id})")
+        if not item.justification.strip():
+            raise HTTPException(400, detail="Justificativa é obrigatória para cada indicador alterado")
 
     db = get_supabase()
-    rev = db.table("performance_reviews").select("final_score,cycle_id,status").eq("id", review_id).execute()
+    rev = db.table("performance_reviews").select("final_score,cycle_id,status,employee_id").eq("id", review_id).execute()
     if not rev.data:
         raise HTTPException(404, detail="Avaliação não encontrada")
 
-    rev_status = rev.data[0].get("status", "pending")
+    rev_data = rev.data[0]
+    rev_status = rev_data.get("status", "pending")
     if rev_status not in ("completed", "calibrated", "acknowledged"):
-        raise HTTPException(
-            400,
-            detail="Não é possível calibrar uma avaliação pendente. "
-                   "O gestor precisa primeiro submeter a avaliação.",
-        )
+        raise HTTPException(400, detail="Não é possível calibrar uma avaliação pendente.")
 
-    cycle_id = rev.data[0].get("cycle_id")
+    cycle_id = rev_data.get("cycle_id")
     cycle = db.table("performance_cycles").select("status").eq("id", cycle_id).execute()
     if not cycle.data or cycle.data[0]["status"] != "open":
         raise HTTPException(400, detail="Calibração só pode ser feita com o ciclo aberto")
 
-    original_score = rev.data[0].get("final_score")
-    calib = db.table("performance_calibrations").insert({
-        "cycle_id": cycle_id, "review_id": review_id,
-        "original_score": original_score, "calibrated_score": body.new_score,
-        "justification": body.justification.strip(),
+    # Buscar scores atuais
+    current_scores_raw = (
+        db.table("performance_indicator_scores")
+        .select("indicator_id,score,performance_indicators(name)")
+        .eq("review_id", review_id)
+        .execute()
+        .data
+    )
+    current_map: dict[str, dict] = {}
+    for s in current_scores_raw:
+        ind = s.get("performance_indicators") or {}
+        current_map[s["indicator_id"]] = {
+            "score": float(s["score"]),
+            "name": ind.get("name", s["indicator_id"]) if isinstance(ind, dict) else s["indicator_id"],
+        }
+
+    original_final = rev_data.get("final_score")
+
+    # Criar registro de calibração (sessão)
+    calib_rec = db.table("performance_calibrations").insert({
+        "cycle_id": cycle_id,
+        "review_id": review_id,
+        "original_score": original_final,
+        "calibrated_score": original_final,  # será atualizado abaixo
+        "justification": (body.notes or "Calibração por indicador").strip(),
         "calibrated_by": current_user["username"],
+        "notes": body.notes,
     }).execute()
+    calib_id = calib_rec.data[0]["id"] if calib_rec.data else None
+
+    # Processar cada item
+    calib_items_payload = []
+    for item in body.items:
+        old = current_map.get(item.indicator_id, {})
+        old_score = old.get("score", item.new_score)
+        ind_name = old.get("name", item.indicator_id)
+
+        # Atualizar score no indicator_scores
+        db.table("performance_indicator_scores").update({
+            "score": item.new_score,
+        }).eq("review_id", review_id).eq("indicator_id", item.indicator_id).execute()
+
+        # Registrar item de auditoria
+        calib_items_payload.append({
+            "calibration_id": calib_id,
+            "indicator_id": item.indicator_id,
+            "indicator_name": ind_name,
+            "old_score": old_score,
+            "new_score": item.new_score,
+            "justification": item.justification.strip(),
+        })
+
+    if calib_items_payload and calib_id:
+        db.table("performance_calibration_items").insert(calib_items_payload).execute()
+
+    # Recalcular final_score como média de todos os scores atuais
+    updated_scores = (
+        db.table("performance_indicator_scores")
+        .select("score")
+        .eq("review_id", review_id)
+        .execute()
+        .data
+    )
+    new_final = round(sum(float(s["score"]) for s in updated_scores) / len(updated_scores), 2) if updated_scores else original_final
+
+    # Atualizar review e calibration com novo score final
     db.table("performance_reviews").update({
-        "final_score": body.new_score, "updated_at": "now()",
+        "final_score": new_final, "status": "calibrated", "updated_at": "now()",
     }).eq("id", review_id).execute()
+    if calib_id:
+        db.table("performance_calibrations").update({"calibrated_score": new_final}).eq("id", calib_id).execute()
 
     log_action("review", review_id, "calibrate",
-               {"final_score": original_score},
-               {"final_score": body.new_score, "calibrated_by": current_user["username"]},
+               {"final_score": original_final},
+               {"final_score": new_final, "calibrated_by": current_user["username"],
+                "changed_indicators": [i.indicator_id for i in body.items]},
                current_user["username"], request)
-    return calib.data[0] if calib.data else {"ok": True}
+    return {"ok": True, "new_final_score": new_final, "calibration_id": calib_id}
 
 
 # ── Nova Avaliação (Override RH) ───────────────────────────────────────────────

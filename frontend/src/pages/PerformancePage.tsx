@@ -94,22 +94,22 @@ function ModalWrapper({ open, onClose, title, children }: { open: boolean; onClo
 
 // ─── Tab Dashboard ────────────────────────────────────────────────────────────
 
-type DrilldownModal = "pending-evaluators" | "pending-ciencia" | null;
+type DrilldownModal = "pending-evaluators" | "pending-ciencia" | "pending-self-eval" | null;
 
 function TabDashboard({ companies }: { companies: any[] }) {
   const { token } = useAuth();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [filters, setFilters] = useState({ empresa: "", ciclo: "" });
+  const [filters, setFilters] = useState({ empresa: "", filial: "", ciclo: "" });
+  const [branches, setBranches] = useState<any[]>([]);
   const [cycles, setCycles] = useState<any[]>([]);
   const [drilldown, setDrilldown] = useState<DrilldownModal>(null);
   const [drilldownData, setDrilldownData] = useState<any[]>([]);
   const [drilldownLoading, setDrilldownLoading] = useState(false);
   const [expandedManagers, setExpandedManagers] = useState<Set<number>>(new Set());
-  // Tracks whether the initial load (cycles + dashboard) has completed
+  const [exporting, setExporting] = useState(false);
   const initialLoaded = useRef(false);
 
-  // On mount / token refresh: load cycles + dashboard (companies já vêm do pai)
   useEffect(() => {
     initialLoaded.current = false;
     setLoading(true);
@@ -123,17 +123,23 @@ function TabDashboard({ companies }: { companies: any[] }) {
     }).finally(() => setLoading(false));
   }, [token]);
 
-  // Re-fetch only dashboard when filters change (skip the initial render)
+  // Carregar filiais quando empresa muda
+  useEffect(() => {
+    if (!filters.empresa) { setBranches([]); setFilters(f => ({ ...f, filial: "" })); return; }
+    apiFetch<any[]>(`/api/performance/admin/branches?company_id=${filters.empresa}`, { token })
+      .then(b => setBranches(b || [])).catch(() => setBranches([]));
+    setFilters(f => ({ ...f, filial: "" }));
+  }, [filters.empresa]);
+
   useEffect(() => {
     if (!initialLoaded.current) return;
     setLoading(true);
     const params = new URLSearchParams();
     if (filters.empresa) params.set("company_id", filters.empresa);
+    if (filters.filial)  params.set("branch_id",  filters.filial);
     if (filters.ciclo)   params.set("cycle_id",   filters.ciclo);
     apiFetch<any>(`/api/performance/admin/dashboard?${params}`, { token })
-      .then(setStats)
-      .catch(() => setStats(null))
-      .finally(() => setLoading(false));
+      .then(setStats).catch(() => setStats(null)).finally(() => setLoading(false));
   }, [filters]);
 
   function openDrilldown(type: DrilldownModal) {
@@ -142,32 +148,61 @@ function TabDashboard({ companies }: { companies: any[] }) {
     setDrilldownLoading(true);
     const params = new URLSearchParams();
     if (filters.empresa) params.set("company_id", filters.empresa);
-    if (filters.ciclo) params.set("cycle_id", filters.ciclo);
+    if (filters.filial)  params.set("branch_id",  filters.filial);
+    if (filters.ciclo)   params.set("cycle_id",   filters.ciclo);
     apiFetch<any[]>(`/api/performance/admin/dashboard/${type}?${params}`, { token })
-      .then(d => setDrilldownData(d || []))
-      .catch(() => setDrilldownData([]))
+      .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
       .finally(() => setDrilldownLoading(false));
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    try {
+      const params = new URLSearchParams();
+      if (filters.empresa) params.set("company_id", filters.empresa);
+      if (filters.filial)  params.set("branch_id",  filters.filial);
+      if (filters.ciclo)   params.set("cycle_id",   filters.ciclo);
+      const res = await fetch(`/api/performance/admin/dashboard/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const cd = res.headers.get("Content-Disposition") || "";
+      a.download = cd.match(/filename="([^"]+)"/)?.[1] || "desempenho.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {}
+    finally { setExporting(false); }
   }
 
   return (
     <div className="space-y-6">
-      <Card className="p-4 flex flex-wrap gap-3">
-        <select
-          value={filters.empresa}
-          onChange={e => setFilters(f => ({ ...f, empresa: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]"
-        >
+      <Card className="p-4 flex flex-wrap gap-3 items-center">
+        <select value={filters.empresa} onChange={e => setFilters(f => ({ ...f, empresa: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
           <option value="">Todas as empresas</option>
           {companies.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
-        <select
-          value={filters.ciclo}
-          onChange={e => setFilters(f => ({ ...f, ciclo: e.target.value }))}
-          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]"
-        >
+        {branches.length > 0 && (
+          <select value={filters.filial} onChange={e => setFilters(f => ({ ...f, filial: e.target.value }))}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+            <option value="">Todas as filiais</option>
+            {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+        <select value={filters.ciclo} onChange={e => setFilters(f => ({ ...f, ciclo: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
           <option value="">Ciclo atual</option>
           {cycles.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
+        <div className="flex-1" />
+        <button onClick={handleExport} disabled={exporting || !stats}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all disabled:opacity-50">
+          {exporting ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : "⬇"}
+          Exportar XLSX
+        </button>
       </Card>
 
       {loading ? (
@@ -176,22 +211,16 @@ function TabDashboard({ companies }: { companies: any[] }) {
         <Card className="p-8 text-center text-gray-500">Nenhum dado disponível.</Card>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             <StatCard label="Total Avaliados" value={stats.total_evaluated ?? "—"} color="blue" />
             <StatCard label="Completude" value={`${stats.completion_pct ?? 0}%`} color="green" />
-            <StatCard
-              label="Pendentes Ciência"
-              value={stats.pending_acknowledgment ?? "—"}
-              color="amber"
-              onClick={() => openDrilldown("pending-ciencia")}
-            />
-            <StatCard
-              label="Sem Avaliação"
-              value={stats.without_evaluation ?? "—"}
-              color="red"
-              onClick={() => openDrilldown("pending-evaluators")}
-            />
-            <StatCard label="Auto-Avaliações" value={`${stats.self_eval_pct ?? 0}%`} color="violet" />
+            <StatCard label="Pendentes Ciência" value={stats.pending_acknowledgment ?? "—"} color="amber"
+              onClick={() => openDrilldown("pending-ciencia")} />
+            <StatCard label="Sem Avaliação" value={stats.without_evaluation ?? "—"} color="red"
+              onClick={() => openDrilldown("pending-evaluators")} />
+            <StatCard label="Auto-Avaliações" value={`${stats.self_eval_pct ?? 0}%`} color="violet"
+              onClick={() => openDrilldown("pending-self-eval")} />
+            <StatCard label="Calibrações" value={`${stats.calibrations_count ?? 0}`} color="blue" />
           </div>
           {stats.indicator_averages?.length > 0 && (
             <Card className="p-5">
@@ -210,60 +239,38 @@ function TabDashboard({ companies }: { companies: any[] }) {
         </>
       )}
 
-      {/* Drilldown: Gestores pendentes de avaliação — colapsável por gestor */}
-      <ModalWrapper
-        open={drilldown === "pending-evaluators"}
+      {/* Drilldown: Gestores pendentes */}
+      <ModalWrapper open={drilldown === "pending-evaluators"}
         onClose={() => { setDrilldown(null); setExpandedManagers(new Set()); }}
-        title="Gestores com Avaliações Pendentes"
-      >
+        title="Gestores com Avaliações Pendentes">
         {drilldownLoading ? (
           <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-4">Nenhum gestor com avaliações pendentes.</p>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-gray-400 mb-3">
-              {drilldownData.length} gestor{drilldownData.length !== 1 ? "es" : ""} com avaliações pendentes — clique para expandir
-            </p>
+            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} gestor{drilldownData.length !== 1 ? "es" : ""} — clique para expandir</p>
             {drilldownData.map((mgr: any, i: number) => {
               const isOpen = expandedManagers.has(i);
               const count = mgr.pending_employees?.length ?? 0;
               return (
                 <div key={i} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                  {/* Header do gestor — clicável */}
-                  <button
-                    onClick={() => setExpandedManagers(prev => {
-                      const next = new Set(prev);
-                      isOpen ? next.delete(i) : next.add(i);
-                      return next;
-                    })}
-                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                  >
+                  <button onClick={() => setExpandedManagers(prev => { const n = new Set(prev); isOpen ? n.delete(i) : n.add(i); return n; })}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-[#E6F4F0] dark:bg-[#00694E]/20 flex items-center justify-center flex-shrink-0">
-                        <svg className="w-4 h-4 text-[#00694E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
+                        <svg className="w-4 h-4 text-[#00694E]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
                       </div>
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900 dark:text-white text-sm truncate">{mgr.manager_name}</p>
-                        {mgr.manager_email && (
-                          <p className="text-xs text-gray-400 truncate">{mgr.manager_email}</p>
-                        )}
+                        {mgr.manager_email && <p className="text-xs text-gray-400 truncate">{mgr.manager_email}</p>}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">
-                        {count} pendente{count !== 1 ? "s" : ""}
-                      </span>
-                      <svg
-                        className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" />
-                      </svg>
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400">{count} pendente{count !== 1 ? "s" : ""}</span>
+                      <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" /></svg>
                     </div>
                   </button>
-                  {/* Subordinados — visíveis só quando expandido */}
                   {isOpen && (
                     <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30 px-4 py-3 space-y-2">
                       {mgr.pending_employees?.map((emp: any, j: number) => (
@@ -282,12 +289,8 @@ function TabDashboard({ companies }: { companies: any[] }) {
         )}
       </ModalWrapper>
 
-      {/* Drilldown: Colaboradores pendentes de ciência */}
-      <ModalWrapper
-        open={drilldown === "pending-ciencia"}
-        onClose={() => setDrilldown(null)}
-        title="Colaboradores Pendentes de Ciência"
-      >
+      {/* Drilldown: Pendentes de ciência */}
+      <ModalWrapper open={drilldown === "pending-ciencia"} onClose={() => setDrilldown(null)} title="Colaboradores Pendentes de Ciência">
         {drilldownLoading ? (
           <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
@@ -304,6 +307,28 @@ function TabDashboard({ companies }: { companies: any[] }) {
                   <span className="text-sm font-bold text-amber-600">{emp.final_score != null ? Number(emp.final_score).toFixed(2) : "—"}</span>
                   <p className="text-xs text-gray-400">Nota</p>
                 </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ModalWrapper>
+
+      {/* Drilldown: Auto-avaliações pendentes */}
+      <ModalWrapper open={drilldown === "pending-self-eval"} onClose={() => setDrilldown(null)} title="Colaboradores Pendentes de Auto-Avaliação">
+        {drilldownLoading ? (
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : drilldownData.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">Todos os colaboradores concluíram a auto-avaliação! 🎉</p>
+        ) : (
+          <div className="space-y-1">
+            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} colaborador{drilldownData.length !== 1 ? "es" : ""} pendente{drilldownData.length !== 1 ? "s" : ""}</p>
+            {drilldownData.map((emp: any, i: number) => (
+              <div key={i} className="flex items-center justify-between border border-gray-100 dark:border-gray-700 rounded-lg px-4 py-2.5">
+                <div>
+                  <p className="font-semibold text-gray-900 dark:text-white text-sm">{emp.employee_name}</p>
+                  <p className="text-xs text-gray-400">{emp.employee_cargo} · {emp.hierarchy_level}{emp.branch_name ? ` · ${emp.branch_name}` : ""}</p>
+                </div>
+                <Badge color="violet">⏳ Pendente</Badge>
               </div>
             ))}
           </div>
@@ -762,8 +787,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [filters, setFilters] = useState({ status: "", company_id: "", search: "" });
   const [cycleOpen, setCycleOpen] = useState(true);
   const [calibModal, setCalibModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
-  const [calibNota, setCalibNota] = useState("");
-  const [calibJust, setCalibJust] = useState("");
+  const [calibDetail, setCalibDetail] = useState<any>(null);
+  const [calibDetailLoading, setCalibDetailLoading] = useState(false);
+  // Map: indicator_id → { new_score: string, justification: string }
+  const [calibEdits, setCalibEdits] = useState<Record<string, { new_score: string; justification: string }>>({});
+  const [calibNotes, setCalibNotes] = useState("");
   const [calibErr, setCalibErr] = useState("");
   const [calibSaving, setCalibSaving] = useState(false);
   const [resetModal, setResetModal] = useState(false);
@@ -795,18 +823,49 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
   function openCalib(item: any) {
     setCalibModal({ open: true, item });
-    setCalibNota(item.final_score?.toString() ?? "");
-    setCalibJust(""); setCalibErr("");
+    setCalibEdits({});
+    setCalibNotes("");
+    setCalibErr("");
+    setCalibDetail(null);
+    setCalibDetailLoading(true);
+    apiFetch<any>(`/api/performance/admin/evaluations/${item.id}/detail`, { token })
+      .then(d => setCalibDetail(d))
+      .catch(() => setCalibErr("Erro ao carregar detalhes da avaliação."))
+      .finally(() => setCalibDetailLoading(false));
+  }
+
+  function setCalibScore(indId: string, value: string) {
+    setCalibEdits(prev => ({ ...prev, [indId]: { ...(prev[indId] || { justification: "" }), new_score: value } }));
+  }
+
+  function setCalibJust(indId: string, value: string) {
+    setCalibEdits(prev => ({ ...prev, [indId]: { ...(prev[indId] || { new_score: "" }), justification: value } }));
   }
 
   async function handleCalibrate() {
-    const nota = parseFloat(calibNota);
-    if (isNaN(nota) || nota < 0 || nota > 5) { setCalibErr("Nota deve ser entre 0 e 5."); return; }
-    if (!calibJust.trim()) { setCalibErr("Justificativa é obrigatória."); return; }
-    setCalibSaving(true);
+    // Coletar apenas indicadores com score preenchido (alterados)
+    const items = Object.entries(calibEdits)
+      .filter(([, v]) => v.new_score !== "")
+      .map(([indicator_id, v]) => ({
+        indicator_id,
+        new_score: parseFloat(v.new_score),
+        justification: v.justification,
+      }));
+
+    if (items.length === 0) { setCalibErr("Altere ao menos um indicador antes de salvar."); return; }
+    for (const it of items) {
+      if (isNaN(it.new_score) || it.new_score < 1 || it.new_score > 5) {
+        setCalibErr(`Nota inválida — deve ser entre 1 e 5.`); return;
+      }
+      if (!it.justification.trim()) {
+        const ind = calibDetail?.indicators?.find((i: any) => i.id === it.indicator_id);
+        setCalibErr(`Justificativa obrigatória para: ${ind?.name || it.indicator_id}`); return;
+      }
+    }
+    setCalibSaving(true); setCalibErr("");
     try {
       await apiFetch(`/api/performance/admin/evaluations/${calibModal.item?.id}/calibrate`, {
-        token, method: "POST", json: { new_score: nota, justification: calibJust }
+        token, method: "POST", json: { items, notes: calibNotes || null }
       });
       setCalibModal({ open: false, item: null }); loadList();
     } catch (e: any) { setCalibErr(e.message || "Erro ao calibrar."); }
@@ -973,40 +1032,137 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         </div>
       )}
 
-      <ModalWrapper open={calibModal.open} onClose={() => setCalibModal({ open: false, item: null })} title="Calibração de Nota">
-        <div className="space-y-4">
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Colaborador: <strong>{calibModal.item?.employee_name}</strong><br />
-            Avaliador: <span className="text-gray-500">{calibModal.item?.evaluator_name}</span><br />
-            Nota atual: <strong>{calibModal.item?.final_score?.toFixed(2) ?? "—"}</strong>
-          </p>
-          {/* Observações do gestor — visível para o RH durante calibração */}
-          {calibModal.item?.observations && (
-            <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
-              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">
-                📝 Observações do Gestor
-              </p>
-              <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                {calibModal.item.observations}
-              </p>
+      {/* ── Modal Calibração por indicador ── */}
+      <ModalWrapper open={calibModal.open} onClose={() => setCalibModal({ open: false, item: null })} title={`Calibração — ${calibModal.item?.employee_name ?? ""}`}>
+        {calibDetailLoading ? (
+          <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : calibDetail ? (
+          <div className="space-y-5">
+            {/* Cabeçalho */}
+            <div className="flex flex-wrap gap-4 text-sm">
+              <div><span className="text-gray-400">Avaliador:</span> <strong className="text-gray-800 dark:text-gray-100">{calibDetail.evaluator?.name ?? "—"}</strong></div>
+              <div><span className="text-gray-400">Nota atual:</span> <strong className="text-violet-700 dark:text-violet-400">{calibModal.item?.final_score != null ? Number(calibModal.item.final_score).toFixed(2) : "—"}</strong></div>
             </div>
-          )}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nova Nota (0–5)</label>
-            <input type="number" min="0" max="5" step="0.01" value={calibNota} onChange={e => setCalibNota(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
+
+            {/* Observações */}
+            {(calibDetail.observations || calibDetail.self_observations) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {calibDetail.observations && (
+                  <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">📝 Obs. Gestor</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{calibDetail.observations}</p>
+                  </div>
+                )}
+                {calibDetail.self_observations && (
+                  <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg border border-violet-200 dark:border-violet-800 p-3">
+                    <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-1">🔄 Obs. Colaborador</p>
+                    <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed whitespace-pre-wrap">{calibDetail.self_observations}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Tabela de indicadores */}
+            <div className="space-y-3">
+              <div className="grid grid-cols-12 gap-1 px-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
+                <span className="col-span-4">Indicador</span>
+                <span className="col-span-2 text-center">Gestor</span>
+                <span className="col-span-2 text-center">Auto-Aval.</span>
+                <span className="col-span-4 text-center">Nova Nota RH</span>
+              </div>
+              {calibDetail.indicators?.map((ind: any) => {
+                const edit = calibEdits[ind.id];
+                const isChanged = edit?.new_score !== "" && edit?.new_score !== undefined;
+                return (
+                  <div key={ind.id} className={`rounded-xl border p-3 transition-all ${isChanged ? "border-violet-300 dark:border-violet-700 bg-violet-50/50 dark:bg-violet-900/10" : "border-gray-200 dark:border-gray-700"}`}>
+                    <div className="grid grid-cols-12 gap-2 items-start">
+                      <div className="col-span-4">
+                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-tight">{ind.name}</p>
+                        {ind.manager_justification && (
+                          <p className="text-xs text-gray-400 mt-0.5 italic leading-tight line-clamp-2" title={ind.manager_justification}>"{ind.manager_justification}"</p>
+                        )}
+                      </div>
+                      <div className="col-span-2 text-center">
+                        <span className="text-sm font-bold text-[#00694E] dark:text-emerald-400">{ind.manager_score}</span>
+                      </div>
+                      <div className="col-span-2 text-center">
+                        {ind.self_score != null
+                          ? <span className="text-sm font-bold text-violet-600 dark:text-violet-400">{ind.self_score}</span>
+                          : <span className="text-xs text-gray-300">—</span>}
+                      </div>
+                      <div className="col-span-4">
+                        <select
+                          value={edit?.new_score ?? ""}
+                          onChange={e => setCalibScore(ind.id, e.target.value)}
+                          className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100">
+                          <option value="">Manter ({ind.current_score})</option>
+                          {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    {isChanged && (
+                      <div className="mt-2">
+                        <textarea
+                          value={edit?.justification ?? ""}
+                          onChange={e => setCalibJust(ind.id, e.target.value)}
+                          rows={2}
+                          placeholder="Justificativa obrigatória para esta alteração *"
+                          className="w-full rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Notas gerais da calibração */}
+            <div>
+              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Notas gerais da calibração (opcional)</label>
+              <textarea value={calibNotes} onChange={e => setCalibNotes(e.target.value)} rows={2}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100" />
+            </div>
+
+            {/* Histórico de calibrações anteriores */}
+            {calibDetail.calibration_history?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Calibrações</p>
+                {calibDetail.calibration_history.map((c: any, i: number) => (
+                  <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-2 text-xs">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-semibold text-gray-700 dark:text-gray-300">{c.calibrated_by}</span>
+                      <span className="text-gray-400">{new Date(c.calibrated_at).toLocaleString("pt-BR")}</span>
+                    </div>
+                    {c.items?.map((it: any, j: number) => (
+                      <div key={j} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 mb-0.5">
+                        <span className="font-medium">{it.indicator_name}</span>
+                        <span className="text-red-500">{it.old_score}</span>
+                        <span>→</span>
+                        <span className="text-green-600">{it.new_score}</span>
+                        {it.justification && <span className="italic">"{it.justification}"</span>}
+                      </div>
+                    ))}
+                    {c.notes && <p className="text-gray-400 mt-1 italic">{c.notes}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {calibErr && <p className="text-sm text-red-600 dark:text-red-400">{calibErr}</p>}
+            <div className="flex gap-3 pt-1">
+              <button onClick={handleCalibrate} disabled={calibSaving || Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length === 0}
+                className="flex-1 py-2.5 bg-violet-700 hover:bg-violet-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60 transition-all">
+                {calibSaving ? "Salvando..." : `Salvar Calibração (${Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length} indicador${Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length !== 1 ? "es" : ""})`}
+              </button>
+              <button onClick={() => setCalibModal({ open: false, item: null })} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Cancelar</button>
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Justificativa *</label>
-            <textarea value={calibJust} onChange={e => setCalibJust(e.target.value)} rows={3}
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100" />
+        ) : (
+          <div className="space-y-3">
+            {calibErr && <p className="text-sm text-red-600 dark:text-red-400">{calibErr}</p>}
+            <button onClick={() => setCalibModal({ open: false, item: null })} className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Fechar</button>
           </div>
-          {calibErr && <p className="text-sm text-red-600 dark:text-red-400">{calibErr}</p>}
-          <div className="flex gap-3">
-            <button onClick={handleCalibrate} disabled={calibSaving} className="flex-1 py-2.5 bg-violet-700 hover:bg-violet-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60">{calibSaving ? "Salvando..." : "Calibrar"}</button>
-            <button onClick={() => setCalibModal({ open: false, item: null })} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Cancelar</button>
-          </div>
-        </div>
+        )}
       </ModalWrapper>
 
       {/* ── Modal Nova Avaliação (override RH) ── */}
@@ -1106,6 +1262,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
   // Tokens de auto-avaliação
   const [selfEvalTokens, setSelfEvalTokens] = useState<any[]>([]);
   const [showSelfEvalTokens, setShowSelfEvalTokens] = useState(false);
+  const [resendingSelfEval, setResendingSelfEval] = useState<string | null>(null);
 
   function openSendAll() { setSendTarget("all"); setSendResult(null); setSendError(""); setSendModal(true); }
   function openSendOne(tokenId: string) { setSendTarget(tokenId); setSendResult(null); setSendError(""); setSendModal(true); }
@@ -1128,6 +1285,18 @@ function TabCiclo({ companies }: { companies: any[] }) {
       setSelfEvalError(e?.message || "Erro ao enviar auto-avaliações.");
     } finally {
       setSelfEvalSending(false);
+    }
+  }
+
+  async function handleResendSelfEval(tokenId: string) {
+    setResendingSelfEval(tokenId);
+    try {
+      await apiFetch(`/api/performance/admin/cycle/self-evaluation-tokens/${tokenId}/resend`, { token, method: "POST" });
+      await loadSelfEvalTokens();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao reenviar auto-avaliação.");
+    } finally {
+      setResendingSelfEval(null);
     }
   }
 
@@ -1375,7 +1544,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
                 <table className="w-full min-w-[560px]">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-gray-700">
-                      {["Colaborador", "Status", "E-mail", "Enviado em", "Reenvios"].map(h => (
+                      {["Colaborador", "Status", "E-mail", "Enviado em", ""].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                       ))}
                     </tr>
@@ -1393,7 +1562,31 @@ function TabCiclo({ companies }: { companies: any[] }) {
                           {st.has_email ? <span className="text-green-600 text-base">✓</span> : <span className="text-gray-300 text-base">—</span>}
                         </td>
                         <td className="px-4 py-3 text-sm text-gray-500">{st.sent_at ? formatDate(st.sent_at) : "—"}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500 text-center">{st.resend_count > 0 ? st.resend_count : "—"}</td>
+                        <td className="px-4 py-3 text-right">
+                          {st.status !== "completed" && st.status !== "invalidated" && cycleStatus?.status === "open" && st.has_email && (
+                            <button
+                              onClick={() => handleResendSelfEval(st.id)}
+                              disabled={resendingSelfEval === st.id}
+                              title={st.resend_count > 0 ? `Reenviar (${st.resend_count}x enviado)` : "Enviar link de auto-avaliação"}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                                bg-violet-50 hover:bg-violet-100 text-violet-700
+                                dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300
+                                rounded-lg transition-all border border-violet-200 dark:border-violet-800
+                                disabled:opacity-60 disabled:cursor-not-allowed">
+                              {resendingSelfEval === st.id ? (
+                                <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
+                              ) : (
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                </svg>
+                              )}
+                              {st.resend_count > 0 ? `Reenviar (${st.resend_count}×)` : "Enviar"}
+                            </button>
+                          )}
+                          {st.status !== "completed" && st.status !== "invalidated" && !st.has_email && (
+                            <span className="text-xs text-gray-400 italic">sem e-mail</span>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
