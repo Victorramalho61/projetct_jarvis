@@ -1,4 +1,4 @@
-import { lazy, Suspense } from "react";
+import { lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -34,20 +34,11 @@ const PublicCienciaPage = lazy(() => import("./pages/PublicCienciaPage"));
 const PublicCienciaPresencialPage = lazy(() => import("./pages/PublicCienciaPresencialPage"));
 const PublicSelfEvaluationPage = lazy(() => import("./pages/PublicSelfEvaluationPage"));
 
-function PageLoader() {
-  return (
-    <div className="flex items-center justify-center h-64">
-      <div className="w-8 h-8 border-4 border-voetur-500 border-t-transparent rounded-full animate-spin" />
-    </div>
-  );
-}
-
 export default function App() {
   return (
     <ThemeProvider>
     <BrowserRouter>
       <AuthProvider>
-        <Suspense fallback={<PageLoader />}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/solicitar-acesso" element={<RequestAccessPage />} />
@@ -94,7 +85,6 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-        </Suspense>
       </AuthProvider>
     </BrowserRouter>
     </ThemeProvider>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, Role } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -575,7 +575,13 @@ const filteredNav = visible.filter((i) =>
         )}
 
         <main ref={mainRef} className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-950">
-          <Outlet />
+          <Suspense fallback={
+            <div className="flex items-center justify-center h-64">
+              <div className="w-8 h-8 border-4 border-voetur-500 border-t-transparent rounded-full animate-spin" />
+            </div>
+          }>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

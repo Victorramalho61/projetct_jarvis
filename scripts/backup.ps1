@@ -1,4 +1,4 @@
-# Backup Jarvis - PostgreSQL + Evolution API
+# Backup Jarvis - PostgreSQL (postgres + evolution)
 # Agendado via Task Scheduler: diario, 01:00
 
 $ErrorActionPreference = "Stop"
@@ -6,25 +6,35 @@ $BACKUP_DIR = "E:\claudecode\claudecode\backups"
 $RETENTION_DAYS = 14
 $TIMESTAMP = Get-Date -Format "yyyyMMdd_HHmmss"
 $BACKUP_PATH = "$BACKUP_DIR\$TIMESTAMP"
+$ERRORS = @()
 
 function log($msg) { Write-Host "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $msg" }
+
+function assert-size($file, $label, $minMB = 1) {
+    $sizeMB = [math]::Round((Get-Item $file).Length / 1MB, 1)
+    if ($sizeMB -lt $minMB) {
+        $script:ERRORS += "$label gerou arquivo de ${sizeMB}MB (minimo esperado: ${minMB}MB)"
+        log "AVISO: $label - ${sizeMB}MB (suspeito)"
+    } else {
+        log "$label - ${sizeMB}MB - ok"
+    }
+    return $sizeMB
+}
 
 New-Item -ItemType Directory -Force -Path $BACKUP_PATH | Out-Null
 log "Iniciando backup Jarvis -> $BACKUP_PATH"
 
-# PostgreSQL - formato custom (-Fc) ja comprimido, sem carregar tudo em RAM
-log "PostgreSQL: iniciando pg_dump -Fc..."
+# PostgreSQL banco principal (postgres) - formato custom (-Fc) ja comprimido
+log "PostgreSQL [postgres]: iniciando pg_dump -Fc..."
 $dumpFile = "$BACKUP_PATH\postgres_${TIMESTAMP}.dump"
 docker exec jarvis-db-1 bash -c 'pg_dump -U postgres -d postgres -Fc --no-owner --no-acl' > $dumpFile
-$size = [math]::Round((Get-Item $dumpFile).Length / 1MB, 1)
-log "PostgreSQL: ${size}MB - ok"
+assert-size $dumpFile "postgres" 10 | Out-Null
 
-# Evolution API
-log "Evolution API: copiando volume..."
-docker run --rm -v jarvis_evolution_data:/data:ro -v "${BACKUP_PATH}:/backup" `
-    alpine tar czf "/backup/evolution_${TIMESTAMP}.tar.gz" -C /data . 2>&1 | Out-Null
-$evoSize = [math]::Round((Get-Item "$BACKUP_PATH\evolution_${TIMESTAMP}.tar.gz").Length / 1MB, 1)
-log "Evolution: ${evoSize}MB - ok"
+# PostgreSQL banco evolution (sessoes WhatsApp) - container desabilitado mas banco persiste
+log "PostgreSQL [evolution]: iniciando pg_dump -Fc..."
+$evoDbFile = "$BACKUP_PATH\evolution_db_${TIMESTAMP}.dump"
+docker exec jarvis-db-1 bash -c 'pg_dump -U postgres -d evolution -Fc --no-owner --no-acl' > $evoDbFile
+assert-size $evoDbFile "evolution_db" 0.05 | Out-Null
 
 # Rotacao
 log "Rotacao: removendo backups com mais de $RETENTION_DAYS dias..."
@@ -34,3 +44,9 @@ Get-ChildItem $BACKUP_DIR -Directory |
 
 $totalSize = [math]::Round((Get-ChildItem $BACKUP_PATH -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
 log "Backup concluido - total: ${totalSize}MB em $BACKUP_PATH"
+
+if ($ERRORS.Count -gt 0) {
+    log "ERROS DETECTADOS:"
+    $ERRORS | ForEach-Object { log "  - $_" }
+    exit 1
+}

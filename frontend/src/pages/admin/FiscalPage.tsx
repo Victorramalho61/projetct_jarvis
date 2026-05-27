@@ -131,6 +131,30 @@ interface SyncLog {
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
+function formatXml(xml: string): string {
+  try {
+    let formatted = '';
+    let pad = 0;
+    const normalized = xml.replace(/>\s*</g, '>\n<');
+    normalized.split('\n').forEach((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let indent = pad;
+      if (trimmed.startsWith('</')) {
+        indent = Math.max(0, pad - 1);
+        pad = indent;
+      } else if (trimmed.startsWith('<') && !trimmed.startsWith('<?') && !trimmed.endsWith('/>') && !trimmed.includes('</')) {
+        indent = pad;
+        pad += 1;
+      }
+      formatted += '  '.repeat(indent) + trimmed + '\n';
+    });
+    return formatted.trim();
+  } catch {
+    return xml;
+  }
+}
+
 const GRUPO_LABEL: Record<string, string> = {
   vtclog: "VTC Operadora Logística",
   voetur: "Voetur Turismo",
@@ -241,6 +265,7 @@ export default function FiscalPage() {
 
   const [tab, setTab]           = useState<Tab>("dashboard");
   const [companies, setCompanies] = useState<FiscalCompany[]>([]);
+  const [companiesLoading, setCompaniesLoading] = useState(true);
   // "" = todas as empresas
   const [selectedId, setSelectedId] = useState<string>("");
 
@@ -352,9 +377,11 @@ export default function FiscalPage() {
   // ── Load companies ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!token) return;
+    setCompaniesLoading(true);
     apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token })
       .then(setCompanies)
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setCompaniesLoading(false));
   }, [token]);
 
   const currentCompany = useMemo(
@@ -380,7 +407,7 @@ export default function FiscalPage() {
 
   // ── Load stats ──────────────────────────────────────────────────────────────
   const loadStats = useCallback(() => {
-    if (!token) return;
+    if (!token || !selectedId) return;
     const p = new URLSearchParams({ ano: String(ano) });
     if (mes > 0) p.set("mes", String(mes));
     if (selectedId) p.set("company_id", selectedId);
@@ -911,11 +938,12 @@ export default function FiscalPage() {
               </label>
               <select
                 value={selectedId}
+                disabled={companiesLoading}
                 onChange={(e) => { setSelectedId(e.target.value); setDocsOffset(0); setNfeOffset(0); }}
-                className={`${inp} min-w-[240px]`}
+                className={`${inp} min-w-[240px] ${companiesLoading ? "opacity-60 cursor-wait" : ""}`}
               >
-                <option value="">Todas as empresas</option>
-                {grouped.map(({ key, items }) => (
+                <option value="">{companiesLoading ? "Carregando empresas…" : "Todas as empresas"}</option>
+                {!companiesLoading && grouped.map(({ key, items }) => (
                   <optgroup key={key} label={GRUPO_LABEL[key] ?? key}>
                     {items.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -1521,10 +1549,10 @@ export default function FiscalPage() {
                   <summary className={`px-4 py-3 cursor-pointer text-sm font-medium select-none ${isDark ? "text-gray-300" : "text-gray-700"}`}>
                     Ver XML completo
                   </summary>
-                  <pre className={`text-xs p-4 overflow-auto max-h-64 border-t font-mono leading-relaxed ${
+                  <pre className={`text-xs p-4 overflow-auto max-h-64 border-t font-mono leading-relaxed whitespace-pre ${
                     isDark ? "bg-gray-950 text-green-400 border-gray-700" : "bg-gray-50 text-gray-700 border-gray-200"
                   }`}>
-                    {detailDoc.xml_content}
+                    {formatXml(detailDoc.xml_content)}
                   </pre>
                 </details>
               ) : null}
