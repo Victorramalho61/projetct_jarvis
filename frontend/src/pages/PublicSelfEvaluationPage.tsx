@@ -107,7 +107,7 @@ interface ConfirmModalProps {
 }
 
 function ConfirmModal({
-  indicators, scores, observations, employeeName, primaryBg, primaryBtn,
+  indicators, scores, observations, primaryBg, primaryBtn,
   onClose, onConfirm, submitting, submitError,
 }: ConfirmModalProps) {
   const total = indicators.reduce((s, ind) => s + (scores[ind.id] ?? 0), 0);

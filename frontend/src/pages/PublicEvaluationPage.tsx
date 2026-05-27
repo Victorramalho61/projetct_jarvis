@@ -20,9 +20,6 @@ const SOCIALS = [
 ];
 
 const HR_EMAIL = "rh@voetur.com.br";
-const BRAND    = "#00694E";
-const BRAND_DARK = "#004F3A";
-
 function CompanyLogo() {
   return (
     <img

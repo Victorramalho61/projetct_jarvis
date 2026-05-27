@@ -18,10 +18,6 @@ const SOCIALS = [
 
 const HR_EMAIL = "rh@voetur.com.br";
 
-// Grupo Voetur — paleta única
-const BRAND    = "#00694E";
-const BRAND_DARK = "#004F3A";
-
 function ScoreBadge({ score }: { score: number }) {
   const rounded = Math.round(score);
   const s = SCORE_MAP[rounded];
@@ -93,9 +89,9 @@ function GrupoVoeturFooter() {
 
 // ── Painel de resultado (reutilizado em info + acknowledged) ──────────────────
 function ResultPanel({
-  data, vtc, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal,
+  data, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal,
 }: {
-  data: any; vtc: boolean; primaryBg: string; primaryText: string; primaryBorder: string;
+  data: any; primaryBg: string; primaryText: string; primaryBorder: string;
   acknowledged: boolean; acknowledgedAt?: string; onOpenModal?: () => void;
 }) {
   function formatDate(iso: string) {
@@ -325,7 +321,6 @@ export default function PublicCienciaPage() {
             )}
             <ResultPanel
               data={data}
-              vtc={vtc}
               primaryBg={primaryBg}
               primaryText={primaryText}
               primaryBorder={primaryBorder}
