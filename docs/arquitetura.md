@@ -1573,3 +1573,54 @@ Scripts: `fix_missing_columns.sql` e `optimize_queries.sql` na raiz do projeto.
 `freshservice-service/services/freshservice.py`: `_UPSERT_BATCH` aumentado de `5` → `50` (10× menos chamadas ao Supabase por sync).
 
 ---
+
+## Fiscal — Correções e Melhorias 2026-05-27
+
+### Problema 1: Navegação entre módulos quebrada
+
+**Causa**: `<Suspense fallback={<PageLoader />}>` envolvia o `<Routes>` inteiro em `App.tsx`. Ao navegar para uma página lazy ainda não carregada, o React substituía o layout completo (sidebar + header) pelo spinner. O usuário via tela vazia sem perceber que a navegação havia funcionado.
+
+**Fix**: Suspense movido para dentro de `AppLayout`, envolvendo apenas o `<Outlet />`:
+
+```tsx
+// frontend/src/components/AppLayout.tsx
+<main className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-950">
+  <Suspense fallback={<div className="flex items-center justify-center h-64">...</div>}>
+    <Outlet />
+  </Suspense>
+</main>
+```
+
+Resultado: sidebar e header permanecem visíveis durante qualquer transição de página. O spinner aparece apenas na área de conteúdo.
+
+### Problema 2: XML exibido em uma única linha
+
+**Causa**: XML armazenado sem indentação. O `<pre>` preserva espaços existentes mas não os cria.
+
+**Fix**: Função `formatXml()` adicionada em `FiscalPage.tsx` — indenta com base em abertura/fechamento de tags, aplicada no `<pre>` do modal de detalhe. Funciona para todos os documentos existentes e novos sem alteração no banco.
+
+### Problema 3: Dashboard lento / dropdown demora
+
+**Causa**: `loadStats()` era chamado sem empresa selecionada, disparando `fiscal_nfse_stats` com `p_company_id = NULL` (agrega todos os documentos de todas as empresas desnecessariamente).
+
+**Fix**:
+- Guard: `if (!token || !selectedId) return;` no início de `loadStats()`
+- Estado `companiesLoading` no dropdown: mostra "Carregando empresas…" com disabled durante o fetch
+
+### CI TypeScript — erros corrigidos (2026-05-27)
+
+| Arquivo | Erro | Fix |
+|---|---|---|
+| `PublicCienciaPage.tsx` | `BRAND`, `BRAND_DARK` não usados; `vtc` declarado como prop mas nunca usado, causando `Cannot find name 'vtc'` | Removidos |
+| `PublicEvaluationPage.tsx` | `BRAND`, `BRAND_DARK` não usados | Removidos |
+| `PublicSelfEvaluationPage.tsx` | `employeeName` no destructuring mas nunca lido | Removido do destructuring |
+
+### Backup PostgreSQL — Correção do banco `evolution` (2026-05-26)
+
+`scripts/backup.ps1` reescrito:
+- Backup do volume Docker do Evolution API removido — container desabilitado, volume vazio, gerava `.tar.gz` de 0 bytes silenciosamente
+- Adicionado `pg_dump -d evolution` direto no `jarvis-db-1` → banco WhatsApp (8.7 MB) salvo diariamente como `evolution_db_${TIMESTAMP}.dump`
+- Função `assert-size`: valida tamanho mínimo e faz `exit 1` se abaixo do limite (Task Scheduler marca job como falho)
+- Thresholds: postgres ≥ 10 MB, evolution_db ≥ 0.05 MB
+
+---
