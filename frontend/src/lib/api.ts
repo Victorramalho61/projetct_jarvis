@@ -14,7 +14,7 @@ export function setUnauthorizedHandler(fn: () => void): void {
   _onUnauthorized = fn;
 }
 
-const API_TIMEOUT_MS = 8_000;
+const API_TIMEOUT_MS = 30_000;
 
 type FetchOptions = Omit<RequestInit, "body"> & {
   token?: string | null;
@@ -33,7 +33,8 @@ export async function apiFetch<T = unknown>(
   if (json !== undefined) headers["Content-Type"] = "application/json";
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timeoutId = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
   if (userSignal) {
     userSignal.addEventListener("abort", () => controller.abort(userSignal.reason), { once: true });
   }
@@ -47,7 +48,10 @@ export async function apiFetch<T = unknown>(
       body: json !== undefined ? JSON.stringify(json) : undefined,
     });
   } catch (err) {
-    if (err instanceof DOMException && err.name === "AbortError") throw err;
+    if (err instanceof DOMException && err.name === "AbortError") {
+      if (timedOut) throw new ApiError(0, `Tempo limite excedido (${timeoutMs / 1000}s). Tente novamente.`);
+      throw err;
+    }
     throw new ApiError(0, "Sem conexão com o servidor.");
   } finally {
     clearTimeout(timeoutId);
