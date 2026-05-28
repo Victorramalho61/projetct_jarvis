@@ -213,6 +213,20 @@ CREATE OR REPLACE FUNCTION public.freshservice_csat_summary(p_from timestamptz, 
 RETURNS json
 LANGUAGE sql STABLE SECURITY DEFINER
 AS $$
+  -- CTE lê a tabela UMA vez; subqueries reutilizam o resultado em memória
+  WITH base AS (
+    SELECT
+      t.id,
+      t.subject,
+      t.csat_rating,
+      t.csat_comment,
+      t.group_id,
+      COALESCE(t.resolved_at, t.closed_at, t.updated_at) AS eff_date
+    FROM public.freshservice_tickets t
+    WHERE COALESCE(t.resolved_at, t.closed_at, t.updated_at) >= p_from
+      AND COALESCE(t.resolved_at, t.closed_at, t.updated_at) < p_to
+      AND t.status IN (4, 5)
+  )
   SELECT json_build_object(
     'total_rated',   SUM(CASE WHEN csat_rating IS NOT NULL THEN 1 ELSE 0 END),
     'avg_rating',    ROUND(AVG(csat_rating::numeric), 2),
@@ -229,53 +243,44 @@ AS $$
       SELECT COALESCE(json_agg(r ORDER BY r.count DESC), '[]'::json)
       FROM (
         SELECT
-          t.group_id,
+          b.group_id,
           COALESCE(g.name, 'Sem grupo') AS group_name,
-          COUNT(*) FILTER (WHERE t.csat_rating IS NOT NULL) AS count,
-          ROUND(AVG(t.csat_rating::numeric) FILTER (WHERE t.csat_rating IS NOT NULL), 2) AS avg_rating,
+          COUNT(*) FILTER (WHERE b.csat_rating IS NOT NULL) AS count,
+          ROUND(AVG(b.csat_rating::numeric) FILTER (WHERE b.csat_rating IS NOT NULL), 2) AS avg_rating,
           ROUND(
-            100.0 * COUNT(*) FILTER (WHERE t.csat_rating = 3)::numeric
-            / NULLIF(COUNT(*) FILTER (WHERE t.csat_rating IS NOT NULL)::numeric, 0), 1
+            100.0 * COUNT(*) FILTER (WHERE b.csat_rating = 3)::numeric
+            / NULLIF(COUNT(*) FILTER (WHERE b.csat_rating IS NOT NULL)::numeric, 0), 1
           ) AS happy_pct,
           ROUND(
-            100.0 * COUNT(*) FILTER (WHERE t.csat_rating = 1)::numeric
-            / NULLIF(COUNT(*) FILTER (WHERE t.csat_rating IS NOT NULL)::numeric, 0), 1
+            100.0 * COUNT(*) FILTER (WHERE b.csat_rating = 1)::numeric
+            / NULLIF(COUNT(*) FILTER (WHERE b.csat_rating IS NOT NULL)::numeric, 0), 1
           ) AS unhappy_pct
-        FROM public.freshservice_tickets t
-        LEFT JOIN public.freshservice_groups g ON g.id = t.group_id
-        WHERE COALESCE(t.resolved_at, t.closed_at, t.updated_at) >= p_from
-          AND COALESCE(t.resolved_at, t.closed_at, t.updated_at) < p_to
-          AND t.status IN (4, 5)
-          AND t.csat_rating IS NOT NULL
-        GROUP BY t.group_id, g.name
+        FROM base b
+        LEFT JOIN public.freshservice_groups g ON g.id = b.group_id
+        WHERE b.csat_rating IS NOT NULL
+        GROUP BY b.group_id, g.name
       ) r
     ),
     'recent_comments', (
-      SELECT COALESCE(json_agg(r ORDER BY r.resolved_at DESC), '[]'::json)
+      SELECT COALESCE(json_agg(r ORDER BY r.eff_date DESC), '[]'::json)
       FROM (
-        SELECT
-          id,
-          subject,
-          csat_rating,
-          csat_comment,
-          COALESCE(resolved_at, closed_at, updated_at) AS resolved_at
-        FROM public.freshservice_tickets
-        WHERE COALESCE(resolved_at, closed_at, updated_at) >= p_from
-          AND COALESCE(resolved_at, closed_at, updated_at) < p_to
-          AND status IN (4, 5)
-          AND csat_rating IN (1, 2)
+        SELECT id, subject, csat_rating, csat_comment, eff_date
+        FROM base
+        WHERE csat_rating IN (1, 2)
           AND csat_comment IS NOT NULL
           AND csat_comment <> ''
-        ORDER BY COALESCE(resolved_at, closed_at, updated_at) DESC
+        ORDER BY eff_date DESC
         LIMIT 5
       ) r
     )
   )
-  FROM public.freshservice_tickets
-  WHERE COALESCE(resolved_at, closed_at, updated_at) >= p_from
-    AND COALESCE(resolved_at, closed_at, updated_at) < p_to
-    AND status IN (4, 5)
+  FROM base
 $$;
+
+-- Índice funcional para acelerar o filtro por data efetiva (COALESCE)
+CREATE INDEX IF NOT EXISTS idx_freshservice_tickets_eff_date
+  ON public.freshservice_tickets (COALESCE(resolved_at, closed_at, updated_at))
+  WHERE status IN (4, 5);
 
 -- Batch update de CSAT ratings (evita N queries individuais)
 CREATE OR REPLACE FUNCTION public.upsert_csat_ratings(p_ratings jsonb)

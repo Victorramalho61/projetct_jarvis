@@ -132,7 +132,13 @@ async def dashboard_csat(
     if cached is not None:
         return cached
     db = get_supabase()
-    data = db.rpc("freshservice_csat_summary", {"p_from": p_from, "p_to": p_to}).execute().data or {}
+    try:
+        data = db.rpc("freshservice_csat_summary", {"p_from": p_from, "p_to": p_to}).execute().data or {}
+    except Exception as e:
+        msg = str(e)
+        if "57014" in msg or "statement timeout" in msg.lower():
+            raise HTTPException(status_code=503, detail="Consulta CSAT excedeu o tempo limite do banco. Tente um período menor.")
+        raise
     _cache_set(cache_key, data)
     return data
 
