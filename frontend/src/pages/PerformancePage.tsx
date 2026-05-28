@@ -804,6 +804,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [newEvalErr, setNewEvalErr] = useState("");
   const [newEvalSaving, setNewEvalSaving] = useState(false);
 
+  // Ver Avaliação (leitura — gestor + auto-aval)
+  const [viewModal, setViewModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
+  const [viewDetail, setViewDetail] = useState<any>(null);
+  const [viewDetailLoading, setViewDetailLoading] = useState(false);
+
   useEffect(() => {
     apiFetch<any>("/api/performance/admin/cycle/status", { token })
       .then(s => setCycleOpen(s?.is_open ?? true)).catch(() => {});
@@ -832,6 +837,16 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       .then(d => setCalibDetail(d))
       .catch(() => setCalibErr("Erro ao carregar detalhes da avaliação."))
       .finally(() => setCalibDetailLoading(false));
+  }
+
+  function openView(item: any) {
+    setViewModal({ open: true, item });
+    setViewDetail(null);
+    setViewDetailLoading(true);
+    apiFetch<any>(`/api/performance/admin/evaluations/${item.id}/detail`, { token })
+      .then(d => setViewDetail(d))
+      .catch(() => setViewDetail(null))
+      .finally(() => setViewDetailLoading(false));
   }
 
   function setCalibScore(indId: string, value: string) {
@@ -992,6 +1007,14 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5 items-center">
+                        {/* Ver Avaliação — leitura gestor + auto-aval */}
+                        {ev.status !== "pending" && (
+                          <button onClick={() => openView(ev)}
+                            title="Ver avaliação do gestor e auto-avaliação"
+                            className="text-xs font-semibold px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 transition-all">
+                            👁️ Ver
+                          </button>
+                        )}
                         {/* Calibrar */}
                         <button onClick={() => openCalib(ev)} disabled={!cycleOpen || ev.status === "pending"}
                           title={!cycleOpen ? "Ciclo fechado" : ev.status === "pending" ? "Aguardando avaliação do gestor" : "Calibrar nota"}
@@ -1031,6 +1054,149 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <button onClick={() => setResetModal(true)} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg transition-all">Resetar Ciclo Atual</button>
         </div>
       )}
+
+      {/* ── Modal Ver Avaliação (leitura — gestor + auto-aval) ── */}
+      <ModalWrapper open={viewModal.open} onClose={() => setViewModal({ open: false, item: null })} title={`Avaliação — ${viewModal.item?.employee_name ?? ""}`}>
+        {viewDetailLoading ? (
+          <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : viewDetail ? (
+          <div className="space-y-5">
+            {/* Cabeçalho resumo */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+              <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-2.5">
+                <p className="text-xs text-gray-400 mb-0.5">Colaborador</p>
+                <p className="font-semibold text-gray-800 dark:text-gray-100 text-xs leading-tight">{viewDetail.employee?.name ?? "—"}</p>
+              </div>
+              <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-2.5">
+                <p className="text-xs text-gray-400 mb-0.5">Avaliador (Gestor)</p>
+                <p className="font-semibold text-gray-800 dark:text-gray-100 text-xs leading-tight">{viewDetail.evaluator?.name ?? "—"}</p>
+              </div>
+              <div className="bg-[#E6F4F0] dark:bg-emerald-900/20 rounded-lg p-2.5">
+                <p className="text-xs text-[#00694E] dark:text-emerald-400 mb-0.5">Nota Gestor</p>
+                <p className="font-bold text-[#00694E] dark:text-emerald-300 text-lg">{viewDetail.review?.final_score != null ? Number(viewDetail.review.final_score).toFixed(2) : "—"}</p>
+              </div>
+              <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-2.5">
+                <p className="text-xs text-violet-500 dark:text-violet-400 mb-0.5">Nota Auto-Aval.</p>
+                <p className="font-bold text-violet-700 dark:text-violet-300 text-lg">{viewDetail.self_eval?.final_score != null ? Number(viewDetail.self_eval.final_score).toFixed(2) : "—"}</p>
+              </div>
+            </div>
+
+            {/* Observações lado a lado */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {viewDetail.observations ? (
+                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">📝 Obs. do Gestor</p>
+                  <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{viewDetail.observations}</p>
+                </div>
+              ) : (
+                <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-dashed border-gray-200 dark:border-gray-600 p-3 flex items-center justify-center">
+                  <p className="text-xs text-gray-400 italic">Gestor não preencheu observações</p>
+                </div>
+              )}
+              {viewDetail.self_observations ? (
+                <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg border border-violet-200 dark:border-violet-800 p-3">
+                  <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-1.5">🔄 Obs. do Colaborador</p>
+                  <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed whitespace-pre-wrap">{viewDetail.self_observations}</p>
+                </div>
+              ) : (
+                <div className={`rounded-lg border border-dashed p-3 flex items-center justify-center ${viewDetail.self_eval ? "bg-violet-50 dark:bg-violet-900/20 border-violet-200 dark:border-violet-800" : "bg-gray-50 dark:bg-gray-700/40 border-gray-200 dark:border-gray-600"}`}>
+                  <p className="text-xs text-gray-400 italic">{viewDetail.self_eval ? "Colaborador não preencheu observações" : "Auto-avaliação não realizada"}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Tabela comparativa por indicador */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Indicadores</p>
+              <div className="grid grid-cols-12 gap-1 px-2 pb-1 text-xs font-semibold text-gray-400 uppercase tracking-wide border-b border-gray-100 dark:border-gray-700">
+                <span className="col-span-5">Indicador</span>
+                <span className="col-span-2 text-center">Gestor</span>
+                <span className="col-span-2 text-center">Auto-Aval.</span>
+                <span className="col-span-3 text-center">Δ Diferença</span>
+              </div>
+              <div className="space-y-1 mt-2">
+                {viewDetail.indicators?.map((ind: any) => {
+                  const diff = (ind.self_score != null && ind.manager_score != null) ? ind.self_score - ind.manager_score : null;
+                  return (
+                    <div key={ind.id} className="grid grid-cols-12 gap-2 items-start rounded-lg px-2 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                      <div className="col-span-5">
+                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-tight">{ind.name}</p>
+                        {ind.manager_justification && (
+                          <p className="text-xs text-gray-400 mt-0.5 italic leading-tight line-clamp-2" title={ind.manager_justification}>"{ind.manager_justification}"</p>
+                        )}
+                      </div>
+                      <div className="col-span-2 text-center">
+                        <span className={`text-sm font-bold ${ind.current_score >= 4 ? "text-emerald-600" : ind.current_score <= 2 ? "text-red-500" : "text-gray-700 dark:text-gray-300"}`}>
+                          {ind.current_score ?? ind.manager_score}
+                        </span>
+                        {ind.current_score !== ind.manager_score && (
+                          <span className="block text-xs text-gray-400 line-through">{ind.manager_score}</span>
+                        )}
+                      </div>
+                      <div className="col-span-2 text-center">
+                        {ind.self_score != null
+                          ? <span className={`text-sm font-bold ${ind.self_score >= 4 ? "text-violet-600" : ind.self_score <= 2 ? "text-orange-500" : "text-violet-500"}`}>{ind.self_score}</span>
+                          : <span className="text-xs text-gray-300">—</span>}
+                      </div>
+                      <div className="col-span-3 text-center">
+                        {diff != null ? (
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${diff > 0 ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" : diff < 0 ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" : "bg-gray-100 text-gray-500 dark:bg-gray-700"}`}>
+                            {diff > 0 ? `+${diff.toFixed(1)}` : diff === 0 ? "igual" : diff.toFixed(1)}
+                          </span>
+                        ) : <span className="text-xs text-gray-300">—</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Histórico de calibrações */}
+            {viewDetail.calibration_history?.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Calibrações</p>
+                {viewDetail.calibration_history.map((c: any, i: number) => (
+                  <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-2 text-xs bg-violet-50/30 dark:bg-violet-900/10">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <span className="font-semibold text-gray-700 dark:text-gray-300">🎯 {c.calibrated_by}</span>
+                      <span className="text-gray-400">{new Date(c.calibrated_at).toLocaleString("pt-BR")}</span>
+                    </div>
+                    {c.items?.map((it: any, j: number) => (
+                      <div key={j} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 mb-0.5">
+                        <span className="font-medium">{it.indicator_name}</span>
+                        <span className="text-red-400 line-through">{it.old_score}</span>
+                        <span>→</span>
+                        <span className="text-emerald-600 font-bold">{it.new_score}</span>
+                        {it.justification && <span className="italic text-gray-400">"{it.justification}"</span>}
+                      </div>
+                    ))}
+                    {c.notes && <p className="text-gray-400 mt-1 italic">{c.notes}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-1">
+              {viewDetail.review?.status !== "pending" && (
+                <button
+                  onClick={() => { setViewModal({ open: false, item: null }); openCalib(viewModal.item); }}
+                  className="flex-1 py-2.5 bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 font-semibold rounded-lg text-sm transition-all">
+                  Ir para Calibração
+                </button>
+              )}
+              <button onClick={() => setViewModal({ open: false, item: null })}
+                className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
+                Fechar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500 text-center py-4">Erro ao carregar detalhes.</p>
+            <button onClick={() => setViewModal({ open: false, item: null })} className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Fechar</button>
+          </div>
+        )}
+      </ModalWrapper>
 
       {/* ── Modal Calibração por indicador ── */}
       <ModalWrapper open={calibModal.open} onClose={() => setCalibModal({ open: false, item: null })} title={`Calibração — ${calibModal.item?.employee_name ?? ""}`}>

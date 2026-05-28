@@ -25,16 +25,19 @@ services:
       retries: 10
     # Parâmetros PostgreSQL passados no startup (evita necessidade de ALTER SYSTEM com superuser)
     # Tuning aplicado em 2026-05-25 para Jarvis com 10 GB RAM host / 468 MB banco
+    # Hardening 2026-05-28: max_connections 100→200, work_mem ajustado
     command:
       - postgres
       - -c
       - listen_addresses=*            # OBRIGATÓRIO: aceita conexões TCP da rede Docker
       - -c
+      - max_connections=200           # era 100 — suporta pico de carga simultânea
+      - -c
       - shared_buffers=256MB          # era 128 MB — 25% da RAM alocada ao container
       - -c
       - effective_cache_size=4GB      # hint ao planner: SO+PG cache estimado (não aloca RAM)
       - -c
-      - work_mem=10MB                 # era 4 MB — sort/hash mais rápidos (max_conn=100 → ok)
+      - work_mem=6MB                  # era 10 MB — reduzido com max_conn=200 (200×6=1.2GB max)
       - -c
       - maintenance_work_mem=128MB    # era 64 MB — VACUUM, CREATE INDEX, sync mais rápidos
       - -c
@@ -564,8 +567,8 @@ services:
       context: ./performance-service
     restart: unless-stopped
     logging: *logging
-    mem_limit: 512m
-    cpus: "0.5"
+    mem_limit: 1024m  # era 512m — 4 workers uvicorn exigem ~200 MB cada no pico
+    cpus: "2.0"       # era 0.5 — 4 workers podem saturar até 4 cores; limitado a 2
     depends_on:
       db:
         condition: service_healthy

@@ -20,10 +20,11 @@ _logger = logging.getLogger(__name__)
 
 _RH_ADMIN = ("admin", "rh")
 
-# ── Cache simples em memória (TTL 60 s) ────────────────────────────────────────
+# ── Cache simples em memória (TTL 120 s) ───────────────────────────────────────
 # Evita repetir queries idênticas em acessos simultâneos ao dashboard.
+# TTL dobrado de 60→120s: reduz carga no PostgreSQL em picos de acesso.
 _cache: dict[str, tuple[Any, float]] = {}
-_CACHE_TTL = 60.0  # segundos
+_CACHE_TTL = 120.0  # segundos — era 60s, dobrado em hardening 2026-05-28
 
 
 def _cache_get(key: str) -> Any:
