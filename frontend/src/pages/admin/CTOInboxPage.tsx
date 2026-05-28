@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 import type { AgentMessage } from "../../types/agents";
 
 const AGENT_COLORS: Record<string, string> = {
@@ -158,7 +158,7 @@ export default function CTOInboxPage() {
       setMessages(data.messages || []);
       setUnreadCount(data.unread_count ?? 0);
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -176,7 +176,7 @@ export default function CTOInboxPage() {
       await apiFetch(`/api/agents/inbox/${id}/read`, { token, method: "PATCH", json: {} });
       setMessages(prev => prev.map(m => m.id === id ? { ...m, status: "read" } : m));
       setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const markAllRead = async () => {
@@ -185,7 +185,7 @@ export default function CTOInboxPage() {
       await apiFetch("/api/agents/inbox/read-all", { token, method: "POST", json: {} });
       setMessages(prev => prev.map(m => ({ ...m, status: "read" as const })));
       setUnreadCount(0);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const filteredMessages = filter === "unread"

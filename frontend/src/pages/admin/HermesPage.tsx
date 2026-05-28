@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 import Icon from "../../components/Icon";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ export default function HermesPage() {
       setSchema(sch);
       setGateways(gws);
     } catch (e: any) {
-      setError(e.message ?? "Erro ao carregar configurações");
+      setError(e instanceof ApiError ? e.message : "Erro ao carregar configurações");
     } finally {
       setLoading(false);
     }
@@ -122,7 +122,7 @@ export default function HermesPage() {
       await apiFetch("/api/hermes/config", { method: "PUT", json: config, token });
       showToast("Configuração salva");
     } catch (e: any) {
-      showToast("Erro: " + (e.message ?? "falha ao salvar"));
+      showToast("Erro: " + (e instanceof ApiError ? e.message : "falha ao salvar"));
     } finally {
       setSaving(false);
     }
@@ -138,7 +138,7 @@ export default function HermesPage() {
       showToast(`Gateway ${platform} ${action === "start" ? "iniciado" : "parado"}`);
       await loadAll();
     } catch (e: any) {
-      showToast("Erro: " + (e.message ?? "falha na operação"));
+      showToast("Erro: " + (e instanceof ApiError ? e.message : "falha na operação"));
     }
   }
 
@@ -152,7 +152,7 @@ export default function HermesPage() {
       showToast("Skill deletada");
       loadSkills();
     } catch (e: any) {
-      showToast("Erro: " + (e.message ?? "falha ao deletar"));
+      showToast("Erro: " + (e instanceof ApiError ? e.message : "falha ao deletar"));
     }
   }
 

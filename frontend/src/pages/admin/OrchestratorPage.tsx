@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 import type { AgentEvent, DeploymentWindow } from "../../types/agents";
 
 // ── estilos ──────────────────────────────────────────────────────────────────
@@ -125,7 +125,7 @@ export default function OrchestratorPage() {
       setRunningNow(all.running_now || []);
       setPipelines(all.pipelines || {});
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     }
   }, [token]);
 
@@ -145,7 +145,7 @@ export default function OrchestratorPage() {
       });
       setTimeout(load, 1500);
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setRunning(false);
     }
@@ -167,7 +167,7 @@ export default function OrchestratorPage() {
       }
       await load();
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setWindowLoading(false);
     }

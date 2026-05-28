@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 import type { ChangeRequest } from "../../types/agents";
 
 const TYPE_STYLE: Record<string, string> = {
@@ -63,7 +63,7 @@ export default function ChangesPage() {
       const data = await apiFetch<{ changes: ChangeRequest[] }>(`/api/agents/changes?${params}`, { token });
       setChanges(data.changes || []);
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -76,7 +76,7 @@ export default function ChangesPage() {
     try {
       await apiFetch(`/api/agents/changes/${id}/approve`, { token, method: "PATCH", json: {} });
       await load();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const reject = async () => {
@@ -88,7 +88,7 @@ export default function ChangesPage() {
       setRejectModal(null);
       setRejectReason("");
       await load();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const syncCommits = async () => {
@@ -99,7 +99,7 @@ export default function ChangesPage() {
       const res = await apiFetch<{ rfcs_created: number }>("/api/agents/changes/sync-commits", { token, method: "POST", json: {} });
       await load();
       if (res.rfcs_created === 0) setError("Nenhum commit novo encontrado (todos já têm RFC ou GitHub não configurado).");
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
     finally { setSyncing(false); }
   };
 
@@ -111,7 +111,7 @@ export default function ChangesPage() {
       setNewModal(false);
       setForm(BLANK_FORM);
       await load();
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
     finally { setSaving(false); }
   };
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 import type { Proposal, Priority } from "../../types/agents";
 
 interface ProposalMetrics {
@@ -102,7 +102,7 @@ export default function ProposalsPage() {
       setRouteResult(r);
       await Promise.all([load(), loadMetrics()]);
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setRouting(false);
     }
@@ -165,7 +165,7 @@ export default function ProposalsPage() {
         }
         setProcessing(false);
       })
-      .catch(e => { setError(e.message); setProcessing(false); });
+      .catch(e => { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); setProcessing(false); });
   };
 
   const loadMetrics = useCallback(async () => {
@@ -190,7 +190,7 @@ export default function ProposalsPage() {
       const data = await apiFetch<{ proposals: Proposal[] }>(`/api/agents/proposals?${params}`, { token });
       setProposals(data.proposals || []);
     } catch (e: any) {
-      setError(e.message);
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setLoading(false);
     }
@@ -218,7 +218,7 @@ export default function ProposalsPage() {
     try {
       await apiFetch(`/api/agents/proposals/${id}/approve`, { token, method: "PATCH", json: {} });
       await Promise.all([load(), loadMetrics()]);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const reject = async () => {
@@ -230,7 +230,7 @@ export default function ProposalsPage() {
       setRejectModal(null);
       setRejectReason("");
       await Promise.all([load(), loadMetrics()]);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const markApplied = async (id: string) => {
@@ -238,7 +238,7 @@ export default function ProposalsPage() {
     try {
       await apiFetch(`/api/agents/proposals/${id}/mark-applied`, { token, method: "PATCH", json: {} });
       await Promise.all([load(), loadMetrics()]);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   const markFailed = async () => {
@@ -250,7 +250,7 @@ export default function ProposalsPage() {
       setFailModal(null);
       setFailReason("");
       await Promise.all([load(), loadMetrics()]);
-    } catch (e: any) { setError(e.message); }
+    } catch (e: any) { setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'); }
   };
 
   return (

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, ApiError } from '../../lib/api'
 import type {
   Contract,
   ContractOccurrence,
@@ -274,7 +274,7 @@ function AcompanhamentoTab({
       )
       setOccurrences(o)
     } catch (e: any) {
-      alert(`Erro ao verificar aderência: ${e.message}`)
+      alert(`Erro ao verificar aderência: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`)
     } finally {
       setChecking(false)
     }
@@ -644,7 +644,7 @@ function ContratosTab({
       setForm({ titulo:'', fornecedor_nome:'', valor_total:'', valor_mensal:'', qtd_parcelas:'', data_inicio:'', data_fim:'', modalidade:'servico', status:'vigente', numero:'', objeto:'', benner_documento_match:'', fornecedor_benner_handle:'', observacoes:'' })
       onRefresh()
     } catch (err: any) {
-      alert(`Erro ao salvar: ${err.message}`)
+      alert(`Erro ao salvar: ${err instanceof ApiError ? err.message : 'Erro inesperado. Tente novamente.'}`)
     } finally {
       setSaving(false)
     }
@@ -862,7 +862,7 @@ export default function GovernancePage() {
       setDashboard(dash)
       setContracts(clist)
     } catch (e: any) {
-      setError(e.message)
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.')
     } finally {
       setLoading(false)
     }

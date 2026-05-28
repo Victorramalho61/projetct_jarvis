@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 import Icon from "../../components/Icon";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
@@ -534,7 +534,7 @@ export default function FiscalPage() {
       setShowTokenForm(false);
       apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token }).then(setCompanies).catch(() => {});
     } catch (err) {
-      setNddMsg(`Erro: ${err instanceof Error ? err.message : String(err)}`);
+      setNddMsg(`Erro: ${err instanceof ApiError ? err.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setSavingToken(false);
     }
@@ -546,11 +546,11 @@ export default function FiscalPage() {
     setSyncing(true);
     setSyncMsg("");
     try {
-      await apiFetch("/api/fiscal/nfse/sync/run", { token, method: "POST" });
+      await apiFetch("/api/fiscal/nfse/sync/run", { token, method: "POST", timeoutMs: 60_000 });
       setSyncMsg("Sync NFSe iniciado — aguarde alguns minutos e clique Atualizar.");
       setTimeout(() => loadSyncLogs(), 6000);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = err instanceof ApiError ? err.message : 'Erro inesperado. Tente novamente.';
       setSyncMsg(`Erro: ${msg}`);
     } finally {
       setSyncing(false);
@@ -646,7 +646,7 @@ export default function FiscalPage() {
       }
       downloadBlob(await resp.blob(), `fiscal_${tipo.toLowerCase()}_${exportDateInicio || "todos"}.csv`);
     } catch (e) {
-      setExportError(`Erro ao exportar CSV: ${e instanceof Error ? e.message : String(e)}`);
+      setExportError(`Erro ao exportar CSV: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally { setter(false); }
   };
 
@@ -670,7 +670,7 @@ export default function FiscalPage() {
       }
       downloadBlob(await resp.blob(), `xmls_${tipo.toLowerCase()}_${exportDateInicio || "todos"}.zip`);
     } catch (e) {
-      setExportError(`Erro ao exportar XMLs: ${e instanceof Error ? e.message : String(e)}`);
+      setExportError(`Erro ao exportar XMLs: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally { setter(false); }
   };
 
@@ -687,7 +687,7 @@ export default function FiscalPage() {
       );
       setFetchKeyResult(r);
     } catch (e) {
-      setFetchKeyError(e instanceof Error ? e.message : "Documento não encontrado nos portais.");
+      setFetchKeyError(e instanceof ApiError ? e.message : "Documento não encontrado nos portais.");
     } finally {
       setFetchKeyLoading(false);
     }
@@ -732,7 +732,7 @@ export default function FiscalPage() {
       });
       setCertStatus((prev) => prev ? { ...prev, sync_portal_nfse_ativo: novo } : prev);
     } catch (e) {
-      setPortalSyncMsg(`Erro ao alterar sync: ${e instanceof Error ? e.message : String(e)}`);
+      setPortalSyncMsg(`Erro ao alterar sync: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setTogglingPortalSync(false);
     }
@@ -766,7 +766,7 @@ export default function FiscalPage() {
       setPortalSyncMsg("✅ Sync iniciado — atualize os logs em instantes.");
       setTimeout(loadPortalLogs, 5000);
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.';
       if (msg.includes("656") || msg.toLowerCase().includes("bloqueado") || msg.toLowerCase().includes("consumo")) {
         setPortalSyncMsg("⛔ ADN retornou cStat 656 (consumo excessivo). Aguarde 1h antes de tentar.");
         loadCertStatus();
@@ -783,11 +783,11 @@ export default function FiscalPage() {
     setNddSyncing(true);
     setNddSyncMsg("");
     try {
-      await apiFetch(`/api/fiscal/${selectedId}/ndd/sync`, { token, method: "POST" });
+      await apiFetch(`/api/fiscal/${selectedId}/ndd/sync`, { token, method: "POST", timeoutMs: 60_000 });
       setNddSyncMsg("✅ Sync NDD iniciado — aguarde e atualize os logs em instantes.");
       setTimeout(loadCertStatus, 8000);
     } catch (e) {
-      setNddSyncMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+      setNddSyncMsg(`Erro: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setNddSyncing(false);
     }
@@ -800,7 +800,7 @@ export default function FiscalPage() {
       await apiFetch(`/api/fiscal/${selectedId}/municipalities/seed`, { token, method: "POST" });
       loadMunicipalities();
     } catch (e) {
-      setMunSyncMsg(`Erro no seed: ${e instanceof Error ? e.message : String(e)}`);
+      setMunSyncMsg(`Erro no seed: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setSeedingMun(false);
     }
@@ -813,7 +813,7 @@ export default function FiscalPage() {
       await apiFetch(`/api/fiscal/${selectedId}/municipalities/${m.municipio_ibge}/${action}`, { token, method: "PATCH" });
       setMunicipalities(prev => prev.map(x => x.municipio_ibge === m.municipio_ibge ? { ...x, ativo: !x.ativo } : x));
     } catch (e) {
-      setMunSyncMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+      setMunSyncMsg(`Erro: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     }
   };
 
@@ -827,7 +827,7 @@ export default function FiscalPage() {
       );
       setTestResults(prev => ({ ...prev, [ibge]: { ok: true, docs: r.docs_encontrados, msg: `✅ ${r.tipo} — ${r.docs_encontrados} docs (sandbox)` } }));
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.';
       setTestResults(prev => ({ ...prev, [ibge]: { ok: false, docs: 0, msg: `❌ ${msg.slice(0, 80)}` } }));
     } finally {
       setTestingIbge(null);
@@ -839,11 +839,11 @@ export default function FiscalPage() {
     setMunSyncing(true);
     setMunSyncMsg("");
     try {
-      await apiFetch(`/api/fiscal/${selectedId}/municipalities/sync`, { token, method: "POST" });
+      await apiFetch(`/api/fiscal/${selectedId}/municipalities/sync`, { token, method: "POST", timeoutMs: 60_000 });
       setMunSyncMsg("✅ Sync municipal iniciado — atualize os logs em instantes.");
       setTimeout(loadMunicipalities, 8000);
     } catch (e) {
-      setMunSyncMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+      setMunSyncMsg(`Erro: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setMunSyncing(false);
     }
@@ -854,11 +854,11 @@ export default function FiscalPage() {
     setSyncAllLoading(true);
     setSyncAllMsg("");
     try {
-      await apiFetch(`/api/fiscal/${selectedId}/nfse/sync/all`, { token, method: "POST" });
+      await apiFetch(`/api/fiscal/${selectedId}/nfse/sync/all`, { token, method: "POST", timeoutMs: 60_000 });
       setSyncAllMsg("✅ Sync unificado iniciado (NDD + Portal + Municipal).");
       setTimeout(() => { loadCertStatus(); loadPortalLogs(); loadMunicipalities(); }, 10000);
     } catch (e) {
-      setSyncAllMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+      setSyncAllMsg(`Erro: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setSyncAllLoading(false);
     }
@@ -883,7 +883,7 @@ export default function FiscalPage() {
       loadCertStatus();
       apiFetch<FiscalCompany[]>("/api/fiscal/companies", { token }).then(setCompanies).catch(() => {});
     } catch (e) {
-      setCertMsg(`Erro: ${e instanceof Error ? e.message : String(e)}`);
+      setCertMsg(`Erro: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     } finally {
       setCertUploading(false);
     }
@@ -896,7 +896,7 @@ export default function FiscalPage() {
       setCertMsg("Certificado removido.");
       loadCertStatus();
     } catch (e) {
-      setCertMsg(`Erro ao remover: ${e instanceof Error ? e.message : String(e)}`);
+      setCertMsg(`Erro ao remover: ${e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'}`);
     }
   };
 

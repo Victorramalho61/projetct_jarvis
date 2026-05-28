@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { useAuth } from '../../context/AuthContext'
 import { useTheme } from '../../context/ThemeContext'
-import { apiFetch } from '../../lib/api'
+import { apiFetch, ApiError } from '../../lib/api'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -440,7 +440,7 @@ function DashboardTab({ token }: { token: string }) {
       cacheRef.current.set(key, { data: res, ts: Date.now() })
       setData(res)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar dashboard')
+      setError(e instanceof ApiError ? e.message : 'Erro ao carregar dashboard')
     } finally { setLoading(false) }
   }, [startDate, endDate, company, token])
 
@@ -656,7 +656,7 @@ function VendasTab({ token }: { token: string }) {
 
       await Promise.all(promises)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar vendas')
+      setError(e instanceof ApiError ? e.message : 'Erro ao carregar vendas')
     } finally { setLoading(false) }
   }, [startDate, endDate, company, filterStatus, filterType, offset, token])
 
@@ -671,7 +671,7 @@ function VendasTab({ token }: { token: string }) {
       setSelected(res)
       setOpenSections(new Set(['identificacao']))
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Erro ao abrir detalhe')
+      alert(e instanceof ApiError ? e.message : 'Erro ao abrir detalhe')
     }
   }, [token])
 
@@ -679,10 +679,10 @@ function VendasTab({ token }: { token: string }) {
     setSyncLoading(true)
     try {
       const q = new URLSearchParams({ start_date: startDate, end_date: endDate })
-      await apiFetch(`/api/expenses/payfly/reservations/sync?${q}`, { token, method: 'POST' })
+      await apiFetch(`/api/expenses/payfly/reservations/sync?${q}`, { token, method: 'POST', timeoutMs: 60_000 })
       alert('Sync iniciado em background. Aguarde alguns minutos.')
     } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : 'Erro ao iniciar sync')
+      alert(e instanceof ApiError ? e.message : 'Erro ao iniciar sync')
     } finally { setSyncLoading(false) }
   }, [startDate, endDate, token])
 
@@ -691,10 +691,10 @@ function VendasTab({ token }: { token: string }) {
     setSyncLoading(true)
     setBulkSyncMsg(null)
     try {
-      await apiFetch('/api/expenses/payfly/reservations/sync/bulk?start_date=2026-01-01', { token, method: 'POST' })
+      await apiFetch('/api/expenses/payfly/reservations/sync/bulk?start_date=2026-01-01', { token, method: 'POST', timeoutMs: 120_000 })
       setBulkSyncMsg('Carga histórica iniciada. Os dados serão atualizados em alguns minutos — recarregue a tabela após concluir.')
     } catch (e: unknown) {
-      setBulkSyncMsg('Erro ao iniciar carga histórica: ' + (e instanceof Error ? e.message : 'Erro desconhecido'))
+      setBulkSyncMsg('Erro ao iniciar carga histórica: ' + (e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.'))
     } finally { setSyncLoading(false) }
   }, [token])
 
@@ -1024,7 +1024,7 @@ function InvestimentosTab({ token }: { token: string }) {
       setData(res)
       setComprometimentos(comp)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro ao carregar dados')
+      setError(e instanceof ApiError ? e.message : 'Erro ao carregar dados')
     } finally { setLoading(false) }
   }, [year, token])
 
@@ -1394,7 +1394,7 @@ function MidiaTab({ token }: { token: string }) {
     } catch (e: unknown) {
       setSyncMsg({
         type: 'err',
-        text: e instanceof Error ? e.message : 'Erro ao executar coleta de mídia',
+        text: e instanceof ApiError ? e.message : 'Erro ao executar coleta de mídia',
       })
     } finally { setSyncLoading(false) }
   }, [token, load])

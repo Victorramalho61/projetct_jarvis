@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
-import { apiFetch } from "../lib/api";
+import { apiFetch, ApiError } from "../lib/api";
 
 const PublicCienciaPresencialInline = lazy(() => import("./PublicCienciaPresencialPage"));
 
@@ -380,7 +380,7 @@ function TabIndicadores() {
         await apiFetch("/api/performance/indicators", { token, method: "POST", json: it });
       }
       closeModal(); load();
-    } catch (e: any) { setFormErr(e.message || "Erro ao salvar."); }
+    } catch (e: any) { setFormErr(e instanceof ApiError ? e.message : "Erro ao salvar."); }
     finally { setSaving(false); }
   }
 
@@ -570,7 +570,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
         await apiFetch("/api/performance/admin/employees", { token, method: "POST", json: it });
       }
       closeModal(); loadEmployees();
-    } catch (e: any) { setFormErr(e.message || "Erro ao salvar."); }
+    } catch (e: any) { setFormErr(e instanceof ApiError ? e.message : "Erro ao salvar."); }
     finally { setSaving(false); }
   }
 
@@ -582,7 +582,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     try {
       await apiFetch(`/api/performance/admin/employees/${it.id}`, { token, method: "PUT", json: { active: false } });
       closeModal(); loadEmployees();
-    } catch (e: any) { setFormErr(e.message || "Erro ao desativar."); }
+    } catch (e: any) { setFormErr(e instanceof ApiError ? e.message : "Erro ao desativar."); }
     finally { setSaving(false); }
   }
 
@@ -868,7 +868,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         token, method: "POST", json: { items, notes: calibNotes || null }
       });
       setCalibModal({ open: false, item: null }); loadList();
-    } catch (e: any) { setCalibErr(e.message || "Erro ao calibrar."); }
+    } catch (e: any) { setCalibErr(e instanceof ApiError ? e.message : "Erro ao calibrar."); }
     finally { setCalibSaving(false); }
   }
 
@@ -882,7 +882,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       setNewEvalModal({ open: false, item: null });
       setNewEvalJust("");
       loadList();
-    } catch (e: any) { setNewEvalErr(e.message || "Erro ao criar nova avaliação."); }
+    } catch (e: any) { setNewEvalErr(e instanceof ApiError ? e.message : "Erro ao criar nova avaliação."); }
     finally { setNewEvalSaving(false); }
   }
 
@@ -1326,7 +1326,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
       setNewCycle({ name: "", period_start: "", period_end: "", company_id: "" });
       load();
     }
-    catch (e: any) { setSaveErr(e.message || "Erro."); }
+    catch (e: any) { setSaveErr(e instanceof ApiError ? e.message : "Erro inesperado. Tente novamente."); }
     finally { setSaving(false); }
   }
 
@@ -1347,7 +1347,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
       }
       load();
     } catch (e: any) {
-      setSendError(e.message || "Erro ao enviar. Tente novamente.");
+      setSendError(e instanceof ApiError ? e.message : "Erro ao enviar. Tente novamente.");
     } finally {
       setSending(false);
     }
@@ -1365,7 +1365,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
       await apiFetch("/api/performance/admin/cycle/reopen", { token, method: "POST", json: { justification: reopenJust } });
       setReopenModal(false); setReopenJust(""); load();
     }
-    catch (e: any) { setSaveErr(e.message || "Erro."); }
+    catch (e: any) { setSaveErr(e instanceof ApiError ? e.message : "Erro inesperado. Tente novamente."); }
     finally { setSaving(false); }
   }
 

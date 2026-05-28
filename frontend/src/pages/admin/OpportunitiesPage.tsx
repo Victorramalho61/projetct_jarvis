@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { apiFetch } from "../../lib/api";
+import { apiFetch, ApiError } from "../../lib/api";
 
 interface Opportunity {
   category: string;
@@ -53,7 +53,7 @@ export default function OpportunitiesPage() {
       setOpportunities(data.opportunities || []);
       setGeneratedAt(data.generated_at ?? null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(e instanceof ApiError ? e.message : 'Erro inesperado. Tente novamente.');
     } finally {
       setLoading(false);
     }
