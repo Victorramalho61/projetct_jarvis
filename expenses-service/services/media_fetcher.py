@@ -34,7 +34,7 @@ _DIRECT = [
     ("finsiders",      "https://finsiders.com.br/feed/"),
     ("brasilturis",    "https://www.brasilturis.com.br/feed/"),
     ("revistahoteis",   "https://revistahoteis.com.br/feed/"),
-    ("diarioturismo",    "https://diariodoturismo.com.br/feed/"),
+    # ("diarioturismo",    "https://diariodoturismo.com.br/feed/"),  # ❌ INATIVO — 502 recorrente
     ("mercadoeventos",   "https://www.mercadoeeventos.com.br/feed/"),
 ]
 
