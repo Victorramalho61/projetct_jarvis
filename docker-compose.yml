@@ -241,6 +241,8 @@ services:
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      KONG_NGINX_PROXY_CLIENT_BODY_BUFFER_SIZE: 2m
+      KONG_NGINX_PROXY_CLIENT_MAX_BODY_SIZE: 10m
     networks:
       - app_net
 
