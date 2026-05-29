@@ -1718,12 +1718,26 @@ Script de correção preservado em `fix_encoding.sql` na raiz do projeto.
 | MEDIUM | `fiscal-service/services/scheduler.py:745` | `_ensure_period` swallows silenciosamente exceções → documentos salvos com `period_id = NULL` |
 | MEDIUM | `fiscal-service/routes/documents.py:85` | Filtro por `ano` sem `mes` retorna todos os documentos da empresa sem limite de data |
 
-### Índices recomendados (pendentes)
+### Índices criados (2026-05-29)
 
 ```sql
--- performance_employees.cpf — endpoint público de busca presencial
+-- performance_employees.cpf — endpoint público de busca presencial (full table scan → index scan)
 CREATE INDEX idx_perf_emp_cpf ON performance_employees (cpf) WHERE cpf IS NOT NULL;
 
--- performance_evaluation_tokens — queries por employee_id (N+1 acima)
+-- performance_evaluation_tokens — queries por employee_id eliminadas pelo pre-fetch, mas índice garante plano correto
 CREATE INDEX idx_perf_eval_tokens_employee ON performance_evaluation_tokens (employee_id, cycle_id);
 ```
+
+### Otimizações de query aplicadas (2026-05-29)
+
+| Arquivo | Fix |
+|---|---|
+| `fiscal-service/services/scheduler.py` | Timezone bug: retry window usa agora `T02:00:00-03:00` e `T04:00:00-03:00` (BRT explícito) |
+| `fiscal-service/services/scheduler.py` | `_ensure_period`: `except Exception: pass` → log da exceção (period_id NULL não mais silencioso) |
+| `fiscal-service/routes/documents.py` | Filtro por `ano` sem `mes` agora aplica range anual em vez de retornar tudo |
+| `fiscal-service/routes/fiscal_export.py` | Export XML exige `data_inicio` ou `data_fim` — sem filtro retorna HTTP 400 |
+| `performance-service/routes/admin.py` | Dashboard: reviews do ciclo filtradas no DB por `employee_id` (antes: fetch all + Python filter) |
+| `performance-service/routes/admin.py` | `send_tokens_current_cycle`: pré-carrega reviews e tokens antes do loop (N+1 → 2 queries) |
+| `performance-service/routes/admin.py` | `send_self_evaluation_tokens`: pré-carrega tokens e empresas antes do loop (N+1 → 2 queries) |
+| `performance-service/routes/evaluations.py` | `send_tokens`: pré-carrega subordinados e tokens antes do loop duplo (N×M → 2 queries) |
+| `performance-service/routes/public.py` | Ciência digital: race condition tratada na constraint UNIQUE (retorna 400 em vez de 500) |

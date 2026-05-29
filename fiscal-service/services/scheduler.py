@@ -117,15 +117,17 @@ async def _sync_retry_errors():
     from db import get_supabase
     sb = get_supabase()
 
-    today = date.today().isoformat()
+    import pytz as _pytz
+    _now_br = __import__('datetime').datetime.now(_pytz.timezone("America/Sao_Paulo"))
+    today = _now_br.date().isoformat()
     try:
-        # Busca company_ids com erro registrado hoje entre 02:00 e 03:59
+        # Busca company_ids com erro registrado hoje entre 02:00 e 03:59 BRT
         result = sb.table("fiscal_sync_logs").select("company_id").eq(
             "status", "erro"
         ).eq("janela", "principal").gte(
-            "executado_em", f"{today}T02:00:00"
+            "executado_em", f"{today}T02:00:00-03:00"
         ).lt(
-            "executado_em", f"{today}T04:00:00"
+            "executado_em", f"{today}T04:00:00-03:00"
         ).execute()
         error_ids = list({r["company_id"] for r in (result.data or [])})
     except Exception:
@@ -756,7 +758,7 @@ def _ensure_period(sb, company_id: str, data_emissao, doc: dict):
         if result.data:
             doc["period_id"] = result.data[0]["id"]
     except Exception:
-        pass
+        _logger.exception("_ensure_period falhou company=%s data=%s — period_id não definido", company_id, data_emissao)
 
 
 def _log_sync(sb, company_id, tipo, ibge, nsu_ini, nsu_fin, novos, cancelados, status, erro, janela):

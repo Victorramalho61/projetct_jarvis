@@ -87,6 +87,8 @@ def list_documents(
             "data_emissao",
             f"{ano}-{mes+1:02d}-01" if mes < 12 else f"{ano+1}-01-01"
         )
+    elif ano:
+        q = q.gte("data_emissao", f"{ano}-01-01").lt("data_emissao", f"{ano+1}-01-01")
 
     result = q.order("data_emissao", desc=True).range(offset, offset + limit - 1).execute()
     return result.data

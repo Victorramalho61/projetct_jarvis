@@ -104,6 +104,13 @@ def export_xml_zip(
     if data_fim:    q = q.lte("data_emissao", data_fim)
     if fonte:       q = q.eq("fonte", fonte)
 
+    if not data_inicio and not data_fim:
+        from fastapi import HTTPException as _HTTPEx
+        raise _HTTPEx(
+            status_code=400,
+            detail="Informe data_inicio ou data_fim para exportar XMLs (sem filtro de data o volume pode ser muito grande).",
+        )
+
     rows = q.execute().data or []
     _logger.info("export_xml_zip: %d XMLs para company_id=%s", len(rows), company_id[:8])
 

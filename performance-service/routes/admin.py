@@ -115,9 +115,9 @@ def dashboard(
     all_emp_ids = {e["id"] for e in all_employees}
 
     rev_q = db.table("performance_reviews").select("id,employee_id,status").eq("cycle_id", cycle_id).eq("is_self_evaluation", False)
+    if all_emp_ids and (company_id or branch_id):
+        rev_q = rev_q.in_("employee_id", list(all_emp_ids))
     reviews = rev_q.execute().data
-    if company_id or branch_id:
-        reviews = [r for r in reviews if r.get("employee_id") in all_emp_ids]
 
     completed = [r for r in reviews if r.get("status") in ("completed", "calibrated")]
     reviewed_ids = {r["employee_id"] for r in reviews if r.get("employee_id")}
@@ -1368,6 +1368,20 @@ def send_tokens_current_cycle(
 
     sent_emails = no_email_count = tokens_created = 0
 
+    # Pre-fetch reviews e tokens para eliminar N+1 queries
+    _emp_ids_eval = [e["id"] for e in employees_to_eval]
+    _prefetch_reviews = db.table("performance_reviews").select("employee_id,status").eq(
+        "cycle_id", cycle["id"]
+    ).eq("is_self_evaluation", False).in_("employee_id", _emp_ids_eval).execute().data or []
+    _review_status_map: dict = {r["employee_id"]: r["status"] for r in _prefetch_reviews}
+
+    _prefetch_tokens = db.table("performance_evaluation_tokens").select("employee_id,token").eq(
+        "cycle_id", cycle["id"]
+    ).eq("is_used", False).is_("invalidated_at", "null").in_(
+        "employee_id", _emp_ids_eval
+    ).execute().data or []
+    _token_map: dict = {r["employee_id"]: r["token"] for r in _prefetch_tokens}
+
     for emp in employees_to_eval:
         manager_id = emp.get("manager_id")
         if not manager_id:
@@ -1380,30 +1394,13 @@ def send_tokens_current_cycle(
             continue
 
         # Bloquear se colaborador já tem avaliação concluída/calibrada/com ciência
-        completed_review = (
-            db.table("performance_reviews")
-            .select("id,status")
-            .eq("cycle_id", cycle["id"])
-            .eq("employee_id", emp["id"])
-            .execute()
-        )
-        if completed_review.data and completed_review.data[0].get("status") in ("completed", "calibrated", "acknowledged"):
+        if _review_status_map.get(emp["id"]) in ("completed", "calibrated", "acknowledged"):
             no_email_count += 1
             continue
 
-        # Verificar se já existe token válido para este colaborador neste ciclo
-        existing = (
-            db.table("performance_evaluation_tokens")
-            .select("token")
-            .eq("cycle_id", cycle["id"])
-            .eq("employee_id", emp["id"])
-            .eq("is_used", False)
-            .is_("invalidated_at", "null")
-            .execute()
-        )
-        if existing.data:
-            token_value = existing.data[0]["token"]
-        else:
+        # Verificar se já existe token válido (via pre-fetch)
+        token_value = _token_map.get(emp["id"])
+        if token_value is None:
             token_value = str(uuid_mod.uuid4())
             tok_res = db.table("performance_evaluation_tokens").insert({
                 "cycle_id": cycle["id"],
@@ -1588,16 +1585,26 @@ def send_self_evaluation_tokens(
     sent_emails = 0
     no_email_count = 0
 
+    # Pre-fetch tokens e empresas para eliminar N+1 queries
+    _emp_ids_self = [e["id"] for e in employees]
+    _self_tok_rows = db.table("performance_self_evaluation_tokens").select(
+        "employee_id,id,token,is_used,resend_count"
+    ).eq("cycle_id", cycle["id"]).is_("invalidated_at", "null").in_(
+        "employee_id", _emp_ids_self
+    ).execute().data or []
+    _self_tok_map: dict = {r["employee_id"]: r for r in _self_tok_rows}
+
+    _co_ids_self = list({e["company_id"] for e in employees if e.get("company_id")})
+    _companies_map_self: dict = {}
+    if _co_ids_self:
+        for _co in db.table("performance_companies").select("id,name").in_("id", _co_ids_self).execute().data or []:
+            _companies_map_self[_co["id"]] = _co["name"]
+
     for emp in employees:
-        # Verificar se já tem token de auto-avaliação para este ciclo
-        existing_tok = (
-            db.table("performance_self_evaluation_tokens")
-            .select("id,token,is_used")
-            .eq("cycle_id", cycle["id"])
-            .eq("employee_id", emp["id"])
-            .is_("invalidated_at", "null")
-            .execute()
-        )
+        # Verificar se já tem token de auto-avaliação (via pre-fetch)
+        _tok_data = _self_tok_map.get(emp["id"])
+        existing_tok = type("_R", (), {"data": [_tok_data] if _tok_data else []})()
+
         if existing_tok.data and existing_tok.data[0]["is_used"]:
             continue  # auto-avaliação já concluída
 
@@ -1618,10 +1625,7 @@ def send_self_evaluation_tokens(
             tokens_created += 1
 
         if emp.get("has_corporate_email") and emp.get("email"):
-            company_name = ""
-            if emp.get("company_id"):
-                co = db.table("performance_companies").select("name").eq("id", emp["company_id"]).execute()
-                company_name = co.data[0]["name"] if co.data else ""
+            company_name = _companies_map_self.get(emp.get("company_id", ""), "")
             ok = send_self_evaluation_email(
                 employee_name=emp["name"],
                 employee_email=emp["email"],

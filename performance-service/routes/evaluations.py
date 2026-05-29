@@ -211,33 +211,42 @@ def send_tokens(
     tokens_created = 0
 
     from services.email import send_evaluation_token_email
+    from collections import defaultdict as _dd
+
+    # Pre-fetch subordinados e tokens existentes para eliminar N+1 queries
+    _eval_ids = [ev["id"] for ev in evaluators]
+    _all_subs = db.table("performance_employees").select(
+        "id,name,cargo,hierarchy_level,manager_id"
+    ).in_("manager_id", _eval_ids).eq("active", True).execute().data or []
+    _subs_by_mgr: dict = _dd(list)
+    for _s in _all_subs:
+        _subs_by_mgr[_s["manager_id"]].append(_s)
+
+    _all_sub_ids = [s["id"] for s in _all_subs]
+    _existing_tok_map: dict = {}
+    if _eval_ids and _all_sub_ids:
+        _tok_rows = db.table("performance_evaluation_tokens").select(
+            "evaluator_id,employee_id,token"
+        ).eq("cycle_id", cycle_id).eq("is_used", False).is_(
+            "invalidated_at", "null"
+        ).in_("evaluator_id", _eval_ids).execute().data or []
+        for _t in _tok_rows:
+            _existing_tok_map[(_t["evaluator_id"], _t["employee_id"])] = _t["token"]
 
     for ev in evaluators:
-        # Buscar subordinados diretos deste avaliador
-        subs = db.table("performance_employees").select(
-            "id,name,cargo,hierarchy_level"
-        ).eq("manager_id", ev["id"]).eq("active", True).execute()
-        if not subs.data:
+        subs_list = _subs_by_mgr.get(ev["id"], [])
+        if not subs_list:
             continue
+        subs = type("_R", (), {"data": subs_list})()
 
         branch_name  = ev.get("performance_branches",  {}).get("name", "") if isinstance(ev.get("performance_branches"),  dict) else ""
         company_name = ev.get("performance_companies", {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
 
         # Um token por par (avaliador × subordinado) — formulário pré-vinculado
         for emp in subs.data:
-            existing_token = (
-                db.table("performance_evaluation_tokens")
-                .select("token")
-                .eq("cycle_id",    cycle_id)
-                .eq("evaluator_id", ev["id"])
-                .eq("employee_id",  emp["id"])
-                .eq("is_used", False)
-                .is_("invalidated_at", "null")
-                .execute()
-            )
-
-            if existing_token.data:
-                token_value = existing_token.data[0]["token"]
+            _cached_tok = _existing_tok_map.get((ev["id"], emp["id"]))
+            if _cached_tok:
+                token_value = _cached_tok
             else:
                 token_value = str(uuid.uuid4())
                 token_res = db.table("performance_evaluation_tokens").insert({

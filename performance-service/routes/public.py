@@ -300,13 +300,18 @@ def submit_ciencia(token: str, body: AcknowledgeBody, request: Request) -> dict:
     if existing.data:
         raise HTTPException(400, detail="Ciência já registrada.")
 
-    db.table("performance_review_acknowledgments").insert({
-        "review_id": at["review_id"],
-        "employee_id": at["employee_id"],
-        "feedback_received": body.feedback_received,
-        "acknowledged_via": "email",
-        "ip_address": request.client.host if request.client else None,
-    }).execute()
+    try:
+        db.table("performance_review_acknowledgments").insert({
+            "review_id": at["review_id"],
+            "employee_id": at["employee_id"],
+            "feedback_received": body.feedback_received,
+            "acknowledged_via": "email",
+            "ip_address": request.client.host if request.client else None,
+        }).execute()
+    except Exception as _ack_err:
+        if any(k in str(_ack_err).lower() for k in ("23505", "duplicate", "unique")):
+            raise HTTPException(status_code=400, detail="Ciência já registrada.")
+        raise
 
     db.table("performance_acknowledgment_tokens").update({"used_at": "now()"}).eq("token", token).execute()
 
