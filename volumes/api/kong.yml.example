@@ -3,10 +3,10 @@ _format_version: "1.1"
 consumers:
   - username: anon
     keyauth_credentials:
-      - key: ${ANON_KEY}
+      - key: SUBSTITUA_PELA_CHAVE_REAL
   - username: service_role
     keyauth_credentials:
-      - key: ${SERVICE_ROLE_KEY}
+      - key: SUBSTITUA_PELA_CHAVE_REAL
 
 acls:
   - consumer: anon
