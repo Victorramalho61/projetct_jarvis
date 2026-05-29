@@ -114,8 +114,19 @@ def dashboard(
     total_employees = len(all_employees)
     all_emp_ids = {e["id"] for e in all_employees}
 
+    if (company_id or branch_id) and not all_emp_ids:
+        result = {
+            "total_evaluated": 0, "completion_pct": 0,
+            "pending_acknowledgment": 0, "without_evaluation": 0,
+            "indicator_averages": [],
+            "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
+            "calibrations_count": 0, "calibrations_pct": 0,
+        }
+        _cache_set(cache_key, result)
+        return result
+
     rev_q = db.table("performance_reviews").select("id,employee_id,status").eq("cycle_id", cycle_id).eq("is_self_evaluation", False)
-    if all_emp_ids and (company_id or branch_id):
+    if company_id or branch_id:
         rev_q = rev_q.in_("employee_id", list(all_emp_ids))
     reviews = rev_q.execute().data
 
@@ -531,6 +542,8 @@ def dashboard_pending_ciencia(
         emp_res = db.table("performance_employees").select("id").eq("company_id", company_id).execute().data
         company_emp_ids = {e["id"] for e in emp_res}
         reviews = [r for r in reviews if r.get("employee_id") in company_emp_ids]
+        if not reviews:
+            return []
 
     review_ids = [r["id"] for r in reviews]
     acks = (
