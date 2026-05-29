@@ -171,9 +171,12 @@ def dashboard(
         )
 
     # ── Métricas de auto-avaliação ──────────────────────────────────────────────
-    self_eval_sent = len(
-        db.table("performance_self_evaluation_tokens").select("id").eq("cycle_id", cycle_id).execute().data
-    )
+    _tokens_q = db.table("performance_self_evaluation_tokens").select("employee_id").eq("cycle_id", cycle_id)
+    _tokens = _tokens_q.execute().data
+    if company_id or branch_id:
+        self_eval_sent = sum(1 for t in _tokens if t.get("employee_id") in all_emp_ids)
+    else:
+        self_eval_sent = len(_tokens)
     self_eval_completed_q = (
         db.table("performance_reviews").select("id")
         .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
