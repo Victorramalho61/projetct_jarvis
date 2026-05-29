@@ -181,8 +181,8 @@ def send_email(to_email: str, display_name: str, subject: str, html: str) -> boo
         msg.attach(MIMEText(html,  "html",  "utf-8"))
 
         with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as server:
-            server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(s.smtp_user, s.smtp_password)
             server.sendmail(msg["From"], [to_email], msg.as_string())
         _logger.info("Email sent to %s: %s", to_email, subject)

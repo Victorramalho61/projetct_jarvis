@@ -3,10 +3,10 @@ _format_version: "1.1"
 consumers:
   - username: anon
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1sb2NhbCIsInJvbGUiOiJhbm9uIiwiZXhwIjoyMDUxMjIyNDAwfQ.QKfUQSqYBQE1g4uPebYVLpnLvqYDHEZX6dMPnXpgkbM
+      - key: ${ANON_KEY}
   - username: service_role
     keyauth_credentials:
-      - key: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1sb2NhbCIsInJvbGUiOiJzZXJ2aWNlX3JvbGUiLCJleHAiOjIwNTEyMjI0MDB9.j85B2AZsQaYz9AZQVL8ip2klfMS2zAxAgkqa42d8jWI
+      - key: ${SERVICE_ROLE_KEY}
 
 acls:
   - consumer: anon
@@ -264,7 +264,8 @@ plugins:
   - name: cors
     config:
       origins:
-        - "*"
+        - "https://jarvis.voetur.com.br"
+        - "https://10.140.0.220"
       methods:
         - GET
         - POST

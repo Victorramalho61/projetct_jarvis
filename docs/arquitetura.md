@@ -74,7 +74,7 @@ Supabase Self-Hosted (Docker app_net):
 |---|---|---|---|
 | 443 | nginx (HTTPS) | 0.0.0.0 | sim |
 | 80 | nginx (redirect) | 0.0.0.0 | sim |
-| 8181 | nginx (Evolution API proxy) | 0.0.0.0 | sim |
+| 8181 | nginx (Evolution API proxy) | 127.0.0.1 | **não** (restrito localhost) |
 | 5432 | PostgreSQL | 127.0.0.1 | bloqueado |
 | 9100 | Monitor Agent | 127.0.0.1 | bloqueado |
 | 8080 | Evolution API | 127.0.0.1 | bloqueado |
@@ -1068,11 +1068,10 @@ E:\claudecode\claudecode\setup-autostart.ps1
 ```
 
 Isso registra a task `Jarvis-Docker-Startup` no Task Scheduler do Windows com:
-- Trigger: `AtStartup`
-- Principal: `NT AUTHORITY\SYSTEM` (Highest)
+- Trigger: `AtLogon` (usuário `victor.ramalho`) — WSL não suporta SYSTEM
 - Ação: executa `E:\claudecode\claudecode\jarvis-startup.bat`
 
-O script `jarvis-startup.bat`: inicia Docker Desktop → aguarda até 120s → `docker compose up -d` → aplica memory limits.
+O script `jarvis-startup.bat`: aguarda Docker responder → `docker compose up -d`.
 
 **Verificação:**
 ```powershell
@@ -1515,7 +1514,7 @@ Parâmetros aplicados via `command:` no `docker-compose.yml` (seção `db`):
 | `listen_addresses` | `*` | **Crítico** — sem isso PostgreSQL recusa conexões TCP da rede Docker |
 | `shared_buffers` | `256MB` | Cache compartilhado (~25% RAM disponível) |
 | `effective_cache_size` | `4GB` | Hint ao planner sobre cache total do SO |
-| `work_mem` | `10MB` | Memória por operação de sort/hash |
+| `work_mem` | `6MB` | Reduzido com max_connections=200 (200×6=1.2 GB max) |
 | `maintenance_work_mem` | `128MB` | VACUUM, CREATE INDEX |
 | `wal_buffers` | `16MB` | Buffer WAL antes de flush |
 | `random_page_cost` | `1.5` | Favorece index scans (SSD) |
@@ -1624,3 +1623,107 @@ Resultado: sidebar e header permanecem visíveis durante qualquer transição de
 - Thresholds: postgres ≥ 10 MB, evolution_db ≥ 0.05 MB
 
 ---
+
+## Migração de Servidor — 2026-05-29
+
+### Novo servidor: 10.140.0.220 (VOET-SVM140220)
+
+Migração concluída do servidor antigo (`10.61.10.100`) para o novo (`10.140.0.220`).
+
+- **DNS**: `jarvis.voetur.com.br` deve apontar para `10.140.0.220` (atualização pendente no AD DNS `VOET-SVM140005` após 2026-05-29)
+- **DNS Server**: `VOET-SVM140005.grupovoetur.local (10.140.0.5)` — via AD DNS Manager ou `dnscmd . /RecordAdd voetur.com.br jarvis A 10.140.0.220`
+- **Acesso temporário via IP**: enquanto DNS não propagar, adicionar `10.140.0.220 jarvis.voetur.com.br` no `hosts` local; ou acessar `https://10.140.0.220` (cert warning esperado)
+- **Pós-DNS**: reverter `VITE_API_URL` no `.env` para `https://jarvis.voetur.com.br` e rebuildar frontend (`docker compose up -d --build frontend`)
+
+### Resilência e limites de recursos
+
+Todos os containers passaram a ter `memswap_limit` explícito (= `mem_limit`) — swap desabilitado por container, evitando degradação silenciosa de performance. Hermes-service e evolution-api movidos para `profiles: ["disabled"]` — nunca sobem no `docker compose up -d` padrão.
+
+---
+
+## Hardening de Segurança — 2026-05-29
+
+### Vulnerabilidades corrigidas
+
+| Área | Problema | Fix |
+|---|---|---|
+| `kong.yml` | Chaves `anon` e `service_role` hardcoded no git | Substituídas por `${ANON_KEY}` e `${SERVICE_ROLE_KEY}` (lidas do `.env` em runtime) |
+| `kong.yml` | CORS global com `origins: ["*"]` + `credentials: true` | Restrito a `["https://jarvis.voetur.com.br", "https://10.140.0.220"]` |
+| `docker-compose.yml` | Porta `8181` (Evolution API proxy) exposta em `0.0.0.0` | Restrita a `127.0.0.1:8181` |
+| `core-service/routes/auth.py` | Filter injection: `.or_(f"username.eq.{identifier}")` permitia injeção PostgREST | Substituído por duas queries `.eq()` separadas |
+| `core-service/routes/auth.py` | `GET /profile` retornava `anthropic_api_key` em plaintext | Mascarado: retorna `sk-...xxxx` (últimos 4 chars) |
+| `core-service/routes/auth.py` | `smtplib.SMTP()` sem timeout — bloqueava thread indefinidamente | Adicionado `timeout=15` |
+| `core-service/routes/auth.py` | `smtp.ehlo()` antes de `starttls()` redundante (smtplib já faz internamente) | Removido; mantido apenas o pós-TLS (RFC 3207) |
+| `performance-service/services/email.py` | `smtp.ehlo()` ausente **após** `starttls()` | Adicionado (RFC 3207 — re-greeting obrigatório) |
+
+### Pendente (não alterado por decisão do usuário)
+
+- Rotação de chaves JWT Supabase (`anon` e `service_role`)
+- Certificados SSL/TLS
+- Senhas de banco e serviços externos
+
+---
+
+## Correção de Encoding — 2026-05-29
+
+### Problema
+
+Dados migrados do servidor antigo apresentavam caracteres especiais corrompidos em todo o sistema. Exemplo: `Representa├º├╡es` em vez de `Representações`. Causa: bytes UTF-8 interpretados como CP850 (terminal DOS) foram copiados e persistidos como Unicode literal no banco.
+
+### Escopo da correção
+
+| Tabela | Registros corrigidos |
+|---|---|
+| `fiscal_companies` (nome + cidade) | 16 |
+| `fiscal_documents` (emitente, destinatário, município, xml) | 70.187 |
+| `fiscal_nfse_municipalities` | 42 |
+| `freshservice_tickets.subject` | 2.890 |
+| `freshservice_groups` | 5 |
+| `payfly_reservations` (12 colunas) | ~4.300 |
+| `payfly_media_posts` | 211 |
+| `monitored_systems` | 2 |
+| `performance_*` | 26 |
+| `app_logs` | 5 |
+| **Total** | **~77.700 campos** |
+
+### Mapeamento de caracteres
+
+| Corrompido | Correto | | Corrompido | Correto |
+|:---:|:---:|---|:---:|:---:|
+| `├º` | `ç` | | `├¬` | `ê` |
+| `├╡` | `õ` | | `├┤` | `ô` |
+| `├¡` | `í` | | `├║` | `ú` |
+| `├ú` | `ã` | | `├ü` | `Á` |
+| `├í` | `á` | | `├ç` | `Ç` |
+| `├â` | `Ã` | | `├ë` | `É` |
+| `ΓÇô` | `–` (en dash) | | `ΓÇ»` | `–` |
+
+Script de correção preservado em `fix_encoding.sql` na raiz do projeto.
+
+---
+
+## Análise de Banco de Dados — 2026-05-29
+
+### Bugs críticos identificados (pendentes de fix)
+
+| Severidade | Local | Problema |
+|---|---|---|
+| HIGH | `fiscal-service/services/scheduler.py:120` | Timezone bug: filtro de retry usa data naive (sem offset) → janela 02:00–04:00 BRT nunca encontra erros em UTC |
+| HIGH | `performance-service/routes/evaluations.py:215` | N+1: 1 query/avaliador + 1 query/subordinado em `send_tokens` (até 121 round-trips) |
+| HIGH | `performance-service/routes/admin.py:1371` | N+1: 2 queries/colaborador em `send_tokens_current_cycle` (400+ round-trips com 200 colaboradores) |
+| HIGH | `performance-service/routes/admin.py:1591` | N+1: 2 queries/colaborador em `send_self_evaluation_tokens` |
+| HIGH | `performance-service/routes/public.py:134` | Sem transação: review + scores + token são 3 writes separados; crash entre eles cria estado inconsistente |
+| HIGH | `performance-service/routes/public.py:303` | Race condition: dupla submissão de ciência pode gerar constraint error 500 em vez de 400 |
+| MEDIUM | `fiscal-service/routes/fiscal_export.py:47` | SELECT sem LIMIT em `fiscal_documents` (43k+ rows); export XML carrega todo `xml_content` em RAM (~430 MB) |
+| MEDIUM | `fiscal-service/services/scheduler.py:745` | `_ensure_period` swallows silenciosamente exceções → documentos salvos com `period_id = NULL` |
+| MEDIUM | `fiscal-service/routes/documents.py:85` | Filtro por `ano` sem `mes` retorna todos os documentos da empresa sem limite de data |
+
+### Índices recomendados (pendentes)
+
+```sql
+-- performance_employees.cpf — endpoint público de busca presencial
+CREATE INDEX idx_perf_emp_cpf ON performance_employees (cpf) WHERE cpf IS NOT NULL;
+
+-- performance_evaluation_tokens — queries por employee_id (N+1 acima)
+CREATE INDEX idx_perf_eval_tokens_employee ON performance_evaluation_tokens (employee_id, cycle_id);
+```

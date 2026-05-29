@@ -59,7 +59,10 @@ def _verify_password(password: str, hashed: str) -> bool:
 
 def _lookup_profile(identifier: str) -> dict | None:
     db = get_supabase()
-    result = db.table("profiles").select("*").or_(f"username.eq.{identifier},email.eq.{identifier}").execute()
+    result = db.table("profiles").select("*").eq("username", identifier).execute()
+    if result.data:
+        return result.data[0]
+    result = db.table("profiles").select("*").eq("email", identifier).execute()
     return result.data[0] if result.data else None
 
 
@@ -171,7 +174,10 @@ async def get_profile(current_user: Annotated[dict, Depends(get_current_user)]) 
     ).eq("id", current_user["id"]).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Perfil não encontrado.")
-    return result.data[0]
+    data = result.data[0]
+    key = data.get("anthropic_api_key") or ""
+    data["anthropic_api_key"] = f"sk-...{key[-4:]}" if len(key) > 8 else ("***" if key else "")
+    return data
 
 
 @router.put("/profile")
@@ -215,8 +221,9 @@ def _send_reset_email(to_email: str, display_name: str, reset_url: str) -> None:
     )
     msg.attach(MIMEText(html, "html"))
     try:
-        with smtplib.SMTP(s.smtp_host, s.smtp_port) as smtp:
+        with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
             smtp.starttls()
+            smtp.ehlo()
             smtp.login(s.smtp_user, s.smtp_password)
             smtp.sendmail(s.smtp_from or s.smtp_user, to_email, msg.as_string())
     except Exception:
