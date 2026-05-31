@@ -1466,6 +1466,20 @@ function TabCiclo({ companies }: { companies: any[] }) {
     }
   }
 
+  async function handleSendSelfEvalForEmployee(employeeId: string) {
+    setResendingSelfEval(employeeId);
+    try {
+      await apiFetch("/api/performance/admin/cycle/self-evaluation-tokens/send-for-employee", {
+        token, method: "POST", json: { employee_id: employeeId },
+      });
+      await loadSelfEvalTokens();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao enviar auto-avaliação.");
+    } finally {
+      setResendingSelfEval(null);
+    }
+  }
+
   function load() {
     setLoading(true);
     // Cada promise tem seu próprio fallback — uma falha não cancela as outras
@@ -1473,8 +1487,14 @@ function TabCiclo({ companies }: { companies: any[] }) {
       apiFetch<any>("/api/performance/admin/cycle/status", { token }).catch(() => null),
       apiFetch<any[]>("/api/performance/admin/cycle/tokens", { token }).catch(() => []),
       apiFetch<any[]>("/api/performance/admin/cycle/reopen-history", { token }).catch(() => []),
-    ]).then(([s, t, h]) => { setCycleStatus(s); setTokens(t || []); setHistory(h || []); })
-      .finally(() => setLoading(false));
+      apiFetch<any[]>("/api/performance/admin/cycle/self-evaluation-tokens", { token }).catch(() => []),
+    ]).then(([s, t, h, se]) => {
+      setCycleStatus(s);
+      setTokens(t || []);
+      setHistory(h || []);
+      setSelfEvalTokens(se || []);
+      if (se && se.length > 0) setShowSelfEvalTokens(true);
+    }).finally(() => setLoading(false));
   }
   useEffect(() => { load(); }, [token]);
 
@@ -1642,45 +1662,104 @@ function TabCiclo({ companies }: { companies: any[] }) {
           </div>
           <Card>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px]">
+              <table className="w-full min-w-[820px]">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Colaborador", "Avaliador (Gestor)", "Status", "Enviado em", ""].map(h => (
+                    {["Colaborador", "Avaliador (Gestor)", "Status Aval.", "Auto-Avaliação", "Enviado em", "Ações"].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {tokens.map((t: any) => (
-                    <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{t.employee_name || "—"}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{t.evaluator_name}</td>
-                      <td className="px-4 py-3">
-                        <Badge color={t.status === "completed" ? "green" : t.status === "invalidated" ? "red" : "gray"}>
-                          {t.status === "completed" ? "Concluído" : t.status === "invalidated" ? "Inválido" : "Pendente"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
-                      <td className="px-4 py-3 text-right">
-                        {t.status !== "completed" && t.status !== "invalidated" && cycleStatus?.status === "open" && t.has_email && (
-                          <button onClick={() => openSendOne(t.id)}
-                            title={t.resend_count > 0 ? `Reenviar (${t.resend_count}x enviado)` : "Enviar formulário por e-mail"}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
-                              bg-[#E6F4F0] hover:bg-[#CCE8E0] text-[#00694E]
-                              dark:bg-[#00694E]/20 dark:hover:bg-[#00694E]/30 dark:text-emerald-300
-                              rounded-lg transition-all border border-[#00694E]/30 dark:border-[#00694E]/40">
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                            </svg>
-                            {t.resend_count > 0 ? `Reenviar (${t.resend_count}×)` : "Enviar"}
-                          </button>
-                        )}
-                        {t.status !== "completed" && t.status !== "invalidated" && !t.has_email && (
-                          <span className="text-xs text-gray-400 italic">sem e-mail</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                  {tokens.map((t: any) => {
+                    const selfToken = selfEvalTokens.find((st: any) => st.employee_id === t.employee_id);
+                    return (
+                      <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{t.employee_name || "—"}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{t.evaluator_name}</td>
+                        <td className="px-4 py-3">
+                          <Badge color={t.status === "completed" ? "green" : t.status === "invalidated" ? "red" : "gray"}>
+                            {t.status === "completed" ? "Concluído" : t.status === "invalidated" ? "Inválido" : "Pendente"}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {selfToken ? (
+                            <Badge color={selfToken.status === "completed" ? "green" : selfToken.status === "invalidated" ? "red" : "violet"}>
+                              {selfToken.status === "completed" ? "Concluída" : selfToken.status === "invalidated" ? "Inválida" : "Pendente"}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">não enviada</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 justify-end">
+                            {/* Botão enviar avaliação do gestor */}
+                            {t.status !== "completed" && t.status !== "invalidated" && cycleStatus?.status === "open" && t.has_email && (
+                              <button onClick={() => openSendOne(t.id)}
+                                title={t.resend_count > 0 ? `Reenviar avaliação (${t.resend_count}x enviado)` : "Enviar formulário de avaliação por e-mail"}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                                  bg-[#E6F4F0] hover:bg-[#CCE8E0] text-[#00694E]
+                                  dark:bg-[#00694E]/20 dark:hover:bg-[#00694E]/30 dark:text-emerald-300
+                                  rounded-lg transition-all border border-[#00694E]/30 dark:border-[#00694E]/40">
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                </svg>
+                                {t.resend_count > 0 ? `Aval. (${t.resend_count}×)` : "Aval."}
+                              </button>
+                            )}
+                            {t.status !== "completed" && t.status !== "invalidated" && !t.has_email && (
+                              <span className="text-xs text-gray-400 italic">sem e-mail</span>
+                            )}
+                            {/* Botão enviar auto-avaliação individual */}
+                            {cycleStatus?.status === "open" && (
+                              selfToken?.status === "completed" ? null :
+                              selfToken?.status === "invalidated" ? null :
+                              selfToken ? (
+                                // Token existe — reenviar
+                                <button
+                                  onClick={() => handleResendSelfEval(selfToken.id)}
+                                  disabled={resendingSelfEval === selfToken.id}
+                                  title={selfToken.resend_count > 0 ? `Reenviar auto-avaliação (${selfToken.resend_count}x enviado)` : "Enviar link de auto-avaliação"}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                                    bg-violet-50 hover:bg-violet-100 text-violet-700
+                                    dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300
+                                    rounded-lg transition-all border border-violet-200 dark:border-violet-800
+                                    disabled:opacity-60 disabled:cursor-not-allowed">
+                                  {resendingSelfEval === selfToken.id
+                                    ? <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
+                                    : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                      </svg>
+                                  }
+                                  {selfToken.resend_count > 0 ? `Auto (${selfToken.resend_count}×)` : "Auto-Aval."}
+                                </button>
+                              ) : (
+                                // Sem token — criar e enviar
+                                <button
+                                  onClick={() => handleSendSelfEvalForEmployee(t.employee_id)}
+                                  disabled={resendingSelfEval === t.employee_id}
+                                  title="Criar e enviar link de auto-avaliação"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
+                                    bg-violet-50 hover:bg-violet-100 text-violet-700
+                                    dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300
+                                    rounded-lg transition-all border border-violet-200 dark:border-violet-800
+                                    disabled:opacity-60 disabled:cursor-not-allowed">
+                                  {resendingSelfEval === t.employee_id
+                                    ? <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
+                                    : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                      </svg>
+                                  }
+                                  Auto-Aval.
+                                </button>
+                              )
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -1762,6 +1762,76 @@ def resend_self_eval_token(
     return {"ok": ok}
 
 
+@router.post("/cycle/self-evaluation-tokens/send-for-employee")
+def send_self_eval_for_employee(
+    body: dict,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """Cria (se não existe) e envia token de auto-avaliação para um colaborador específico."""
+    from services.email import send_self_evaluation_email
+    import uuid as _u
+
+    employee_id = body.get("employee_id")
+    if not employee_id:
+        raise HTTPException(400, detail="employee_id é obrigatório")
+
+    db = get_supabase()
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto")
+
+    emp_res = db.table("performance_employees").select("*, performance_companies(name)").eq("id", employee_id).eq("active", True).execute()
+    if not emp_res.data:
+        raise HTTPException(404, detail="Colaborador não encontrado ou inativo")
+    emp = emp_res.data[0]
+
+    if not emp.get("has_corporate_email") or not emp.get("email"):
+        raise HTTPException(400, detail="Colaborador não possui e-mail corporativo cadastrado")
+
+    # Busca token existente ou cria novo
+    tok_res = db.table("performance_self_evaluation_tokens").select("id,token,is_used,resend_count").eq("cycle_id", cycle["id"]).eq("employee_id", employee_id).is_("invalidated_at", "null").execute()
+
+    if tok_res.data and tok_res.data[0]["is_used"]:
+        raise HTTPException(400, detail="Auto-avaliação já concluída")
+
+    if tok_res.data:
+        tok_id  = tok_res.data[0]["id"]
+        tok_val = tok_res.data[0]["token"]
+        resend_count = (tok_res.data[0].get("resend_count") or 0) + 1
+    else:
+        tok_val = str(_u.uuid4())
+        new_tok = db.table("performance_self_evaluation_tokens").insert({
+            "token": tok_val, "cycle_id": cycle["id"], "employee_id": employee_id,
+        }).execute()
+        if not new_tok.data:
+            raise HTTPException(500, detail="Erro ao criar token de auto-avaliação")
+        tok_id = new_tok.data[0]["id"]
+        resend_count = 1
+
+    company_name = (emp.get("performance_companies") or {}).get("name", "")
+    ok = send_self_evaluation_email(
+        employee_name=emp["name"],
+        employee_email=emp["email"],
+        cycle_name=cycle["name"],
+        token=tok_val,
+        frontend_url=frontend_url,
+        company_name=company_name,
+    )
+    if ok:
+        db.table("performance_self_evaluation_tokens").update({
+            "resend_count": resend_count,
+            "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+        }).eq("id", tok_id).execute()
+
+    log_action("self_eval_token", tok_id, "send_for_employee", None,
+               {"employee_id": employee_id, "ok": ok}, current_user["username"], request)
+    return {"ok": ok, "token_id": tok_id}
+
+
 @router.get("/cycle/reopen-history")
 def get_reopen_history(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> list[dict]:
     db = get_supabase()
