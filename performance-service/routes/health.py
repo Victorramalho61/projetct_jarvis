@@ -12,12 +12,7 @@ _VERSION = "1.0.0"
 @router.get("/health")
 @limiter.limit("60/minute")
 def health(request: Request):
-    return {
-        "status": "ok",
-        "service": _SERVICE,
-        "version": _VERSION,
-        "uptime_seconds": round(time.monotonic() - _START),
-    }
+    return {"status": "ok"}
 
 
 @router.get("/ready")
