@@ -294,7 +294,7 @@ services:
     ports:
       - "443:443"
       - "80:80"
-      - "127.0.0.1:8181:8181"
+      - "8181:8181"
     depends_on:
       - core-service
     networks:
