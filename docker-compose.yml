@@ -719,8 +719,8 @@ services:
   evolution-api:
     build:
       context: ./evolution-api-patched
-    # ❌ DESABILITADO MANUALMENTE — não religar sem autorização humana explícita (ver evolution-api-patched/DISABLED.md)
-    restart: "no"
+    # ✅ Reativado em 2026-06-02 — Bot WhatsApp Freshservice (nova máquina)
+    restart: unless-stopped
     logging: *logging
     mem_limit: 512m
     cpus: "0.5"
@@ -737,7 +737,8 @@ services:
       AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: "postgresql"
-      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/evolution
+      DATABASE_URL: postgresql://evolution_user:evolution2026@postgres:5432/evolution
+      DATABASE_CONNECTION_URI: postgresql://evolution_user:evolution2026@postgres:5432/evolution?schema=public
       CACHE_REDIS_ENABLED: "false"
       CONFIG_SESSION_PHONE_CLIENT: "Evolution API"
       CONFIG_SESSION_PHONE_NAME: "Chrome"
