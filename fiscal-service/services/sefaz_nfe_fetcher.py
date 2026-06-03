@@ -58,6 +58,15 @@ class _LoteWrapper:
         return [_DocZipWrapper(dz) for dz in raw]
 
 
+# Mapa do nome XSD (atributo schema do docZip lxml) → código numérico interno
+# Valores inline para evitar referência forward aos constantes do módulo
+_SCHEMA_NAME_TO_CODE: dict[str, int] = {
+    "resNFe":        15,      # SCHEMA_RESUMO_NFE
+    "procNFe":       55,      # SCHEMA_PROC_NFE
+    "procEventoNFe": 110111,  # SCHEMA_EVENTO_CANCEL
+}
+
+
 class _DocZipWrapper:
     def __init__(self, obj):
         self._obj = obj
@@ -65,7 +74,10 @@ class _DocZipWrapper:
 
     def schema(self):
         if self._is_xml:
-            return self._obj.get("schema") or self._obj.get("{http://www.w3.org/2001/XMLSchema-instance}schema")
+            raw = self._obj.get("schema") or ""
+            # raw pode ser "resNFe_v1.01.xsd" — extrai o prefixo e converte para código numérico
+            prefix = raw.split("_")[0] if "_" in raw else raw.replace(".xsd", "")
+            return _SCHEMA_NAME_TO_CODE.get(prefix, 0)
         return getattr(self._obj, "schema", None) or (getattr(self._obj, "_value_1", {}) or {}).get("schema")
 
     def nsu(self):
