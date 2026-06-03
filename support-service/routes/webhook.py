@@ -47,37 +47,30 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
 
     try:
         event = payload.get("event", "")
-        data = payload.get("data", {})
-
-        if event != "messages.upsert":
+        # WAHA: evento "message"; ignorar outros (connection_update, etc.)
+        if event != "message":
             return JSONResponse({"ok": True})
 
-        key = data.get("key", {})
-        if key.get("fromMe", True):
+        waha = payload.get("payload", {})
+
+        if waha.get("fromMe", True):
             return JSONResponse({"ok": True})
 
-        msg_id = key.get("id", "")
+        msg_id = waha.get("id", "")
         if msg_id and _is_duplicate(msg_id):
             return JSONResponse({"ok": True})
 
-        remote_jid = key.get("remoteJid", "")
-        # Ignore group messages
+        remote_jid = waha.get("from", "")
+        # Ignorar mensagens de grupo
         if "@g.us" in remote_jid:
             return JSONResponse({"ok": True})
 
-        # Use only the numeric part as DB key; keep full JID for sending
-        # (@lid contacts need the full JID, @s.whatsapp.net works with number only)
         phone = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
-        send_to = remote_jid  # pass full JID to Evolution API
+        send_to = remote_jid  # WAHA usa @c.us — mantém JID completo para resposta
         if not phone:
             return JSONResponse({"ok": True})
 
-        message = data.get("message", {})
-        text = (
-            message.get("conversation")
-            or message.get("extendedTextMessage", {}).get("text")
-            or ""
-        ).strip()
+        text = (waha.get("body") or "").strip()
 
         if not text:
             return JSONResponse({"ok": True})
@@ -87,14 +80,15 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
         if reply:
             s = get_settings()
             import httpx
-            url = f"{s.whatsapp_api_url.rstrip('/')}/message/sendText/{s.whatsapp_instance}"
+            from services.whatsapp import _to_chat_id
+            url = f"{s.whatsapp_api_url.rstrip('/')}/api/sendText"
             timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
             try:
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     await client.post(
                         url,
-                        json={"number": send_to, "text": reply, "linkPreview": False},
-                        headers={"apikey": s.whatsapp_api_key},
+                        json={"session": s.whatsapp_instance, "chatId": _to_chat_id(send_to), "text": reply},
+                        headers={"X-Api-Key": s.whatsapp_api_key},
                     )
             except httpx.ReadTimeout:
                 pass

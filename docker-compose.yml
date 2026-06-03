@@ -716,36 +716,24 @@ services:
     networks:
       - app_net
 
-  evolution-api:
-    build:
-      context: ./evolution-api-patched
-    # ✅ Reativado em 2026-06-02 — Bot WhatsApp Freshservice (nova máquina)
+  waha:
+    image: devlikeapro/waha
     restart: unless-stopped
     logging: *logging
     mem_limit: 512m
     cpus: "0.5"
-    depends_on:
-      db:
-        condition: service_healthy
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:3000:3000"
     volumes:
-      - evolution_data:/evolution/instances
+      - waha_data:/app/.sessions
     environment:
-      SERVER_URL: ${EVOLUTION_SERVER_URL}
-      AUTHENTICATION_API_KEY: ${WHATSAPP_API_KEY}
-      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "true"
-      DATABASE_ENABLED: "true"
-      DATABASE_PROVIDER: "postgresql"
-      DATABASE_URL: postgresql://evolution_user:evolution2026@postgres:5432/evolution
-      DATABASE_CONNECTION_URI: postgresql://evolution_user:evolution2026@postgres:5432/evolution?schema=public
-      CACHE_REDIS_ENABLED: "false"
-      CONFIG_SESSION_PHONE_CLIENT: "Evolution API"
-      CONFIG_SESSION_PHONE_NAME: "Chrome"
-      CONFIG_SESSION_PHONE_VERSION: "2.3000.1038179882"
-      DEL_INSTANCE: "false"
-      QRCODE_LIMIT: "30"
-      QRCODE_COLOR: "#000000"
+      WHATSAPP_DEFAULT_ENGINE: NOWEB
+      WAHA_DEFAULT_SESSION: voetur
+      WAHA_AUTO_START: "true"
+      WHATSAPP_API_KEY: ${WHATSAPP_API_KEY}
+      WAHA_DASHBOARD_ENABLED: "true"
+      WAHA_DASHBOARD_USERNAME: admin
+      WAHA_DASHBOARD_PASSWORD: ${WHATSAPP_API_KEY}
     networks:
       - app_net
 
@@ -754,8 +742,8 @@ volumes:
     name: jarvis_db_data
   storage_data:
     name: jarvis_storage_data
-  evolution_data:
-    name: jarvis_evolution_data
+  waha_data:
+    name: jarvis_waha_data
   ollama_data:
     name: jarvis_ollama_data
   hermes_data:

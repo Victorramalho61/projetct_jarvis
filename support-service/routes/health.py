@@ -36,8 +36,8 @@ async def ready():
         try:
             async with httpx.AsyncClient(timeout=3.0) as c:
                 r = await c.get(
-                    f"{s.whatsapp_api_url.rstrip('/')}/instance/fetchInstances",
-                    headers={"apikey": s.whatsapp_api_key},
+                    f"{s.whatsapp_api_url.rstrip('/')}/api/sessions",
+                    headers={"X-Api-Key": s.whatsapp_api_key},
                 )
             checks["whatsapp"] = {
                 "status": "ok" if r.status_code < 500 else "degraded",

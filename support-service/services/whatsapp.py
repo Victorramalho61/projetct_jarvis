@@ -7,14 +7,21 @@ from db import get_settings
 _logger = logging.getLogger(__name__)
 
 
+def _to_chat_id(phone: str) -> str:
+    """Normaliza número/JID para formato chatId do WAHA (5521...@c.us)."""
+    if "@" in phone:
+        return phone.split("@")[0] + "@c.us"
+    return f"{phone}@c.us"
+
+
 async def send_text(phone: str, text: str) -> bool:
     s = get_settings()
     if not s.whatsapp_api_url or not s.whatsapp_instance:
         _logger.warning("WhatsApp not configured, skipping send to %s", phone)
         return False
-    url = f"{s.whatsapp_api_url}/message/sendText/{s.whatsapp_instance}"
-    payload = {"number": phone, "text": text}
-    headers = {"apikey": s.whatsapp_api_key}
+    url = f"{s.whatsapp_api_url}/api/sendText"
+    payload = {"session": s.whatsapp_instance, "chatId": _to_chat_id(phone), "text": text}
+    headers = {"X-Api-Key": s.whatsapp_api_key}
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(url, json=payload, headers=headers)

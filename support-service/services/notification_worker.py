@@ -60,17 +60,18 @@ def process_freshservice_event(payload: dict) -> None:
     agent = payload.get("agent") or payload.get("agent_name") or ""
     text = template.format(id=ticket_id, value=value, agent=agent)
 
-    # Send via Evolution API
+    # Send via WAHA
     sent = False
     if s.whatsapp_api_url and phone:
-        url = f"{s.whatsapp_api_url.rstrip('/')}/message/sendText/{s.whatsapp_instance}"
+        from services.whatsapp import _to_chat_id
+        url = f"{s.whatsapp_api_url.rstrip('/')}/api/sendText"
         timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=5.0)
         try:
             with httpx.Client(timeout=timeout) as client:
                 r = client.post(
                     url,
-                    json={"number": phone, "text": text, "linkPreview": False},
-                    headers={"apikey": s.whatsapp_api_key},
+                    json={"session": s.whatsapp_instance, "chatId": _to_chat_id(phone), "text": text},
+                    headers={"X-Api-Key": s.whatsapp_api_key},
                 )
                 r.raise_for_status()
             sent = True
