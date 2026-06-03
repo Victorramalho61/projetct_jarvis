@@ -108,144 +108,20 @@ class NFSeFetcher:
         self.cert_path = cert_path
         self.key_path = key_path
 
-    def fetch_municipio(self, ibge: str, data_inicio: date, data_fim: date) -> list[dict]:
-        city = NFSE_CITY_REGISTRY.get(ibge)
-        if not city:
-            _logger.warning(
-                "NFSe: município IBGE %s não mapeado. Verifique cadastro na prefeitura.", ibge
-            )
-            return []
-        return self.fetch_with_tipo_url(ibge, city["tipo"], city["url"], data_inicio, data_fim)
-
     def fetch_with_tipo_url(
         self, ibge: str, tipo: str, url: str, data_inicio: date, data_fim: date
     ) -> list[dict]:
         """Busca NFSe usando tipo e URL explícitos, sem consultar o registry."""
         dispatch = {
-            "nacional":   self._fetch_portal_nacional,
             "abrasf":     self._fetch_abrasf,
             "paulistana": self._fetch_paulistana,
             "carioca":    self._fetch_carioca,
             "df":         self._fetch_df,
-            "nddigital":  self._fetch_nddigital,
         }
         fn = dispatch.get(tipo)
         if not fn:
             raise ValueError(f"Tipo NFSe desconhecido: {tipo}")
         return fn(ibge, url, data_inicio, data_fim)
-
-    def _fetch_nddigital(self, ibge: str, _url: str, data_inicio: date, data_fim: date) -> list[dict]:
-        # company_id é o CNPJ — não temos acesso direto aqui, então usamos o CNPJ
-        # para encontrar o company_id no banco
-        from db import get_supabase
-        sb = get_supabase()
-        company_row = sb.table("fiscal_companies").select("id").eq("cnpj", self.cnpj).execute()
-        if not company_row.data:
-            _logger.warning("NDD Digital: empresa CNPJ %s não encontrada no banco", self.cnpj)
-            return []
-        company_id = company_row.data[0]["id"]
-
-        try:
-            token = _get_ndd_token(company_id)
-        except RuntimeError as e:
-            _logger.warning("%s", e)
-            return []
-        except Exception as e:
-            _logger.error("NDD Digital: falha ao obter token: %s", e)
-            raise
-
-        # Nota: campo `municipio` na API é nome da cidade (ex: "Rio de Janeiro"),
-        # não código IBGE. Buscamos tudo por data e filtramos por CNPJ do tomador.
-        base = f"{NDD_BASE}/nfse-api/api/NFSeRecepcao"
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-
-        odata_filter = (
-            f"dataEmissao ge {data_inicio.isoformat()}T00:00:00 "
-            f"and dataEmissao le {data_fim.isoformat()}T23:59:59"
-        )
-
-        # Busca nome da cidade pelo IBGE para filtrar na resposta
-        city_info = NFSE_CITY_REGISTRY.get(ibge, {})
-        city_name_norm = city_info.get("nome", "").upper()
-
-        docs = []
-        skip = 0
-        page_size = 100
-
-        while True:
-            try:
-                resp = requests.get(
-                    base,
-                    headers=headers,
-                    params={
-                        "$filter": odata_filter,
-                        "$top": page_size,
-                        "$skip": skip,
-                        "$orderby": "dataEmissao asc",
-                    },
-                    timeout=30,
-                )
-                resp.raise_for_status()
-            except Exception as e:
-                _logger.error("NDD Digital IBGE %s skip=%d: %s", ibge, skip, e)
-                raise
-
-            data = resp.json()
-            items = data if isinstance(data, list) else data.get("items", data.get("value", []))
-            if not items:
-                break
-
-            for item in items:
-                # Filtra pelo município da cidade (nome) se ibge especificado
-                if city_name_norm:
-                    item_city = (item.get("municipio") or "").upper()
-                    item_uf = (item.get("uf") or "").upper()
-                    city_uf = city_info.get("uf", "").upper()
-                    if city_name_norm not in item_city and item_uf != city_uf:
-                        continue
-
-                nfse_id = item.get("id")
-                xml_content = None
-                if nfse_id:
-                    try:
-                        xml_resp = requests.get(
-                            f"{base}/xml/{nfse_id}",
-                            headers=headers,
-                            timeout=15,
-                        )
-                        if xml_resp.ok:
-                            xml_data = xml_resp.json()
-                            xml_content = xml_data.get("xml") or xml_data.get("xmlNfse")
-                    except Exception:
-                        pass
-
-                uid = item.get("identificadorUnico") or f"ndd{nfse_id}"
-                docs.append({
-                    "tipo": "NFSe",
-                    "numero": str(item.get("numero") or ""),
-                    "serie": item.get("serie") or "",
-                    "chave_acesso": uid.ljust(44, "0")[:44],
-                    "data_emissao": (item.get("dataEmissao") or "")[:10] or None,
-                    "emitente_cnpj": (item.get("cnpjPrestador") or "").replace(".", "").replace("/", "").replace("-", ""),
-                    "emitente_nome": item.get("nomePrestador") or "",
-                    "destinatario_cnpj": (item.get("cnpjTomador") or "").replace(".", "").replace("/", "").replace("-", ""),
-                    "destinatario_nome": item.get("nomeTomador") or "",
-                    "valor_total": float(item.get("valorTotalServicos") or 0),
-                    "valor_pis": float(item.get("valorPis") or 0),
-                    "valor_cofins": float(item.get("valorCofins") or 0),
-                    "valor_icms": 0.0,
-                    "municipio_ibge": ibge,
-                    "status": "pendente",
-                    "xml_content": xml_content,
-                    "_ndd_id": nfse_id,
-                })
-
-            if len(items) < page_size:
-                break
-            skip += page_size
-
-        _logger.info("NDD Digital IBGE %s: %d notas importadas", ibge, len(docs))
-        return docs
 
     def _make_session(self, verify: bool = True) -> requests.Session:
         session = requests.Session()
@@ -285,28 +161,6 @@ class NFSeFetcher:
             raise
 
         return _parse_abrasf_response(resp, ibge)
-
-    def _fetch_portal_nacional(self, ibge: str, url: str, data_inicio: date, data_fim: date) -> list[dict]:
-        # Portal Nacional usa REST com Bearer token (requer cadastro prévio na SEFAZ)
-        _logger.info("NFSe Portal Nacional %s: chamando API REST", ibge)
-        try:
-            resp = requests.get(
-                f"{url}/nfse",
-                params={
-                    "cnpjPrestador": self.cnpj,
-                    "codigoMunicipio": ibge,
-                    "dataInicial": data_inicio.strftime("%Y-%m-%d"),
-                    "dataFinal": data_fim.strftime("%Y-%m-%d"),
-                },
-                cert=(self.cert_path, self.key_path) if self.cert_path else None,
-                timeout=30,
-            )
-            resp.raise_for_status()
-            data = resp.json()
-            return _parse_portal_nacional_response(data, ibge)
-        except Exception as e:
-            _logger.error("NFSe Portal Nacional %s: erro: %s", ibge, e)
-            raise
 
     def _fetch_paulistana(self, ibge: str, url: str, data_inicio: date, data_fim: date) -> list[dict]:
         session = self._make_session()
@@ -389,24 +243,6 @@ def _parse_abrasf_response(resp, ibge: str) -> list[dict]:
             })
     except Exception as e:
         _logger.warning("NFSe ABRASF parse erro (%s): %s", ibge, e)
-    return docs
-
-
-def _parse_portal_nacional_response(data, ibge: str) -> list[dict]:
-    docs = []
-    try:
-        items = data.get("nfse", data.get("items", [data] if isinstance(data, dict) else data))
-        for item in (items or []):
-            docs.append({
-                "tipo": "NFSe",
-                "numero": str(item.get("numero", "")),
-                "chave_acesso": item.get("chaveAcesso", "").ljust(44, "0")[:44],
-                "data_emissao": item.get("dataEmissao", "")[:10] or None,
-                "valor_total": float(item.get("valorLiquidoNfse", 0) or 0),
-                "status": "pendente",
-            })
-    except Exception as e:
-        _logger.warning("NFSe Portal Nacional parse erro (%s): %s", ibge, e)
     return docs
 
 

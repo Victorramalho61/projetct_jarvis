@@ -299,7 +299,7 @@ def _save_checkpoint(
     }).eq("id", log_id).execute()
 
 
-def _run_backfill_sync() -> int:
+def _run_backfill_impl() -> int:
     db = get_supabase()
     s = get_settings()
     client = FreshserviceClient(s.freshservice_api_key)
@@ -437,7 +437,7 @@ def _run_backfill_sync() -> int:
         raise
 
 
-def _run_daily_sync_sync() -> int:
+def _run_daily_sync_impl() -> int:
     from services.freshservice_agent import generate_daily_summary_sync  # noqa: PLC0415
 
     db = get_supabase()
@@ -559,11 +559,11 @@ def _get_live_metrics_sync() -> dict:
 
 
 async def run_backfill() -> int:
-    return await asyncio.to_thread(_run_backfill_sync)
+    return await asyncio.to_thread(_run_backfill_impl)
 
 
 async def run_daily_sync() -> int:
-    return await asyncio.to_thread(_run_daily_sync_sync)
+    return await asyncio.to_thread(_run_daily_sync_impl)
 
 
 async def run_open_tickets_sync() -> int:
