@@ -1,26 +1,46 @@
-﻿import logging
+import logging
+import re
+from datetime import datetime, timezone
 
 import httpx
+import pytz
 
 from db import get_settings, get_supabase
+from services.freshservice_connector import FreshserviceConnector
 
 logger = logging.getLogger(__name__)
 
+TZ_BR = pytz.timezone("America/Sao_Paulo")
+
 EVENT_MESSAGES: dict[str, str] = {
-    "status_changed":   "\U0001f514 Status do chamado #{id} atualizado: *{value}*",
-    "note_added":       "\U0001f4ac Nova mensagem no chamado #{id}",
-    "ticket_resolved":  "✅ Chamado #{id} resolvido! Ficou satisfeito com o atendimento?\n1 - Sim ✅\n2 - Reabrir \U0001f504",
-    "agent_assigned":   "\U0001f464 Chamado #{id} atribuído a *{agent}*",
-    "priority_changed": "⚡ Prioridade do chamado #{id} alterada para *{value}*",
+    "agent_assigned":   "👤 Chamado *#{id}* atribuído a *{agent}*",
+    "priority_changed": "⚡ Prioridade do chamado *#{id}* alterada para *{value}*",
 }
 
-# Freshservice status IDs that mean resolved/closed
 _CLOSED_STATUSES = {"ticket_resolved", "ticket_closed"}
+
+
+def _strip_html(html: str) -> str:
+    """Remove tags HTML e decodifica entidades básicas."""
+    text = re.sub(r"<[^>]+>", "", html)
+    text = text.replace("&nbsp;", " ").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+    return text.strip()
+
+
+def _format_br_datetime(iso_str: str) -> str:
+    """Converte ISO UTC para horário de Brasília formatado."""
+    try:
+        dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        dt_br = dt.astimezone(TZ_BR)
+        return dt_br.strftime("%d/%m/%Y às %H:%M")
+    except Exception:
+        return ""
 
 
 def process_freshservice_event(payload: dict) -> None:
     db = get_supabase()
     s = get_settings()
+    fs = FreshserviceConnector()
 
     ticket_id = payload.get("ticket_id") or payload.get("id")
     event_type = payload.get("event") or payload.get("event_type") or "status_changed"
@@ -29,17 +49,18 @@ def process_freshservice_event(payload: dict) -> None:
         logger.warning("Freshservice event missing ticket_id: %s", payload)
         return
 
-    # Idempotency check
-    existing = (
-        db.table("support_notifications")
-        .select("id, sent")
-        .eq("freshservice_ticket_id", int(ticket_id))
-        .eq("event_type", event_type)
-        .execute()
-    )
-    if existing.data and existing.data[0].get("sent"):
-        logger.info("Duplicate event %s for ticket %s — skipping", event_type, ticket_id)
-        return
+    # Idempotency check (exceto note_added — pode ter múltiplas notas)
+    if event_type not in ("note_added",):
+        existing = (
+            db.table("support_notifications")
+            .select("id, sent")
+            .eq("freshservice_ticket_id", int(ticket_id))
+            .eq("event_type", event_type)
+            .execute()
+        )
+        if existing.data and existing.data[0].get("sent"):
+            logger.info("Duplicate event %s for ticket %s — skipping", event_type, ticket_id)
+            return
 
     # Look up phone from support_tickets
     ticket_row = (
@@ -54,11 +75,11 @@ def process_freshservice_event(payload: dict) -> None:
 
     phone = ticket_row.data[0]["phone"]
 
-    # Build message
-    template = EVENT_MESSAGES.get(event_type, "\U0001f514 Atualização no chamado #{id}")
-    value = payload.get("status") or payload.get("value") or ""
-    agent = payload.get("agent") or payload.get("agent_name") or ""
-    text = template.format(id=ticket_id, value=value, agent=agent)
+    # Build message based on event type
+    text = _build_message(event_type, ticket_id, payload, fs)
+    if not text:
+        logger.info("No message built for event %s — skipping", event_type)
+        return
 
     # Send via WAHA
     sent = False
@@ -76,11 +97,21 @@ def process_freshservice_event(payload: dict) -> None:
                 r.raise_for_status()
             sent = True
         except httpx.ReadTimeout:
-            sent = True  # Server received it
+            sent = True
         except Exception as exc:
             logger.error("WhatsApp send error for ticket %s: %s", ticket_id, exc)
 
-    # Persist notification (upsert for idempotency)
+    # Se ticket resolvido: atualiza estado da conversa para aguardar satisfação
+    if event_type in _CLOSED_STATUSES and sent:
+        try:
+            db.table("support_conversations").update({
+                "state": "awaiting_satisfaction",
+                "context": {"resolved_ticket_id": str(ticket_id)},
+            }).eq("phone", phone).execute()
+        except Exception as exc:
+            logger.error("Failed to update conversation state to awaiting_satisfaction: %s", exc)
+
+    # Persist notification
     try:
         db.table("support_notifications").upsert(
             {
@@ -103,3 +134,55 @@ def process_freshservice_event(payload: dict) -> None:
             ).execute()
         except Exception as exc:
             logger.error("Failed to update ticket status: %s", exc)
+
+
+def _build_message(event_type: str, ticket_id, payload: dict, fs: FreshserviceConnector) -> str:
+    """Monta a mensagem WhatsApp de acordo com o tipo de evento."""
+
+    if event_type == "note_added":
+        note = payload.get("note", {})
+        note_body = note.get("body_text") or _strip_html(note.get("body") or "")
+        if not note_body:
+            # Tenta campos alternativos do payload
+            note_body = payload.get("body_text") or _strip_html(payload.get("body") or "")
+        preview = (note_body[:400] + "...") if len(note_body) > 400 else note_body
+        if preview:
+            return (
+                f"💬 *Nova mensagem no chamado #{ticket_id}*\n\n"
+                f"{preview}"
+            )
+        return f"💬 Nova atualização no chamado *#{ticket_id}*"
+
+    if event_type in _CLOSED_STATUSES:
+        ticket = fs.get_ticket(int(ticket_id))
+        resolution_html = ticket.get("resolution_notes") or ticket.get("resolution_note") or ""
+        resolution_text = _strip_html(resolution_html)
+
+        resolved_at = ticket.get("resolved_at") or ticket.get("updated_at") or ""
+        data_hora = _format_br_datetime(resolved_at) if resolved_at else ""
+
+        msg = f"✅ *Sua solicitação foi atendida!*\n\n"
+        msg += f"Chamado *#{ticket_id}* resolvido"
+        if data_hora:
+            msg += f" em {data_hora}"
+        msg += ".\n\n"
+
+        if resolution_text:
+            preview = (resolution_text[:500] + "...") if len(resolution_text) > 500 else resolution_text
+            msg += f"📋 *Retorno da equipe:*\n{preview}\n\n"
+
+        msg += "Ficou satisfeito com o atendimento?\n1 - 👍 Sim\n2 - 🔄 Não, quero reabrir"
+        return msg
+
+    if event_type == "status_changed":
+        value = payload.get("status") or payload.get("value") or ""
+        return f"🔔 Status do chamado *#{ticket_id}* atualizado: *{value}*"
+
+    # Eventos genéricos
+    template = EVENT_MESSAGES.get(event_type)
+    if template:
+        value = payload.get("status") or payload.get("value") or ""
+        agent = payload.get("agent") or payload.get("agent_name") or ""
+        return template.format(id=ticket_id, value=value, agent=agent)
+
+    return ""

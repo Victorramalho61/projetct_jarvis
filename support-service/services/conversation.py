@@ -1,4 +1,5 @@
 import logging
+import random
 import re
 from datetime import datetime, timezone
 
@@ -10,10 +11,14 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 600  # 10 min de inatividade dispara prompt de retomada
 
 ONBOARDING_STATES = frozenset({
+    "onboarding_login_choice",
     "onboarding_email",
     "onboarding_confirm_fs",
+    "onboarding_confirm_phone",
     "onboarding_ask_location_fs",
     "onboarding_name",
+    "onboarding_name_cpf",
+    "onboarding_cpf",
     "onboarding_company",
     "onboarding_location",
     "onboarding_final_confirm",
@@ -112,6 +117,16 @@ _TICKET_STATUS_MAP = {
     5: "Fechado 🔒",
 }
 
+CLOSING_PHRASES = [
+    "🚛 ✈️ 🚕\n\n*Obrigado por confiar no Grupo Voetur!*\n\n_Movimentamos o melhor do Brasil._ 🇧🇷",
+    "✈️ 🚛 🚕\n\n*Muito obrigado pelo seu contato!*\n\nO Grupo Voetur segue firme, conectando pessoas, cargas e destinos por todo o Brasil. 💪",
+    "🚕 ✈️ 🚛\n\n*Agradecemos sua confiança!*\n\nSeguimos em movimento — porque é assim que o Brasil avança. 🇧🇷",
+    "🚛 🚕 ✈️\n\n*Fico feliz em ter ajudado!*\n\nO Grupo Voetur está sempre em movimento por você. Até a próxima! 😊",
+    "✈️ 🚕 🚛\n\n*Obrigado! Sua satisfação nos move.*\n\n_Movimentamos o melhor do Brasil, todos os dias._ 🚀",
+    "🚛 ✈️ 🚕\n\n*Foi um prazer te atender!*\n\nNa logística, no turismo e na mobilidade — o Grupo Voetur nunca para. 💼",
+    "🚕 🚛 ✈️\n\n*Muito obrigado pelo feedback!*\n\nÉ a sua confiança que nos faz continuar movimentando o Brasil. 🇧🇷",
+]
+
 
 def _match_empresa_key(company_name: str | None) -> str | None:
     if not company_name:
@@ -124,8 +139,12 @@ def _is_back(text: str) -> bool:
 
 
 WELCOME = (
-    "👋 Olá! Sou o *VoeIA*, seu assistente de suporte da Voetur.\n\n"
-    "Para começar, por favor me informe seu *e-mail corporativo*:"
+    "✈️ 🚛 🚕\n\n"
+    "Olá! Seja bem-vindo(a) à *Central de Serviços do Grupo Voetur*!\n\n"
+    "Sou o *VoeIA*, seu assistente virtual — aqui para te ajudar com agilidade e cuidado em tudo que precisar. 😊\n\n"
+    "Para começar, como você prefere se identificar?\n\n"
+    "1️⃣ Tenho *e-mail corporativo*\n"
+    "2️⃣ Não tenho e-mail — vou usar *nome e CPF*"
 )
 CATALOG_MSG = (
     "📋 *Central de Demandas VoeIA*\n\n"
@@ -162,7 +181,7 @@ class ConversationFSM:
             is_new = True
             db.table("support_conversations").insert({
                 "phone": phone,
-                "state": "onboarding_email",
+                "state": "onboarding_login_choice",
                 "context": {},
                 "last_activity": now_iso,
                 "session_status": "active",
@@ -182,6 +201,17 @@ class ConversationFSM:
 
         state = conv["state"]
         ctx: dict = conv.get("context") or {}
+
+        # Perfil completo: pula onboarding e vai direto ao menu
+        if user and user.get("profile_complete") and state in ONBOARDING_STATES:
+            name = user.get("name", "")
+            greeting = f"👋 Olá de novo, *{name}*! Como posso te ajudar hoje?\n\n" if name else ""
+            menu_reply, menu_state, menu_ctx = self._show_main_menu(phone, db)
+            self._save_conv(db, conv, {"state": menu_state, "context": menu_ctx,
+                                       "last_activity": now_iso, "session_jid": jid or conv.get("session_jid") or ""})
+            full_reply = greeting + menu_reply
+            self._log_messages(db, conv, text, full_reply)
+            return full_reply
 
         # Inactivity timeout check — skips onboarding and resume states
         if state not in ONBOARDING_STATES and state != "awaiting_resume":
@@ -225,7 +255,96 @@ class ConversationFSM:
 
     # ── state handlers ───────────────────────────────────────────────
 
+    def _handle_onboarding_login_choice(self, phone, text, ctx, user, db):
+        choice = text.strip()
+        if choice == "1":
+            return (
+                "📧 Certo! Por favor, me informe seu *e-mail corporativo*:\n"
+                "Exemplo: seu.nome@voetur.com.br",
+                "onboarding_email",
+                ctx,
+            )
+        elif choice == "2":
+            # Tenta buscar por telefone no Freshservice
+            requester = self._fs.search_requester_by_phone(phone)
+            if requester:
+                ctx["name"] = requester.get("name", "")
+                ctx["freshservice_requester_id"] = requester.get("id")
+                ctx["email"] = requester.get("primary_email", "")
+                ctx["empresa_key"] = _match_empresa_key(requester.get("company_name"))
+                ctx["fs_requester"] = requester
+                msg = (
+                    f"✅ Encontrei seu cadastro:\n\n"
+                    f"*Nome:* {requester['name']}\n"
+                    f"*Telefone:* {phone}\n\n"
+                    f"Esses dados estão corretos?\n1 - ✅ Sim\n2 - ❌ Não, quero corrigir"
+                )
+                return msg, "onboarding_confirm_phone", ctx
+            else:
+                return (
+                    "Não encontrei seu cadastro. Vamos criar rapidinho! 😊\n\n"
+                    "Qual é o seu *nome completo*?",
+                    "onboarding_name_cpf",
+                    ctx,
+                )
+        else:
+            return (
+                "Por favor, escolha uma das opções:\n\n"
+                "1️⃣ Tenho *e-mail corporativo*\n"
+                "2️⃣ Não tenho e-mail — vou usar *nome e CPF*",
+                "onboarding_login_choice",
+                ctx,
+            )
+
+    def _handle_onboarding_confirm_phone(self, phone, text, ctx, user, db):
+        if text.strip() == "1":
+            requester = ctx.get("fs_requester", {})
+            empresa_key = ctx.get("empresa_key")
+            upsert_data = {
+                "name": ctx.get("name", ""),
+                "email": ctx.get("email", ""),
+                "freshservice_requester_id": ctx.get("freshservice_requester_id"),
+                "location": requester.get("location_name", ""),
+            }
+            if empresa_key:
+                upsert_data["empresa"] = EMPRESAS[empresa_key]
+                upsert_data["profile_complete"] = True
+                self._upsert_user(db, phone, upsert_data)
+                return self._show_main_menu(phone, db)
+            else:
+                self._upsert_user(db, phone, upsert_data)
+                return EMPRESA_MSG, "onboarding_empresa", {}
+        else:
+            return (
+                "Qual é o seu *nome completo*?",
+                "onboarding_name_cpf",
+                {},
+            )
+
+    def _handle_onboarding_name_cpf(self, phone, text, ctx, user, db):
+        name = text.strip()
+        if len(name) < 3:
+            return ("Por favor, informe seu *nome completo*:", "onboarding_name_cpf", ctx)
+        ctx["name"] = name
+        return ("🔢 Informe seu *CPF* (apenas números):", "onboarding_cpf", ctx)
+
+    def _handle_onboarding_cpf(self, phone, text, ctx, user, db):
+        cpf = re.sub(r"\D", "", text.strip())
+        if len(cpf) != 11:
+            return ("CPF inválido. Informe os *11 dígitos* do CPF:", "onboarding_cpf", ctx)
+        ctx["cpf"] = cpf
+        self._upsert_user(db, phone, {
+            "name": ctx.get("name", ""),
+            "cpf": cpf,
+            "email": "",
+        })
+        return EMPRESA_MSG, "onboarding_empresa", ctx
+
     def _handle_onboarding_email(self, phone, text, ctx, user, db):
+        # Permite voltar para a escolha de login
+        if text.strip() in ("2", "voltar", "/voltar"):
+            return (WELCOME, "onboarding_login_choice", {})
+
         if user and user.get("profile_complete"):
             return self._show_main_menu(phone, db)
 
@@ -381,6 +500,29 @@ class ConversationFSM:
         else:
             return self._show_main_menu(phone, db)
 
+    def _handle_awaiting_satisfaction(self, phone, text, ctx, user, db):
+        """Processa resposta à pesquisa de satisfação após resolução do chamado."""
+        choice = text.strip()
+        ticket_id = ctx.get("resolved_ticket_id")
+        if choice == "1":
+            closing = random.choice(CLOSING_PHRASES)
+            return closing, "idle", {}
+        elif choice == "2" and ticket_id:
+            # Reabre o chamado
+            try:
+                self._fs.reopen_ticket(int(ticket_id))
+                msg = (
+                    f"🔄 Chamado *#{ticket_id}* reaberto!\n"
+                    f"Nossa equipe entrará em contato em breve.\n\n"
+                    f"Digite qualquer mensagem para voltar ao menu."
+                )
+            except Exception as exc:
+                logger.error("reopen_ticket error: %s", exc)
+                msg = "⚠️ Não foi possível reabrir o chamado automaticamente. Por favor, entre em contato com o suporte."
+            return msg, "idle", {}
+        else:
+            return self._show_main_menu(phone, db)
+
     def _handle_main_menu(self, phone, text, ctx, user, db):
         if text == "1":
             return CATALOG_MSG, "selecting_catalog", {}
@@ -474,9 +616,15 @@ class ConversationFSM:
         email = u.get("email", "")
         empresa = u.get("empresa", "")
         requester_id = u.get("freshservice_requester_id")
+        name = u.get("name", "")
+        cpf = u.get("cpf", "")
         workspace_id = ctx.get("workspace_id", 2)
         description = ctx.get("description", "")
         subject = ctx.get("subject", ctx.get("subcategory", "Solicitação"))
+
+        # Para usuários sem e-mail, inclui nome e CPF na descrição
+        if not email and (name or cpf):
+            description = f"Colaborador: {name}\nCPF: {cpf}\n\n{description}"
 
         try:
             result = self._fs.create_ticket(
@@ -519,7 +667,7 @@ class ConversationFSM:
         return self._show_main_menu(phone, db)
 
     def _handle_unknown(self, phone, text, ctx, user, db):
-        return WELCOME, "onboarding_email", {}
+        return WELCOME, "onboarding_login_choice", {}
 
     # ── helpers ──────────────────────────────────────────────────────
 

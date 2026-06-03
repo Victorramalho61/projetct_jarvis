@@ -1,4 +1,5 @@
 ﻿import logging
+import re
 import time
 
 import httpx
@@ -173,3 +174,36 @@ class FreshserviceConnector:
         except Exception as exc:
             logger.error("get_ticket error: %s", exc)
             return {}
+
+    def search_requester_by_phone(self, phone: str) -> dict | None:
+        """Busca requester pelo número de celular (variações com/sem +55)."""
+        digits = re.sub(r"\D", "", phone)
+        variants = list({digits, f"+{digits}", digits[-11:], digits[-10:]})
+        for variant in variants:
+            try:
+                data = self._get("/requesters", {
+                    "query": f"\"mobile_phone_number:'{variant}'\"",
+                    "per_page": 1,
+                })
+                requesters = data.get("requesters", [])
+                if requesters:
+                    r = requesters[0]
+                    return {
+                        "id": r.get("id"),
+                        "name": (r.get("first_name", "") + " " + (r.get("last_name") or "")).strip(),
+                        "primary_email": r.get("primary_email", ""),
+                        "location_name": r.get("location_name"),
+                        "department_names": r.get("department_names", []),
+                        "company_name": self._resolve_company(r.get("company_id")),
+                    }
+            except Exception as exc:
+                logger.debug("search_requester_by_phone variant %s error: %s", variant, exc)
+        return None
+
+    def reopen_ticket(self, ticket_id: int) -> dict:
+        """Reabre um chamado (status 2 = Aberto)."""
+        try:
+            return self._post(f"/tickets/{ticket_id}", {"status": 2})
+        except Exception as exc:
+            logger.error("reopen_ticket error for %s: %s", ticket_id, exc)
+            raise
