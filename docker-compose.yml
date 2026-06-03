@@ -728,12 +728,13 @@ services:
       - waha_data:/app/.sessions
     environment:
       WHATSAPP_DEFAULT_ENGINE: NOWEB
-      WAHA_DEFAULT_SESSION: voetur
       WAHA_AUTO_START: "true"
       WHATSAPP_API_KEY: ${WHATSAPP_API_KEY}
       WAHA_DASHBOARD_ENABLED: "true"
       WAHA_DASHBOARD_USERNAME: admin
       WAHA_DASHBOARD_PASSWORD: ${WHATSAPP_API_KEY}
+      WHATSAPP_HOOK_URL: https://jarvis.voetur.com.br/api/support/webhooks/whatsapp
+      WHATSAPP_HOOK_EVENTS: message
     networks:
       - app_net
 
