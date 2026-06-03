@@ -64,10 +64,16 @@ class FreshserviceConnector:
                 raise
         return {}
 
+    @staticmethod
+    def _sanitize_query_value(value: str) -> str:
+        """Escapa caracteres perigosos em valores de query Freshservice."""
+        return value.replace("'", "\\'").replace('"', '\\"').replace(";", "")
+
     def search_requester_by_email(self, email: str) -> dict | None:
         """Busca por e-mail em requesters e, como fallback, em agents."""
+        safe_email = self._sanitize_query_value(email)
         try:
-            data = self._get("/requesters", {"query": f"\"primary_email:'{email}'\"", "per_page": 1})
+            data = self._get("/requesters", {"query": f"\"primary_email:'{safe_email}'\"", "per_page": 1})
             requesters = data.get("requesters", [])
             if requesters:
                 r = requesters[0]
@@ -86,7 +92,7 @@ class FreshserviceConnector:
 
         # Fallback: agents (admins/support staff also open tickets)
         try:
-            data = self._get("/agents", {"query": f"\"email:'{email}'\"", "per_page": 1})
+            data = self._get("/agents", {"query": f"\"email:'{safe_email}'\"", "per_page": 1})
             agents = data.get("agents", [])
             if not agents:
                 return None
@@ -160,7 +166,8 @@ class FreshserviceConnector:
 
     def get_tickets_by_requester(self, email: str, workspace_id: int | None = None) -> list[dict]:
         try:
-            params: dict = {"query": f"\"email:'{email}' AND status:2\"", "per_page": 10}
+            safe_email = self._sanitize_query_value(email)
+            params: dict = {"query": f"\"email:'{safe_email}' AND status:2\"", "per_page": 10}
             if workspace_id is not None:
                 params["workspace_id"] = workspace_id
             return self._get("/tickets/filter", params).get("tickets", [])

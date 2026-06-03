@@ -5,6 +5,8 @@ from collections import OrderedDict
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from db import get_settings
 from services.conversation import ConversationFSM
@@ -12,6 +14,10 @@ from services.notification_worker import process_freshservice_event
 
 router = APIRouter(tags=["webhook"])
 logger = logging.getLogger(__name__)
+_limiter = Limiter(key_func=get_remote_address)
+
+# Limite máximo de texto aceito (evita payloads gigantes)
+_MAX_TEXT_LEN = 2000
 
 _fsm = ConversationFSM()
 
@@ -39,6 +45,7 @@ def _is_duplicate(msg_id: str) -> bool:
 
 
 @router.post("/webhooks/whatsapp")
+@_limiter.limit("30/minute")
 async def whatsapp_webhook(request: Request) -> JSONResponse:
     try:
         payload = await request.json()
@@ -74,6 +81,11 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
 
         if not text:
             return JSONResponse({"ok": True})
+
+        # Rejeita mensagens excessivamente longas (DoS / injeção)
+        if len(text) > _MAX_TEXT_LEN:
+            logger.warning("Oversized message from %s (%d chars) — truncated", phone[-4:], len(text))
+            text = text[:_MAX_TEXT_LEN]
 
         reply = await asyncio.to_thread(_fsm.process, phone, text, send_to)
 

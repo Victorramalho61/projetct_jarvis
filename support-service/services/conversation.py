@@ -128,6 +128,13 @@ CLOSING_PHRASES = [
 ]
 
 
+def _mask_phone(phone: str) -> str:
+    """Mascara telefone para logs (ex: 5561****1717)."""
+    if len(phone) >= 8:
+        return phone[:4] + "****" + phone[-4:]
+    return "****"
+
+
 def _match_empresa_key(company_name: str | None) -> str | None:
     if not company_name:
         return None
@@ -323,8 +330,8 @@ class ConversationFSM:
 
     def _handle_onboarding_name_cpf(self, phone, text, ctx, user, db):
         name = text.strip()
-        if len(name) < 3:
-            return ("Por favor, informe seu *nome completo*:", "onboarding_name_cpf", ctx)
+        if not (3 <= len(name) <= 120):
+            return ("Por favor, informe seu *nome completo* (entre 3 e 120 caracteres):", "onboarding_name_cpf", ctx)
         ctx["name"] = name
         return ("🔢 Informe seu *CPF* (apenas números):", "onboarding_cpf", ctx)
 
@@ -445,8 +452,8 @@ class ConversationFSM:
         return self._show_main_menu(phone, db)
 
     def _handle_onboarding_name(self, phone, text, ctx, user, db):
-        if len(text) < 2:
-            return ("Por favor, informe seu *nome completo*.", "onboarding_name", ctx)
+        if not (2 <= len(text) <= 120):
+            return ("Por favor, informe seu *nome completo* (entre 2 e 120 caracteres).", "onboarding_name", ctx)
         return (
             "Qual é o nome da sua *empresa / filial*?",
             "onboarding_company",
@@ -652,7 +659,7 @@ class ConversationFSM:
             else:
                 reply = "⚠️ Chamado criado, mas não consegui obter o número. Nossa equipe entrará em contato."
         except Exception as exc:
-            logger.error("create_ticket error for %s: %s", phone, exc)
+            logger.error("create_ticket error for %s: %s", _mask_phone(phone), exc)
             reply = (
                 "❌ Erro ao abrir chamado. Tente novamente ou acesse o portal:\n"
                 "https://suporte.voetur.com.br/"
@@ -733,7 +740,7 @@ class ConversationFSM:
         try:
             db.table("support_users").upsert(data, on_conflict="phone").execute()
         except Exception as exc:
-            logger.error("upsert_user error for %s: %s", phone, exc)
+            logger.error("upsert_user error for %s: %s", _mask_phone(phone), exc)
 
     def _save_conv(self, db, conv: dict, updates: dict) -> None:
         updates["updated_at"] = datetime.now(timezone.utc).isoformat()
