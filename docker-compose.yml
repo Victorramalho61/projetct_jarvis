@@ -731,8 +731,8 @@ services:
       WAHA_AUTO_START: "true"
       WHATSAPP_API_KEY: ${WHATSAPP_API_KEY}
       WAHA_DASHBOARD_ENABLED: "true"
-      WAHA_DASHBOARD_USERNAME: admin
-      WAHA_DASHBOARD_PASSWORD: ${WHATSAPP_API_KEY}
+      WAHA_DASHBOARD_USERNAME: ${WAHA_DASHBOARD_USERNAME}
+      WAHA_DASHBOARD_PASSWORD: ${WAHA_DASHBOARD_PASSWORD}
       WHATSAPP_HOOK_URL: https://jarvis.voetur.com.br/api/support/webhooks/whatsapp
       WHATSAPP_HOOK_EVENTS: message
     networks:
