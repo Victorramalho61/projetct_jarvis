@@ -51,6 +51,8 @@ services:
       - checkpoint_completion_target=0.9  # era 0.5 — checkpoints mais suaves
       - -c
       - default_statistics_target=200    # era 100 — planos mais precisos para fiscal_documents
+      - -c
+      - timezone=America/Sao_Paulo       # horário de Brasília — alinha NOW() com o servidor
     ports:
       - "127.0.0.1:5432:5432"
     environment:
@@ -60,6 +62,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       JWT_SECRET: ${SUPABASE_JWT_SECRET}
       JWT_EXP: ${JWT_EXPIRY}
+      TZ: America/Sao_Paulo
     volumes:
       - db_data:/var/lib/postgresql/data
     networks:
