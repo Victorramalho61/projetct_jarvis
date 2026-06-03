@@ -242,6 +242,7 @@ services:
     environment:
       KONG_DATABASE: "off"
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_MEM_CACHE_SIZE: 32m   # padrão 128m → 4×128m=512m alocados; 32m é suficiente em DBless com 18 serviços
       KONG_DNS_ORDER: LAST,A,CNAME
       ANON_KEY: ${ANON_KEY}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
