@@ -229,6 +229,7 @@ async def _sync_nfe(sb, settings, company, janela):
                 cnpj, cert_path, key_path,
                 settings.sefaz_ambiente,
                 usar_svc_an=company.get("sefaz_usar_svc_an", False),
+                uf_autor=company.get("uf_sede"),
             )
             docs, flags = await asyncio.to_thread(fetcher.dist_dfe_interesse, ultimo_nsu)
 

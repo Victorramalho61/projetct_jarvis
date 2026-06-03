@@ -11,14 +11,87 @@ from zeep.transports import Transport
 
 _NS_NFE = "http://www.portalfiscal.inf.br/nfe"
 
+# SEFAZ NAN (www1.nfe.fazenda.gov.br) não aceita cUFAutor=91 (nacional) —
+# retorna cStat=215 (falha de schema). Deve-se usar o código IBGE do estado da empresa.
+_UF_IBGE: dict[str, int] = {
+    "AC": 12, "AL": 27, "AM": 13, "AP": 16, "BA": 29, "CE": 23,
+    "DF": 53, "ES": 32, "GO": 52, "MA": 21, "MG": 31, "MS": 50,
+    "MT": 51, "PA": 15, "PB": 25, "PE": 26, "PI": 22, "PR": 41,
+    "RJ": 33, "RN": 24, "RO": 11, "RR": 14, "RS": 43, "SC": 42,
+    "SE": 28, "SP": 35, "TO": 17,
+}
+
+
+class _RetWrapper:
+    """Normaliza a resposta da SEFAZ: zeep Object (antigo) ou lxml Element (novo xsd:any)."""
+
+    def __init__(self, obj):
+        # Descarta envelope: dict {"retDistDFeInt": ...} → usa o filho
+        if isinstance(obj, dict):
+            obj = obj.get("retDistDFeInt", obj)
+        self._obj = obj
+        self._is_xml = hasattr(obj, "find")   # lxml Element
+
+    def get(self, field: str, default=None):
+        if self._is_xml:
+            el = self._obj.find(f"{{{_NS_NFE}}}{field}")
+            return el.text if el is not None else default
+        return getattr(self._obj, field, default)
+
+    def lote(self):
+        if self._is_xml:
+            el = self._obj.find(f"{{{_NS_NFE}}}loteDistDFeInt")
+            return _LoteWrapper(el) if el is not None else None
+        obj = getattr(self._obj, "loteDistDFeInt", None)
+        return _LoteWrapper(obj) if obj is not None else None
+
+
+class _LoteWrapper:
+    def __init__(self, obj):
+        self._obj = obj
+        self._is_xml = hasattr(obj, "findall")
+
+    def doc_zips(self):
+        if self._is_xml:
+            return [_DocZipWrapper(dz) for dz in self._obj.findall(f"{{{_NS_NFE}}}docZip")]
+        raw = getattr(self._obj, "docZip", []) or []
+        return [_DocZipWrapper(dz) for dz in raw]
+
+
+class _DocZipWrapper:
+    def __init__(self, obj):
+        self._obj = obj
+        self._is_xml = hasattr(obj, "get")   # lxml Element usa .get() para atributos
+
+    def schema(self):
+        if self._is_xml:
+            return self._obj.get("schema") or self._obj.get("{http://www.w3.org/2001/XMLSchema-instance}schema")
+        return getattr(self._obj, "schema", None) or (getattr(self._obj, "_value_1", {}) or {}).get("schema")
+
+    def nsu(self):
+        if self._is_xml:
+            return self._obj.get("NSU")
+        return getattr(self._obj, "NSU", None)
+
+    def gz(self):
+        if self._is_xml:
+            return self._obj.text   # conteúdo base64+gzip fica no text do elemento
+        return getattr(self._obj, "_value_1", None) or getattr(self._obj, "value", None) or self._obj
+
+
+def _ret(resp) -> _RetWrapper:
+    return _RetWrapper(resp)
+
 
 def _build_dist_nsu(tpAmb: int, c_uf: int, cnpj: str, ult_nsu: int) -> etree._Element:
     """Constrói o elemento distDFeInt como lxml Element.
 
     O WSDL da SEFAZ define nfeDadosMsg como xsd:any (_value_1: ANY),
     portanto zeep não aceita dict com kwargs — requer elemento XML diretamente.
+    nsmap={None: NS} força namespace default sem prefixo (SEFAZ rejeita ns0:distDFeInt).
     """
-    root = etree.Element(f"{{{_NS_NFE}}}distDFeInt", versao="1.01")
+    nsmap = {None: _NS_NFE}
+    root = etree.Element(f"{{{_NS_NFE}}}distDFeInt", nsmap=nsmap, versao="1.01")
     etree.SubElement(root, f"{{{_NS_NFE}}}tpAmb").text = str(tpAmb)
     etree.SubElement(root, f"{{{_NS_NFE}}}cUFAutor").text = str(c_uf)
     etree.SubElement(root, f"{{{_NS_NFE}}}CNPJ").text = cnpj
@@ -84,9 +157,12 @@ class NFeDistribuicaoDFe:
         key_path: Optional[str],
         ambiente: str = "1",
         usar_svc_an: bool = False,
+        uf_autor: Optional[str] = None,
     ):
         self.cnpj     = cnpj
         self.ambiente = int(ambiente)
+        # cUFAutor deve ser o IBGE do estado da empresa — www1 rejeita cUFAutor=91
+        self.c_uf_autor = _UF_IBGE.get(uf_autor or "", CUF_NACIONAL)
 
         if usar_svc_an and ambiente == "1":
             wsdl = WSDL_SVC_AN_PROD
@@ -122,15 +198,19 @@ class NFeDistribuicaoDFe:
 
         while True:
             try:
+                # nfeDadosMsg é complexType com campo _value_1: ANY
+                # Passar o element diretamente causaria cStat=215 (zeep não wrappa corretamente)
                 resp = self._client.service.nfeDistDFeInteresse(
-                    nfeDadosMsg=_build_dist_nsu(self.ambiente, CUF_NACIONAL, self.cnpj, nsu_atual)
+                    nfeDadosMsg={"_value_1": _build_dist_nsu(self.ambiente, self.c_uf_autor, self.cnpj, nsu_atual)}
                 )
             except Exception as exc:
                 _logger.error("[%s] SEFAZ NFe: erro SOAP: %s", self.cnpj, exc)
                 raise
 
-            ret  = resp.get("retDistDFeInt") if isinstance(resp, dict) else resp
-            code = int(getattr(ret, "cStat", 0))
+            # SEFAZ atualizou nfeResultMsg para xsd:any → zeep devolve lxml Element.
+            # _ret() normaliza para um wrapper que aceita .get(field) em ambos os casos.
+            ret  = _ret(resp)
+            code = int(ret.get("cStat") or 0)
 
             # Atualiza timestamp da última consulta bem-sucedida (mesmo sem docs)
             flags["ultima_consulta"] = datetime.now(timezone.utc).isoformat()
@@ -154,23 +234,19 @@ class NFeDistribuicaoDFe:
 
             if code not in (CODE_OK, 100):
                 _logger.warning("[%s] SEFAZ NFe: cStat=%d xMotivo=%s",
-                                self.cnpj, code, getattr(ret, "xMotivo", ""))
+                                self.cnpj, code, ret.get("xMotivo") or "")
                 break
 
-            lote = getattr(ret, "loteDistDFeInt", None)
+            lote = ret.lote()
             if not lote:
                 break
 
-            doc_zips = getattr(lote, "docZip", []) or []
+            doc_zips = lote.doc_zips()
             for dz in doc_zips:
-                schema_num = int(
-                    getattr(dz, "_value_1", {}).get("schema", 0)
-                    or getattr(dz, "schema", 0)
-                    or 0
-                )
-                nsu     = int(getattr(dz, "NSU", nsu_atual))
-                xml_gz  = getattr(dz, "_value_1", None) or getattr(dz, "value", None) or dz
-                xml_str = _decompress(xml_gz) if xml_gz else ""
+                schema_num = int(dz.schema() or 0)
+                nsu        = int(dz.nsu() or nsu_atual)
+                xml_gz     = dz.gz()
+                xml_str    = _decompress(xml_gz) if xml_gz else ""
 
                 tipo        = "cancelamento" if schema_num == SCHEMA_EVENTO_CANCEL else "documento"
                 tipo_schema = "resumo"       if schema_num == SCHEMA_RESUMO_NFE    else "completo"
@@ -186,7 +262,7 @@ class NFeDistribuicaoDFe:
                 })
                 nsu_atual = max(nsu_atual, nsu)
 
-            max_nsu = int(getattr(ret, "maxNSU", nsu_atual))
+            max_nsu = int(ret.get("maxNSU") or nsu_atual)
             if nsu_atual >= max_nsu:
                 break
 
