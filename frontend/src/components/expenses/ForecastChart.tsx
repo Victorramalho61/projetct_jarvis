@@ -20,7 +20,7 @@ const FMT_COMPACT = (v: number) => {
 const FMT_BRL = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v)
 
-export interface ForecastDataPoint {
+interface ForecastDataPoint {
   mes: string
   real: number | null
   proj: number | null

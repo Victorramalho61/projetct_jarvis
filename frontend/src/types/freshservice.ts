@@ -14,7 +14,7 @@ export interface TicketFilters {
   csat_rating?: number;
 }
 
-export interface PriorityBreakdown {
+interface PriorityBreakdown {
   priority: number | null;
   count: number;
   breach_pct: number | null;
@@ -50,7 +50,7 @@ export interface CompanyRequester {
   count: number;
 }
 
-export interface CSATByGroup {
+interface CSATByGroup {
   group_id: number | null;
   group_name: string;
   count: number;
@@ -59,7 +59,7 @@ export interface CSATByGroup {
   unhappy_pct: number | null;
 }
 
-export interface CSATComment {
+interface CSATComment {
   id: number;
   subject: string;
   csat_rating: number;
@@ -77,7 +77,7 @@ export interface CSATSummary {
   recent_comments: CSATComment[];
 }
 
-export interface LiveTicket {
+interface LiveTicket {
   id: number;
   subject: string;
   created_at: string;
@@ -156,7 +156,7 @@ export const PRIORITY_COLORS: Record<number, string> = {
   4: "text-red-600",
 };
 
-export const CSAT_LABELS: Record<number, string> = {
+const CSAT_LABELS: Record<number, string> = {
   1: "Insatisfeito",
   2: "Neutro",
   3: "Satisfeito",

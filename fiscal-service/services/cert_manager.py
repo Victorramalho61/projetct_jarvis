@@ -7,7 +7,7 @@ from typing import Optional
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives.serialization import pkcs12
 from cryptography.hazmat.primitives.serialization import (
-    Encoding, PrivateFormat, NoEncryption, PublicFormat
+    Encoding, PrivateFormat, NoEncryption
 )
 
 

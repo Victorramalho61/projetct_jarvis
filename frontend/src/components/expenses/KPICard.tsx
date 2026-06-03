@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 
-export interface ComparisonItem {
+interface ComparisonItem {
   label: string
   value?: string | null
   positive?: boolean | null
 }
 
-export interface KPICardProps {
+interface KPICardProps {
   title: string
   value: string
   subtitle?: string

@@ -1,7 +1,7 @@
 import { Bar, BarChart, Cell, ResponsiveContainer, XAxis, YAxis } from 'recharts'
 import { useTheme } from '../../context/ThemeContext'
 
-export interface FornecedorItem {
+interface FornecedorItem {
   name: string
   value: number
   pct: number

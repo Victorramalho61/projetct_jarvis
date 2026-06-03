@@ -167,7 +167,7 @@ def send_email(to_email: str, display_name: str, subject: str, html: str) -> boo
         else:
             msg["From"] = f"Sistema Jarvis <{smtp_from_val}>"
         msg["Subject"] = subject
-        msg["To"]      = to_email
+        msg["To"]      = f"{display_name} <{to_email}>" if display_name else to_email
 
         # Parte texto simples — obrigatória para evitar "e-mail vazio" em
         # alguns clientes (Outlook / Office 365 mostra partes extras quando

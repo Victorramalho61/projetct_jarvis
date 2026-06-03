@@ -8,7 +8,7 @@ import {
   Tooltip,
 } from 'recharts'
 
-export interface OrigemItem {
+interface OrigemItem {
   name: string
   value: number
   pct: number

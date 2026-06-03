@@ -5,7 +5,6 @@ from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 import requests
-import urllib3
 import zeep
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context

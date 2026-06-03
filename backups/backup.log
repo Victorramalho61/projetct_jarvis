@@ -10,3 +10,15 @@
 [2026-05-31 21:21:01] Concluido - 84.1MB em 0.7min
 [2026-05-31 21:21:01] ==========================================
 [2026-05-31 21:21:02] Email enviado para victor.ramalho@voetur.com.br
+[2026-06-03 01:00:04] ==========================================
+[2026-06-03 01:00:04] Iniciando backup Jarvis -> E:\claudecode\claudecode\backups\20260603_010004
+[2026-06-03 01:00:04] fiscal_documents: iniciando pg_dump...
+[2026-06-03 01:01:16] fiscal_documents - 66.71MB - ok
+[2026-06-03 01:01:16] postgres_main: iniciando pg_dump...
+[2026-06-03 01:01:27] postgres_main - 20.43MB - ok
+[2026-06-03 01:01:27] evolution_db: iniciando pg_dump...
+[2026-06-03 01:01:28] evolution_db - 0.08MB - ok
+[2026-06-03 01:01:28] Rotacao: fiscal<=7d, geral<=30d...
+[2026-06-03 01:01:28] Concluido - 87.2MB em 1.4min
+[2026-06-03 01:01:28] ==========================================
+[2026-06-03 01:01:30] Email enviado para victor.ramalho@voetur.com.br

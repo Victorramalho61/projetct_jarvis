@@ -1,11 +1,11 @@
 // KPI with comparison dimensions
-export interface KPIComparison {
+interface KPIComparison {
   valor: number
   pct: number
   direcao: 'alta' | 'baixa' | 'estavel'
 }
 
-export interface KPIWithContext {
+interface KPIWithContext {
   valor: number
   sparkline: number[]         // up to 12 months, oldest first
   vs_mes_anterior?: KPIComparison
@@ -13,7 +13,7 @@ export interface KPIWithContext {
   vs_ly?: KPIComparison        // only for year=2026
 }
 
-export interface DashboardKPIs {
+interface DashboardKPIs {
   total_ytd: KPIWithContext
   contratos: KPIWithContext
   eventual: KPIWithContext
@@ -31,11 +31,11 @@ export interface DashboardKPIs {
   total_eventual: number
 }
 
-export interface ExpenseByMonth { month: string; valor: number }
-export interface ExpenseByOrigem { origem: string; valor: number }
-export interface ExpenseByOrigemmMensal { mes: string; contrato: number; eventual: number }
-export interface ExpenseByFilial { filial: string; valor: number }
-export interface ExpenseByFornecedor { pessoa: string; valor: number; origem: string }
+interface ExpenseByMonth { month: string; valor: number }
+interface ExpenseByOrigem { origem: string; valor: number }
+interface ExpenseByOrigemmMensal { mes: string; contrato: number; eventual: number }
+interface ExpenseByFilial { filial: string; valor: number }
+interface ExpenseByFornecedor { pessoa: string; valor: number; origem: string }
 
 export interface ExpenseRow {
   FILIAL: string
@@ -75,8 +75,8 @@ export interface ExpenseDashboard {
 }
 
 // Forecast types
-export type ForecastTipo = 'real' | 'projecao'
-export interface ForecastMes {
+type ForecastTipo = 'real' | 'projecao'
+interface ForecastMes {
   mes: string
   valor: number
   tipo: ForecastTipo
