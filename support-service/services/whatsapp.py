@@ -8,9 +8,15 @@ _logger = logging.getLogger(__name__)
 
 
 def _to_chat_id(phone: str) -> str:
-    """Normaliza número/JID para formato chatId do WAHA (5521...@c.us)."""
+    """Normaliza número/JID para formato chatId do WAHA.
+    Preserva @lid (WhatsApp multi-device) e @g.us (grupos).
+    Converte @s.whatsapp.net para @c.us.
+    """
     if "@" in phone:
-        return phone.split("@")[0] + "@c.us"
+        num, suffix = phone.split("@", 1)
+        if suffix in ("lid", "g.us"):
+            return phone  # preserva JID original
+        return f"{num}@c.us"
     return f"{phone}@c.us"
 
 
