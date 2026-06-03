@@ -8,7 +8,8 @@ from services.freshservice_connector import FreshserviceConnector
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT_SECONDS = 600  # 10 min de inatividade dispara prompt de retomada
+TIMEOUT_SECONDS = 600          # 10 min de inatividade → prompt de retomada
+ONBOARDING_TIMEOUT_SECONDS = 1800  # 30 min no onboarding → derruba sessão
 
 ONBOARDING_STATES = frozenset({
     "onboarding_login_choice",
@@ -220,7 +221,29 @@ class ConversationFSM:
             self._log_messages(db, conv, text, full_reply)
             return full_reply
 
-        # Inactivity timeout check — skips onboarding and resume states
+        # Onboarding timeout: 30 min sem interação → reinicia sessão do zero
+        if state in ONBOARDING_STATES:
+            last_activity = conv.get("last_activity")
+            if last_activity:
+                try:
+                    last_dt = datetime.fromisoformat(last_activity)
+                    if last_dt.tzinfo is None:
+                        last_dt = last_dt.replace(tzinfo=timezone.utc)
+                    elapsed = (datetime.now(timezone.utc) - last_dt).total_seconds()
+                    if elapsed > ONBOARDING_TIMEOUT_SECONDS:
+                        self._save_conv(db, conv, {
+                            "state": "onboarding_login_choice",
+                            "context": {},
+                            "session_status": "active",
+                            "session_jid": jid or conv.get("session_jid") or "",
+                            "last_activity": now_iso,
+                        })
+                        self._log_messages(db, conv, text, WELCOME)
+                        return WELCOME
+                except Exception:
+                    pass
+
+        # Inactivity timeout check (não-onboarding)
         if state not in ONBOARDING_STATES and state != "awaiting_resume":
             last_activity = conv.get("last_activity")
             if last_activity:
