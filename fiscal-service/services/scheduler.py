@@ -261,6 +261,8 @@ async def _sync_nfe(sb, settings, company, janela):
             parsed["xml_hash"]    = doc.get("xml_hash")
             parsed["xml_content"] = doc.get("xml", "")
             _ensure_period(sb, company_id, parsed.get("data_emissao"), parsed)
+            # _items é lista de produtos — não é coluna do DB, remove antes do upsert
+            parsed.pop("_items", None)
             try:
                 sb.table("fiscal_documents").upsert(
                     parsed, on_conflict="chave_acesso"

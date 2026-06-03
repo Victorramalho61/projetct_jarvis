@@ -18,8 +18,12 @@ def parse_xml_auto(xml_str: str) -> Optional[dict]:
         clean = xml_str.lstrip("﻿")
         root = ET.fromstring(clean)
         tag = root.tag.lower()
+        local = root.tag.split("}")[-1].lower() if "}" in root.tag else tag
         if f"{{{NS_NFSE}}}" in root.tag or "nfse" in tag:
             return parse_nfse_portal(clean)
+        # resNFe = resumo NFe (schema 15) — estrutura diferente da NFe completa
+        if local == "resnfe":
+            return parse_res_nfe(root)
         if "nfe" in tag or f"{{{NS_NFE}}}" in root.tag:
             return parse_nfe(clean)
         if "cte" in tag or f"{{{NS_CTE}}}" in root.tag:
@@ -108,6 +112,42 @@ def parse_nfse_portal(xml_str: str) -> Optional[dict]:
         }
     except Exception as e:
         _logger.warning("parse_nfse_portal erro: %s", e)
+        return None
+
+
+def parse_res_nfe(root) -> Optional[dict]:
+    """Parse resNFe (schema 15) — resumo de NFe destinada ao CNPJ da empresa.
+    Não tem infNFe; contém só chave, emitente, valor e situação.
+    """
+    try:
+        ns = {"n": NS_NFE}
+
+        def _t(tag):
+            el = root.find(f"{{{NS_NFE}}}{tag}") or root.find(tag)
+            return (el.text or "").strip() if el is not None else ""
+
+        chave = _t("chNFe") or None
+        dh_emi = _t("dhEmi") or _t("dEmi")
+        return {
+            "tipo":              "NFe",
+            "chave_acesso":      chave,
+            "numero":            chave[25:34] if chave and len(chave) >= 34 else None,
+            "serie":             chave[22:25] if chave and len(chave) >= 25 else None,
+            "data_emissao":      dh_emi[:10] if dh_emi else None,
+            "emitente_cnpj":     _t("CNPJ"),
+            "emitente_nome":     _t("xNome"),
+            "destinatario_cnpj": None,
+            "destinatario_nome": None,
+            "valor_total":       _decimal(_t("vNF")),
+            "valor_produtos":    _decimal(_t("vNF")),
+            "valor_icms":        0.0,
+            "valor_pis":         0.0,
+            "valor_cofins":      0.0,
+            "status":            "pendente" if _t("cSitNFe") == "1" else "cancelado",
+            "_items":            [],
+        }
+    except Exception as e:
+        _logger.warning("parse_res_nfe erro: %s", e)
         return None
 
 
