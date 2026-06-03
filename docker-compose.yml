@@ -17,6 +17,7 @@ services:
     restart: unless-stopped
     logging: *logging
     mem_limit: 1500m   # shared_buffers=256MB + overhead → ~600 MB; limite atual é seguro
+    memswap_limit: 2000m  # 500 MB extra de swap como válvula de segurança contra OOM
     cpus: "1.5"        # era 1.0 — queries de agregação fiscal beneficiam do CPU extra
     healthcheck:
       test: pg_isready -U postgres -h localhost
@@ -224,7 +225,8 @@ services:
     image: kong:2.8.1
     restart: unless-stopped
     logging: *logging
-    mem_limit: 1000m
+    mem_limit: 1200m
+    memswap_limit: 1200m   # sem swap — gateway não pode ser paginado para disco
     cpus: "1"
     healthcheck:
       test: ["CMD", "kong", "health"]
@@ -248,6 +250,9 @@ services:
       KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
       KONG_NGINX_PROXY_CLIENT_BODY_BUFFER_SIZE: 2m
       KONG_NGINX_PROXY_CLIENT_MAX_BODY_SIZE: 10m
+      # Sem esta variável, nginx usa auto = nproc do HOST (8 cores) → 8 workers × ~100MB = ~800MB
+      # Com cpus:"1" limitado, 2 workers são suficientes e poupam ~600 MB de RAM
+      KONG_NGINX_WORKER_PROCESSES: "2"
     networks:
       - app_net
 
@@ -295,8 +300,31 @@ services:
       - "443:443"
       - "80:80"
       - "8181:8181"
+    volumes:
+      # Certs Let's Encrypt gerenciados pelo serviço acme — substituem os self-signed do build
+      - letsencrypt_certs:/etc/nginx/certs:ro
     depends_on:
       - core-service
+    networks:
+      - app_net
+
+  acme:
+    image: neilpang/acme.sh
+    container_name: jarvis-acme
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 64m
+    memswap_limit: 64m
+    cpus: "0.1"
+    volumes:
+      - jarvis_acme_data:/acme.sh
+      - letsencrypt_certs:/certs
+      # Socket para enviar SIGHUP ao nginx após renovação
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      CF_Token: ${CF_TOKEN}
+      CF_Account_ID: ${CF_ACCOUNT_ID}
+    command: daemon
     networks:
       - app_net
 
@@ -435,14 +463,14 @@ services:
   ollama:
     image: ollama/ollama:latest
     container_name: jarvis-ollama
+    # ⚠️  DESABILITADO — NÃO SUBIR SEM AUTORIZAÇÃO HUMANA EXPLÍCITA
+    # Para ligar: docker compose --profile agents up -d ollama
+    # Consome 2 GB RAM + 2 CPUs — recursos alocados ao sistema enquanto offline
     restart: "no"
     profiles: ["agents"]
     logging: *logging
-    # Limite mínimo funcional para llama3.2:1b (~1.1B params):
-    #   - 2 GB RAM garante carregamento do modelo + contexto de inferência
-    #   - 2 CPUs evita monopolizar o servidor durante geração de tokens
-    # Para modelos maiores (llama3.1:8b) aumente para mem_limit: 6g / cpus: "4"
     mem_limit: 2g
+    memswap_limit: 2g
     mem_reservation: 1g
     cpus: "2"
     environment:
@@ -466,10 +494,13 @@ services:
   agents-service:
     build:
       context: ./agents-service
+    # ⚠️  DESABILITADO — NÃO SUBIR SEM AUTORIZAÇÃO HUMANA EXPLÍCITA
+    # Para ligar: docker compose --profile agents up -d agents-service
     restart: "no"
     profiles: ["agents"]
     logging: *logging
     mem_limit: 2g
+    memswap_limit: 2g
     mem_reservation: 512m
     cpus: "2"
     depends_on:
@@ -747,6 +778,12 @@ volumes:
     name: jarvis_waha_data
   ollama_data:
     name: jarvis_ollama_data
+  jarvis_acme_data:
+    external: true   # criado pelo acme-issue manual; contém conta LE e histórico
+    name: jarvis_acme_data
+  letsencrypt_certs:
+    external: true   # criado pelo acme-issue manual; contém cert.pem e key.pem Let's Encrypt
+    name: jarvis_letsencrypt_certs
   hermes_data:
     name: jarvis_hermes_data
 

@@ -13,6 +13,16 @@ _RETENTION_DAYS: dict[str, int] = {
     "agent_runs":     30,
 }
 
+# Coluna de timestamp varia por tabela — system_checks usa checked_at,
+# quality_metrics usa measured_at, agent_runs usa started_at.
+_TIMESTAMP_COLUMN: dict[str, str] = {
+    "app_logs":       "created_at",
+    "system_checks":  "checked_at",
+    "quality_metrics": "measured_at",
+    "security_alerts": "created_at",
+    "agent_runs":     "started_at",
+}
+
 
 async def run_data_retention() -> None:
     """Remove registros antigos das tabelas de dados temporais."""
@@ -22,8 +32,9 @@ async def run_data_retention() -> None:
 
     for table, days in _RETENTION_DAYS.items():
         cutoff = (now - timedelta(days=days)).isoformat()
+        ts_col = _TIMESTAMP_COLUMN[table]
         try:
-            db.table(table).delete().lt("created_at", cutoff).execute()
+            db.table(table).delete().lt(ts_col, cutoff).execute()
             logger.info("Retention %s: removed rows older than %d days", table, days)
             total_deleted += 1
         except Exception as exc:
