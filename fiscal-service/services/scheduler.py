@@ -97,7 +97,7 @@ async def _sync_all_companies():
         result = sb.table("fiscal_companies").select(
             "id,cnpj,nome,sync_nfe_ativo,sync_cte_ativo,sync_nfse_ativo,"
             "cert_pfx_encrypted,cert_password_encrypted,ultimo_nsu_nfe,ultimo_nsu_cte,"
-            "sefaz_nfe_bloqueado_ate,sefaz_nfe_ultima_consulta_hb,sefaz_usar_svc_an,cert_expiry"
+            "sefaz_nfe_bloqueado_ate,sefaz_nfe_ultima_consulta_hb,sefaz_usar_svc_an,cert_expiry,uf_sede"
         ).or_("sync_nfe_ativo.eq.true,sync_cte_ativo.eq.true,sync_nfse_ativo.eq.true").execute()
         companies = result.data or []
     except Exception:
