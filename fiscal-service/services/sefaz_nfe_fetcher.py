@@ -6,7 +6,25 @@ from typing import Optional
 
 import requests
 import zeep
+from lxml import etree
 from zeep.transports import Transport
+
+_NS_NFE = "http://www.portalfiscal.inf.br/nfe"
+
+
+def _build_dist_nsu(tpAmb: int, c_uf: int, cnpj: str, ult_nsu: int) -> etree._Element:
+    """Constrói o elemento distDFeInt como lxml Element.
+
+    O WSDL da SEFAZ define nfeDadosMsg como xsd:any (_value_1: ANY),
+    portanto zeep não aceita dict com kwargs — requer elemento XML diretamente.
+    """
+    root = etree.Element(f"{{{_NS_NFE}}}distDFeInt", versao="1.01")
+    etree.SubElement(root, f"{{{_NS_NFE}}}tpAmb").text = str(tpAmb)
+    etree.SubElement(root, f"{{{_NS_NFE}}}cUFAutor").text = str(c_uf)
+    etree.SubElement(root, f"{{{_NS_NFE}}}CNPJ").text = cnpj
+    dist_nsu_el = etree.SubElement(root, f"{{{_NS_NFE}}}distNSU")
+    etree.SubElement(dist_nsu_el, f"{{{_NS_NFE}}}ultNSU").text = f"{ult_nsu:015d}"
+    return root
 
 _logger = logging.getLogger(__name__)
 
@@ -105,14 +123,7 @@ class NFeDistribuicaoDFe:
         while True:
             try:
                 resp = self._client.service.nfeDistDFeInteresse(
-                    nfeDadosMsg={
-                        "distNSU": {
-                            "tpAmb":    self.ambiente,
-                            "cUFAutor": CUF_NACIONAL,
-                            "CNPJ":     self.cnpj,
-                            "distNSU":  {"ultNSU": f"{nsu_atual:015d}"},
-                        }
-                    }
+                    nfeDadosMsg=_build_dist_nsu(self.ambiente, CUF_NACIONAL, self.cnpj, nsu_atual)
                 )
             except Exception as exc:
                 _logger.error("[%s] SEFAZ NFe: erro SOAP: %s", self.cnpj, exc)
