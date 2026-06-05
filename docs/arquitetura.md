@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-Sistema interno da Voetur/VTCLog com autenticação própria e nove módulos:
+Sistema interno da Voetur/VTCLog com autenticação própria e dez módulos:
 
 | Módulo | Serviço | Porta | Descrição |
 |---|---|---|---|
@@ -15,6 +15,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e nove módulos:
 | VoeIA | support-service | 8007 | Bot WhatsApp de suporte com abertura de chamados no Freshservice |
 | Desempenho | performance-service | 8008 | Gestão de ciclos, metas, avaliações e KPIs de desempenho |
 | Fiscal | fiscal-service | 8009 | Validação NFe/NFSe — sync NDD Digital, busca full-text, dashboard |
+| Financeiro | financeiro-service | 8011 | Conciliação e analytics financeiro via ERP Benner (MSSQL read-only) |
 
 ### Serviços suspensos (❌ não sobem automaticamente)
 
@@ -35,6 +36,8 @@ Sistema interno da Voetur/VTCLog com autenticação própria e nove módulos:
 Browser
   └─► nginx:443 (HTTPS — frontend container)
         ├─ /api/* ─────────────────────────► Kong:8000 (interno Docker)
+        │                                     ├─ /api/financeiro/*
+        │                                     │     └─► financeiro-service:8011
         │                                     ├─ /api/fiscal/*
         │                                     │     └─► fiscal-service:8009
         │                                     ├─ /api/performance/*
@@ -59,6 +62,7 @@ Inter-serviço (Docker app_net):
   agents-service → freshservice-service:8003 (HTTP interno + JWT gerado em agent_runner.py)
   expenses-service → SQL Server externo 10.141.0.111:1444 (BennerSistemaCorporativo — leitura)
   performance-service → SQL Server externo 10.141.0.111:1444 (BennerRH — leitura para sync)
+  financeiro-service → SQL Server 10.141.0.111\VOETUR (BennerSistemaCorporativo — leitura BI via usr_bi)
 
 Supabase Self-Hosted (Docker app_net):
   Kong:8000 → postgrest, gotrue, realtime, storage
@@ -81,7 +85,7 @@ Supabase Self-Hosted (Docker app_net):
 | 54321 | Supabase Kong | 127.0.0.1 | bloqueado |
 | 54323 | Supabase Studio | 127.0.0.1 | bloqueado |
 
-Microsserviços (8001–8009): sem portas expostas ao host, apenas rede interna Docker.
+Microsserviços (8001–8011): sem portas expostas ao host, apenas rede interna Docker.
 
 ---
 
@@ -1741,3 +1745,103 @@ CREATE INDEX idx_perf_eval_tokens_employee ON performance_evaluation_tokens (emp
 | `performance-service/routes/admin.py` | `send_self_evaluation_tokens`: pré-carrega tokens e empresas antes do loop (N+1 → 2 queries) |
 | `performance-service/routes/evaluations.py` | `send_tokens`: pré-carrega subordinados e tokens antes do loop duplo (N×M → 2 queries) |
 | `performance-service/routes/public.py` | Ciência digital: race condition tratada na constraint UNIQUE (retorna 400 em vez de 500) |
+
+---
+
+## Financeiro — financeiro-service (port 8011) — 2026-06-05
+
+### Visão geral
+
+Port do módulo `voesync-financial_reconciliation` adaptado para o ecossistema Jarvis.
+Lê dados financeiros do ERP Benner (MSSQL, instância `VOET-SVM141111\VOETUR`, usuário `usr_bi` read-only)
+e expõe endpoints analíticos com cache in-process (TTLCache).
+
+**Origem**: `grupovoetur/voesync-financial_reconciliation` (AdonisJS 6 / TypeScript)
+**Stack Jarvis**: FastAPI (Python) + pymssql + cachetools + APScheduler
+
+### Endpoints
+
+| Método | Path | Cache TTL | Descrição |
+|---|---|---|---|
+| GET | `/health` | — | Healthcheck público |
+| GET | `/api/financeiro/empresas` | 60 min | Lista empresas ativas do Benner |
+| GET | `/api/financeiro/dashboard` | 60 min | KPIs do dia anterior (entradas, saídas, saldo por conta, top CCs, impostos) |
+| GET | `/api/financeiro/conciliacao` | 10 min | Movimentações + resumo por conta bancária com status conciliação |
+| GET | `/api/financeiro/balanco` | 15 min | Balancete por conta contábil (plano de contas, nível folha) |
+| GET | `/api/financeiro/razao` | 10 min | Razão por natureza: cliente (C) ou fornecedor (D) |
+| GET | `/api/financeiro/receitas` | 15 min | Receitas: resumo por operação + detalhe |
+| GET | `/api/financeiro/despesas` | 15 min | Despesas: resumo por centro de custo + detalhe |
+| GET | `/api/financeiro/adiantamentos` | 10 min | Antecipações (`EHANTECIPACAO='S'`) por natureza |
+| GET | `/api/financeiro/impostos-retidos` | 10 min | IRRF, PIS, COFINS, ISS, CSLL — totais + detalhe |
+| GET | `/api/financeiro/log-movimentacoes` | 5 min | Auditoria de movimentações com usuário de inclusão |
+
+**Auth**: todos os endpoints (exceto `/health`) exigem JWT com `role: admin` ou `role: user`.
+
+**Parâmetros comuns**:
+- `empresa` (handle Benner) — opcional na maioria
+- `dataInicio` / `dataFim` — formato `YYYY-MM-DD`, máximo 31 dias (`MAX_PERIOD_DAYS`)
+- `natureza` — `cliente` ou `fornecedor` (apenas razão e adiantamentos)
+- `filial`, `conta` — filtros opcionais onde aplicável
+
+### Banco de dados (MSSQL — Benner, read-only)
+
+| Tabela Benner | Uso |
+|---|---|
+| `dbo.FN_MOVIMENTACOES` | Todas as movimentações financeiras (tabela principal) |
+| `dbo.EMPRESAS` | Lista de empresas ativas |
+| `dbo.GN_PESSOAS` | Clientes e fornecedores |
+| `dbo.GN_OPERACOES` | Tipos de operação (histórico) |
+| `dbo.GN_BANCOS` | Bancos |
+| `dbo.FN_CONTASTESOURARIA` | Contas bancárias/tesouraria |
+| `dbo.FN_DOCUMENTOS` | Documentos (flag de antecipação) |
+| `dbo.CT_CONTAS` | Plano de contas |
+| `dbo.CT_CONTATOTAIS` | Saldos por competência |
+| `dbo.CT_CC` | Centros de custo |
+| `dbo.Z_USUARIOS` | Usuários do ERP (para log de inclusão) |
+
+### Scheduler
+
+- **Job**: `dashboard_nightly` — cron `0 1 * * *` (01:00 America/Sao_Paulo)
+- **Função**: Itera todas as empresas ativas no Benner, calcula as métricas do dia anterior e pré-aquece o cache do dashboard
+- **Cache TTL**: 24h (86.400s) para resultados do job noturno
+- **Implementação**: APScheduler `BackgroundScheduler` — start/stop no `lifespan` do FastAPI
+
+### Cache in-process
+
+Substituição do Redis do módulo original por `cachetools.TTLCache` com `RLock` thread-safe.
+Cada módulo tem cache independente com maxsize e TTL configurados individualmente.
+
+```
+financeiro-service TTL Cache:
+  empresas          → maxsize=10,  ttl=3600s
+  dashboard         → maxsize=100, ttl=3600s
+  conciliacao       → maxsize=500, ttl=600s
+  balanco           → maxsize=500, ttl=900s
+  razao             → maxsize=500, ttl=600s
+  receitas          → maxsize=500, ttl=900s
+  despesas          → maxsize=500, ttl=900s
+  adiantamentos     → maxsize=500, ttl=600s
+  impostos_retidos  → maxsize=500, ttl=600s
+  log_movimentacoes → maxsize=500, ttl=300s
+```
+
+### Usuário de teste
+
+| Campo | Valor |
+|---|---|
+| Login | `financeiro.teste@voetur.com.br` |
+| Senha | *(ver gestor de senhas — não comitar)* |
+| Role | `user` |
+| Status | ativo |
+
+### Variáveis de ambiente
+
+```
+MSSQL_HOST=10.141.0.111\VOETUR   # instância nomeada — SQL Server Browser resolve a porta
+MSSQL_USER=usr_bi
+MSSQL_PASSWORD=<no .env>
+MSSQL_DATABASE=BennerSistemaCorporativo
+MAX_PERIOD_DAYS=31
+```
+
+> **Nota**: `MSSQL_PORT` não é definido quando se usa instância nomeada. O SQL Server Browser (UDP 1434) resolve automaticamente a porta da instância `VOETUR`.
