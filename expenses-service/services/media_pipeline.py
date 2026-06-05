@@ -199,7 +199,7 @@ async def _recompute_metrics(db, posts: list[dict]) -> int:
 
             await asyncio.to_thread(
                 lambda d=ref_date, c=counts: db.table("payfly_media_daily_metrics").upsert(
-                    {"date": d, **c}, on_conflict="date"
+                    {"ref_date": d, **c}, on_conflict="ref_date,platform"
                 ).execute()
             )
             total_rows += 1

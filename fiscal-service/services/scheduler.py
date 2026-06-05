@@ -260,6 +260,8 @@ async def _sync_nfe(sb, settings, company, janela):
             parsed["tipo_schema"] = doc.get("tipo_schema", "completo")
             parsed["xml_hash"]    = doc.get("xml_hash")
             parsed["xml_content"] = doc.get("xml", "")
+            if not parsed.get("data_emissao"):
+                parsed["data_emissao"] = None
             _ensure_period(sb, company_id, parsed.get("data_emissao"), parsed)
             # _items é lista de produtos — não é coluna do DB, remove antes do upsert
             parsed.pop("_items", None)
@@ -313,6 +315,8 @@ async def _sync_cte(sb, settings, company, janela):
             if not parsed:
                 continue
             parsed["company_id"] = company_id
+            if not parsed.get("data_emissao"):
+                parsed["data_emissao"] = None
             _ensure_period(sb, company_id, parsed.get("data_emissao"), parsed)
             try:
                 sb.table("fiscal_documents").upsert(

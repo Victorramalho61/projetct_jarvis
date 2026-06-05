@@ -251,8 +251,8 @@ services:
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
       KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 16k      # header da resposta upstream; padrão 4k
-      KONG_NGINX_PROXY_PROXY_BUFFERS: 8 32k        # 256k/conn — era 64×160k=10MB/conn
-      KONG_NGINX_PROXY_CLIENT_BODY_BUFFER_SIZE: 256k  # body em memória antes do disco; era 2m
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 16 32k       # 512k/conn — cobre respostas freshservice/fiscal
+      KONG_NGINX_PROXY_CLIENT_BODY_BUFFER_SIZE: 1m # cobre POST com XML NF-e; era 2m→256k (pequeno demais)
       KONG_NGINX_PROXY_CLIENT_MAX_BODY_SIZE: 10m
       # Sem esta variável, nginx usa auto = nproc do HOST (8 cores) → 8 workers × ~100MB = ~800MB
       # Com cpus:"1" limitado, 2 workers são suficientes e poupam ~600 MB de RAM
