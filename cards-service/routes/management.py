@@ -91,7 +91,7 @@ def create_card(request: Request, body: CartaoCreate, sup: dict = Depends(requir
             "cvv_encrypted": encrypt(body.cvv),
             "expiracao_encrypted": encrypt(body.expiracao),
             "titular_encrypted": encrypt(body.titular.strip().upper()),
-            "criado_por": sup.get("user_id") or sup.get("sub"),
+            "criado_por": sup.get("user_id") or sup.get("id") or sup.get("sub"),
         }).execute()
     except Exception as e:
         _logger.error("Erro ao cadastrar cartão: %s", type(e).__name__)

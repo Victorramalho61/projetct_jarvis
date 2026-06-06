@@ -49,7 +49,7 @@ def get_approval_status(
     Supervisores podem consultar qualquer solicitação.
     """
     sb = get_supabase()
-    uid = user.get("user_id") or user.get("sub") or ""
+    uid = user.get("user_id") or user.get("id") or user.get("sub") or ""
     is_supervisor = user.get("cards_perfil") == "supervisor"
 
     q = (
@@ -69,7 +69,7 @@ def get_approval_status(
 @router.post("/approvals/{solicitacao_id}/approve")
 def approve_request(solicitacao_id: str, sup: dict = Depends(require_supervisor)):
     """Supervisor aprova a solicitação. Colaborador tem 10 minutos para confirmar."""
-    sup_id = sup.get("user_id") or sup.get("sub") or ""
+    sup_id = sup.get("user_id") or sup.get("id") or sup.get("sub") or ""
     sb = get_supabase()
     row = (
         sb.table("cards_solicitacoes")
@@ -113,7 +113,7 @@ def reject_request(
     """Supervisor rejeita a solicitação com motivo obrigatório."""
     if not body.motivo.strip():
         raise HTTPException(400, "Motivo de rejeição obrigatório")
-    sup_id = sup.get("user_id") or sup.get("sub") or ""
+    sup_id = sup.get("user_id") or sup.get("id") or sup.get("sub") or ""
     sb = get_supabase()
     row = (
         sb.table("cards_solicitacoes")
@@ -146,7 +146,7 @@ def confirm_reveal(
     Colaborador confirma o reveal após aprovação do supervisor.
     One-time use: usa UPDATE atômico com WHERE status='aprovada' para evitar race condition.
     """
-    uid = user.get("user_id") or user.get("sub") or ""
+    uid = user.get("user_id") or user.get("id") or user.get("sub") or ""
     sb = get_supabase()
 
     sol = (

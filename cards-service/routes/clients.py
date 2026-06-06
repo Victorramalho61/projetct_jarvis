@@ -36,7 +36,7 @@ def create_client(body: ClienteCreate, sup: dict = Depends(require_supervisor)):
     res = sb.table("cards_clientes").insert({
         "nome": body.nome.strip(),
         "cnpj": body.cnpj,
-        "criado_por": sup.get("user_id") or sup.get("sub"),
+        "criado_por": sup.get("user_id") or sup.get("id") or sup.get("sub"),
     }).execute()
     return res.data[0] if res.data else {}
 

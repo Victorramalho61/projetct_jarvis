@@ -28,7 +28,7 @@ def get_cards_perfil(
 ) -> dict[str, Any]:
     """Enriquece o user dict com 'cards_perfil' a partir de cards_permissoes."""
     sb = get_supabase()
-    user_id = user.get("user_id") or user.get("sub") or ""
+    user_id = user.get("user_id") or user.get("id") or user.get("sub") or ""
     row = (
         sb.table("cards_permissoes")
         .select("perfil,ativo")

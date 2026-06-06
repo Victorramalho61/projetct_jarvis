@@ -26,7 +26,7 @@ class RevealRequest(BaseModel):
 
 
 def _user_fields(user: dict) -> tuple[str, str, str]:
-    uid = user.get("user_id") or user.get("sub") or ""
+    uid = user.get("user_id") or user.get("id") or user.get("sub") or ""
     login = user.get("email") or user.get("username") or ""
     nome = user.get("display_name") or user.get("name") or login
     return uid, login, nome
