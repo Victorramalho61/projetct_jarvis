@@ -737,6 +737,33 @@ services:
       retries: 3
       start_period: 60s
 
+  cards-service:
+    build:
+      context: ./cards-service
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    cpus: "0.5"
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      CARD_ENCRYPTION_KEY: ${CARD_ENCRYPTION_KEY:-}
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8012/health', timeout=8)\""]
+      interval: 300s
+      timeout: 12s
+      retries: 3
+      start_period: 30s
+
   support-service:
     build:
       context: ./support-service
