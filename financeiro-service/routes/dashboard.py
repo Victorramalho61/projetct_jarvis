@@ -28,14 +28,14 @@ def dashboard(
         cur = conn.cursor()
 
         cur.execute(
-            "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_MOVIMENTACOES"
+            "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_LANCAMENTOS"
             " WHERE EMPRESA = %s AND DATA = %s AND NATUREZA = 'C'",
             (empresa, ontem),
         )
         entradas = cur.fetchone() or {}
 
         cur.execute(
-            "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_MOVIMENTACOES"
+            "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_LANCAMENTOS"
             " WHERE EMPRESA = %s AND DATA = %s AND NATUREZA = 'D'",
             (empresa, ontem),
         )
@@ -43,26 +43,28 @@ def dashboard(
 
         cur.execute(
             "SELECT ISNULL(b.NOME,'S/Banco') AS banco, ISNULL(c.NUMEROCONTA,'') AS conta,"
-            " SUM(CASE WHEN m.NATUREZA='C' THEN m.VALOR WHEN m.NATUREZA='D' THEN -m.VALOR ELSE 0 END) AS saldo"
-            " FROM dbo.FN_MOVIMENTACOES m"
-            " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = m.CONTACORRENTE"
+            " SUM(CASE WHEN l.NATUREZA='C' THEN l.VALOR WHEN l.NATUREZA='D' THEN -l.VALOR ELSE 0 END) AS saldo"
+            " FROM dbo.FN_LANCAMENTOS l"
+            " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = l.CONTA"
             " LEFT JOIN dbo.GN_BANCOS b ON b.HANDLE = c.BANCO"
-            " WHERE m.EMPRESA = %s AND m.DATA = %s"
+            " WHERE l.EMPRESA = %s AND l.DATA = %s"
             " GROUP BY b.NOME, c.NUMEROCONTA ORDER BY saldo DESC",
             (empresa, ontem),
         )
         saldo_por_conta = cur.fetchall()
 
         cur.execute(
-            "SELECT TOP 5 ISNULL(cc.NOME,'Sem CC') AS centroCusto, SUM(m.VALOR) AS total"
-            " FROM dbo.FN_MOVIMENTACOES m"
-            " LEFT JOIN dbo.CT_CC cc ON cc.HANDLE = m.CENTROCUSTO"
-            " WHERE m.EMPRESA = %s AND m.DATA = %s AND m.NATUREZA = 'D'"
+            "SELECT TOP 5 ISNULL(cc.NOME,'Sem CC') AS centroCusto, SUM(l.VALOR) AS total"
+            " FROM dbo.FN_LANCAMENTOS l"
+            " LEFT JOIN dbo.FN_LANCAMENTOCC lcc ON lcc.LANCAMENTO = l.HANDLE"
+            " LEFT JOIN dbo.CT_CC cc ON cc.HANDLE = lcc.CENTROCUSTO"
+            " WHERE l.EMPRESA = %s AND l.DATA = %s AND l.NATUREZA = 'D'"
             " GROUP BY cc.NOME ORDER BY total DESC",
             (empresa, ontem),
         )
         top_cc = cur.fetchall()
 
+        # impostos retidos ficam em FN_MOVIMENTACOES (colunas K_*)
         cur.execute(
             "SELECT SUM(ISNULL(K_IRRFARECUPERAR,0)) AS irrf, SUM(ISNULL(K_PISARECUPERAR,0)) AS pis,"
             " SUM(ISNULL(K_COFINSARECUPERAR,0)) AS cofins, SUM(ISNULL(K_ISSARECUPERAR,0)) AS iss"

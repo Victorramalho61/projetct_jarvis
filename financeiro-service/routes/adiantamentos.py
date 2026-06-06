@@ -23,23 +23,22 @@ def adiantamentos(
     if hit is not None:
         return hit
 
-    conditions = ["m.NATUREZA = %s", "m.DATA BETWEEN %s AND %s"]
+    conditions = ["l.NATUREZA = %s", "l.DATA BETWEEN %s AND %s"]
     params: list = [natureza_sql, data_inicio, data_fim]
-    if empresa: conditions.append("m.EMPRESA = %s"); params.append(empresa)
+    if empresa: conditions.append("l.EMPRESA = %s"); params.append(empresa)
 
     sql = (
         "SELECT TOP 500"
-        " CONVERT(varchar(10), m.DATA, 120) AS data,"
-        " m.DOCUMENTO AS documento, m.VALOR AS valor,"
+        " CONVERT(varchar(10), l.DATA, 120) AS data,"
+        " l.DOCUMENTO AS documento, l.VALOR AS valor,"
         " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CPFCNPJ,'') AS cpfCnpj,"
-        " CASE WHEN m.CONTABILIZADO='S' THEN 'baixado' ELSE 'pendente' END AS status,"
-        " ISNULL(o.DESCRICAO,'') AS historico"
-        " FROM dbo.FN_MOVIMENTACOES m"
-        " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = m.PESSOA"
-        " LEFT JOIN dbo.GN_OPERACOES o ON o.HANDLE = m.OPERACAO"
-        " LEFT JOIN dbo.FN_DOCUMENTOS d ON d.HANDLE = m.DOCUMENTO"
-        f" WHERE d.EHANTECIPACAO='S' AND {' AND '.join(conditions)}"
-        " ORDER BY m.DATA DESC"
+        " CASE WHEN l.CONTABILIZADO='S' THEN 'baixado' ELSE 'pendente' END AS status,"
+        " ISNULL(l.HISTORICO,'') AS historico"
+        " FROM dbo.FN_LANCAMENTOS l"
+        " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = l.PESSOA"
+        " LEFT JOIN dbo.FN_DOCUMENTOS d ON d.HANDLE = l.DOCUMENTO"
+        f" WHERE d.EHADIANTAMENTO='S' AND {' AND '.join(conditions)}"
+        " ORDER BY l.DATA DESC"
     )
 
     with get_mssql() as conn:

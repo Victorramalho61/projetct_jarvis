@@ -17,8 +17,8 @@ def listar_empresas(current_user: dict = Depends(require_role("admin", "user")))
     with get_mssql() as conn:
         cursor = conn.cursor()
         cursor.execute(
-            "SELECT e.HANDLE AS handle, e.NOME AS nome, e.CODIGO AS codigo"
-            " FROM dbo.EMPRESAS e WHERE e.ATIVO = 'S' ORDER BY e.NOME"
+            "SELECT e.HANDLE AS handle, e.NOME AS nome, e.CODIGOREDUZIDO AS codigo"
+            " FROM dbo.EMPRESAS e WHERE e.EMPRATIVA = 'S' ORDER BY e.NOME"
         )
         result = cursor.fetchall()
 

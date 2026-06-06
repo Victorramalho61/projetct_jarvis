@@ -11,31 +11,32 @@ router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
 
 
 def _query_movimentacoes(empresa, filial, conta, data_inicio, data_fim):
-    conditions = ["m.DATA BETWEEN %s AND %s"]
+    conditions = ["l.DATA BETWEEN %s AND %s"]
     params: list = [data_inicio, data_fim]
-    if empresa: conditions.append("m.EMPRESA = %s"); params.append(empresa)
-    if filial:  conditions.append("m.FILIAL = %s");  params.append(filial)
+    if empresa: conditions.append("l.EMPRESA = %s"); params.append(empresa)
+    if filial:  conditions.append("l.FILIAL = %s");  params.append(filial)
     if conta:   conditions.append("c.NUMEROCONTA = %s"); params.append(conta)
 
     sql = (
         "SELECT TOP 500"
-        " m.HANDLE AS handle,"
-        " CONVERT(varchar(10), m.DATA, 120) AS data,"
-        " m.DOCUMENTO AS documento, m.VALOR AS valor, m.NATUREZA AS natureza,"
-        " m.CONTABILIZADO AS contabilizado, m.ENCONTROCONTAS AS encontroContas,"
+        " l.HANDLE AS handle,"
+        " CONVERT(varchar(10), l.DATA, 120) AS data,"
+        " l.DOCUMENTO AS documento, l.VALOR AS valor, l.NATUREZA AS natureza,"
+        " l.CONTABILIZADO AS contabilizado,"
+        " CASE WHEN m.ENCONTROCONTAS IS NOT NULL THEN m.ENCONTROCONTAS ELSE NULL END AS encontroContas,"
         " ISNULL(p.NOME,'') AS pessoaNome,"
         " ISNULL(c.NUMEROCONTA,'') AS conta, ISNULL(b.NOME,'') AS banco,"
-        " ISNULL(o.DESCRICAO,'') AS historico,"
+        " ISNULL(l.HISTORICO,'') AS historico,"
         " CASE WHEN m.ENCONTROCONTAS IS NOT NULL THEN 'conciliado'"
-        "      WHEN m.CONTABILIZADO='S' THEN 'contabilizado'"
+        "      WHEN l.CONTABILIZADO='S' THEN 'contabilizado'"
         "      ELSE 'pendente' END AS status"
-        " FROM dbo.FN_MOVIMENTACOES m"
-        " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = m.PESSOA"
-        " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = m.CONTACORRENTE"
+        " FROM dbo.FN_LANCAMENTOS l"
+        " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = l.PESSOA"
+        " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = l.CONTA"
         " LEFT JOIN dbo.GN_BANCOS b ON b.HANDLE = c.BANCO"
-        " LEFT JOIN dbo.GN_OPERACOES o ON o.HANDLE = m.OPERACAO"
+        " LEFT JOIN dbo.FN_MOVIMENTACOES m ON m.HANDLE = l.MOVIMENTACAO"
         f" WHERE {' AND '.join(conditions)}"
-        " ORDER BY m.DATA DESC"
+        " ORDER BY l.DATA DESC"
     )
     with get_mssql() as conn:
         cursor = conn.cursor()
@@ -44,21 +45,22 @@ def _query_movimentacoes(empresa, filial, conta, data_inicio, data_fim):
 
 
 def _query_resumo(empresa, data_inicio, data_fim):
-    conditions = ["m.DATA BETWEEN %s AND %s"]
+    conditions = ["l.DATA BETWEEN %s AND %s"]
     params: list = [data_inicio, data_fim]
-    if empresa: conditions.append("m.EMPRESA = %s"); params.append(empresa)
+    if empresa: conditions.append("l.EMPRESA = %s"); params.append(empresa)
 
     sql = (
         "SELECT"
         " ISNULL(c.NUMEROCONTA,'S/Conta') AS conta, ISNULL(b.NOME,'') AS banco,"
-        " SUM(CASE WHEN m.NATUREZA='C' THEN m.VALOR ELSE 0 END) AS totalCredito,"
-        " SUM(CASE WHEN m.NATUREZA='D' THEN m.VALOR ELSE 0 END) AS totalDebito,"
-        " SUM(CASE WHEN m.NATUREZA='C' THEN m.VALOR WHEN m.NATUREZA='D' THEN -m.VALOR ELSE 0 END) AS saldo,"
+        " SUM(CASE WHEN l.NATUREZA='C' THEN l.VALOR ELSE 0 END) AS totalCredito,"
+        " SUM(CASE WHEN l.NATUREZA='D' THEN l.VALOR ELSE 0 END) AS totalDebito,"
+        " SUM(CASE WHEN l.NATUREZA='C' THEN l.VALOR WHEN l.NATUREZA='D' THEN -l.VALOR ELSE 0 END) AS saldo,"
         " COUNT(*) AS totalLancamentos,"
         " SUM(CASE WHEN m.ENCONTROCONTAS IS NOT NULL THEN 1 ELSE 0 END) AS conciliados"
-        " FROM dbo.FN_MOVIMENTACOES m"
-        " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = m.CONTACORRENTE"
+        " FROM dbo.FN_LANCAMENTOS l"
+        " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = l.CONTA"
         " LEFT JOIN dbo.GN_BANCOS b ON b.HANDLE = c.BANCO"
+        " LEFT JOIN dbo.FN_MOVIMENTACOES m ON m.HANDLE = l.MOVIMENTACAO"
         f" WHERE {' AND '.join(conditions)}"
         " GROUP BY c.NUMEROCONTA, b.NOME ORDER BY totalLancamentos DESC"
     )
@@ -86,7 +88,7 @@ def conciliacao(
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_mov    = pool.submit(_query_movimentacoes, empresa, filial, conta, data_inicio, data_fim)
         f_resumo = pool.submit(_query_resumo, empresa, data_inicio, data_fim)
-        movimentacoes  = f_mov.result()
+        movimentacoes    = f_mov.result()
         resumo_por_conta = f_resumo.result()
 
     result = {"movimentacoes": movimentacoes, "resumoPorConta": resumo_por_conta}

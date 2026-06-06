@@ -24,21 +24,20 @@ def receitas(
     if hit is not None:
         return hit
 
-    conditions = ["m.DATA BETWEEN %s AND %s"]
+    conditions = ["l.DATA BETWEEN %s AND %s"]
     params: list = [data_inicio, data_fim]
-    if empresa: conditions.append("m.EMPRESA = %s"); params.append(empresa)
-    if filial:  conditions.append("m.FILIAL = %s");  params.append(filial)
-    where = f"WHERE m.NATUREZA='C' AND {' AND '.join(conditions)}"
+    if empresa: conditions.append("l.EMPRESA = %s"); params.append(empresa)
+    if filial:  conditions.append("l.FILIAL = %s");  params.append(filial)
+    where = f"WHERE l.NATUREZA='C' AND {' AND '.join(conditions)}"
 
     def _resumo():
         sql = (
-            "SELECT ISNULL(o.DESCRICAO,'Sem Operação') AS operacao,"
-            " SUM(m.VALOR) AS total, COUNT(*) AS qtd,"
-            " SUM(m.VALOR)*100.0/NULLIF(SUM(SUM(m.VALOR)) OVER(),0) AS pct"
-            " FROM dbo.FN_MOVIMENTACOES m"
-            " LEFT JOIN dbo.GN_OPERACOES o ON o.HANDLE = m.OPERACAO"
+            "SELECT ISNULL(l.HISTORICO,'Sem Histórico') AS operacao,"
+            " SUM(l.VALOR) AS total, COUNT(*) AS qtd,"
+            " SUM(l.VALOR)*100.0/NULLIF(SUM(SUM(l.VALOR)) OVER(),0) AS pct"
+            " FROM dbo.FN_LANCAMENTOS l"
             f" {where}"
-            " GROUP BY o.DESCRICAO ORDER BY total DESC"
+            " GROUP BY l.HISTORICO ORDER BY total DESC"
         )
         with get_mssql() as conn:
             cursor = conn.cursor()
@@ -48,16 +47,17 @@ def receitas(
     def _detalhe():
         sql = (
             "SELECT TOP 500"
-            " CONVERT(varchar(10), m.DATA, 120) AS data,"
-            " m.DOCUMENTO AS documento, m.VALOR AS valor,"
-            " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(o.DESCRICAO,'') AS historico,"
+            " CONVERT(varchar(10), l.DATA, 120) AS data,"
+            " l.DOCUMENTO AS documento, l.VALOR AS valor,"
+            " ISNULL(p.NOME,'') AS pessoaNome,"
+            " ISNULL(l.HISTORICO,'') AS historico,"
             " ISNULL(cc.NOME,'') AS centroCusto"
-            " FROM dbo.FN_MOVIMENTACOES m"
-            " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = m.PESSOA"
-            " LEFT JOIN dbo.GN_OPERACOES o ON o.HANDLE = m.OPERACAO"
-            " LEFT JOIN dbo.CT_CC cc ON cc.HANDLE = m.CENTROCUSTO"
+            " FROM dbo.FN_LANCAMENTOS l"
+            " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = l.PESSOA"
+            " LEFT JOIN dbo.FN_LANCAMENTOCC lcc ON lcc.LANCAMENTO = l.HANDLE"
+            " LEFT JOIN dbo.CT_CC cc ON cc.HANDLE = lcc.CENTROCUSTO"
             f" {where}"
-            " ORDER BY m.DATA DESC"
+            " ORDER BY l.DATA DESC"
         )
         with get_mssql() as conn:
             cursor = conn.cursor()
