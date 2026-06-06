@@ -1,11 +1,12 @@
 import logging
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from auth import get_cards_perfil, require_supervisor
 from db import get_supabase
+from limiter import limiter
 from services.crypto import decrypt
 
 router = APIRouter(prefix="/api/cards")
@@ -21,11 +22,16 @@ def _format_number(numero: str) -> str:
 
 @router.get("/approvals")
 def list_pending_approvals(_sup: dict = Depends(require_supervisor)):
-    """Lista solicitações pendentes de aprovação."""
+    """Lista solicitações pendentes de aprovação com todos os campos para o supervisor julgar."""
     sb = get_supabase()
     res = (
         sb.table("cards_solicitacoes")
-        .select("*, cards_cartoes(bandeira, numero_final, cards_clientes(nome))")
+        .select(
+            "id, cartao_id, user_nome, user_login, ip_origem, created_at, "
+            "localizador_os, nome_cliente, produto, data_reserva, nome_pax, "
+            "fornecedor, valor_transacao, "
+            "cards_cartoes(bandeira, numero_final, cards_clientes(nome))"
+        )
         .eq("status", "pendente")
         .order("created_at", desc=False)
         .execute()
@@ -38,15 +44,23 @@ def get_approval_status(
     solicitacao_id: str,
     user: dict = Depends(get_cards_perfil),
 ):
-    """Polling do colaborador para saber se a solicitação foi aprovada/rejeitada."""
+    """Polling do colaborador para saber se a solicitação foi aprovada/rejeitada.
+    Colaboradores só podem consultar suas próprias solicitações.
+    Supervisores podem consultar qualquer solicitação.
+    """
     sb = get_supabase()
-    row = (
+    uid = user.get("user_id") or user.get("sub") or ""
+    is_supervisor = user.get("cards_perfil") == "supervisor"
+
+    q = (
         sb.table("cards_solicitacoes")
         .select("id, status, motivo_rejeicao, aprovado_em, aprovacao_expira_em, aprovado_por_nome")
         .eq("id", solicitacao_id)
-        .maybe_single()
-        .execute()
     )
+    if not is_supervisor:
+        q = q.eq("user_id", uid)
+
+    row = q.maybe_single().execute()
     if not row.data:
         raise HTTPException(404, "Solicitação não encontrada")
     return row.data
@@ -55,10 +69,11 @@ def get_approval_status(
 @router.post("/approvals/{solicitacao_id}/approve")
 def approve_request(solicitacao_id: str, sup: dict = Depends(require_supervisor)):
     """Supervisor aprova a solicitação. Colaborador tem 10 minutos para confirmar."""
+    sup_id = sup.get("user_id") or sup.get("sub") or ""
     sb = get_supabase()
     row = (
         sb.table("cards_solicitacoes")
-        .select("id, status")
+        .select("id, status, user_id")
         .eq("id", solicitacao_id)
         .eq("status", "pendente")
         .maybe_single()
@@ -67,12 +82,16 @@ def approve_request(solicitacao_id: str, sup: dict = Depends(require_supervisor)
     if not row.data:
         raise HTTPException(404, "Solicitação pendente não encontrada")
 
+    # Supervisor não pode aprovar a própria solicitação (ex: se perfil foi elevado)
+    if row.data.get("user_id") == sup_id:
+        raise HTTPException(403, "Supervisor não pode aprovar sua própria solicitação")
+
     now = datetime.now(timezone.utc)
     expira = now + timedelta(minutes=_APPROVAL_EXPIRY_MINUTES)
 
     sb.table("cards_solicitacoes").update({
         "status": "aprovada",
-        "aprovado_por": sup.get("user_id") or sup.get("sub"),
+        "aprovado_por": sup_id,
         "aprovado_por_nome": sup.get("display_name") or sup.get("name") or "",
         "aprovado_em": now.isoformat(),
         "aprovacao_expira_em": expira.isoformat(),
@@ -94,6 +113,7 @@ def reject_request(
     """Supervisor rejeita a solicitação com motivo obrigatório."""
     if not body.motivo.strip():
         raise HTTPException(400, "Motivo de rejeição obrigatório")
+    sup_id = sup.get("user_id") or sup.get("sub") or ""
     sb = get_supabase()
     row = (
         sb.table("cards_solicitacoes")
@@ -107,7 +127,7 @@ def reject_request(
         raise HTTPException(404, "Solicitação pendente não encontrada")
     sb.table("cards_solicitacoes").update({
         "status": "rejeitada",
-        "aprovado_por": sup.get("user_id") or sup.get("sub"),
+        "aprovado_por": sup_id,
         "aprovado_por_nome": sup.get("display_name") or sup.get("name") or "",
         "aprovado_em": datetime.now(timezone.utc).isoformat(),
         "motivo_rejeicao": body.motivo.strip(),
@@ -116,13 +136,15 @@ def reject_request(
 
 
 @router.post("/approvals/{solicitacao_id}/confirm")
+@limiter.limit("5/minute")
 def confirm_reveal(
+    request: Request,
     solicitacao_id: str,
     user: dict = Depends(get_cards_perfil),
 ):
     """
     Colaborador confirma o reveal após aprovação do supervisor.
-    One-time use: marca a solicitação como 'consumida' após revelar.
+    One-time use: usa UPDATE atômico com WHERE status='aprovada' para evitar race condition.
     """
     uid = user.get("user_id") or user.get("sub") or ""
     sb = get_supabase()
@@ -159,6 +181,17 @@ def confirm_reveal(
                 "Aprovação expirada. Feche o popup e solicite novamente.",
             )
 
+    # UPDATE atômico: só marca consumida se ainda estiver 'aprovada' → evita race condition
+    consumed = (
+        sb.table("cards_solicitacoes")
+        .update({"status": "consumida"})
+        .eq("id", solicitacao_id)
+        .eq("status", "aprovada")
+        .execute()
+    )
+    if not consumed.data:
+        raise HTTPException(409, "Solicitação já foi consumida por outra requisição simultânea")
+
     # Busca e decripta o cartão
     card = (
         sb.table("cards_cartoes")
@@ -176,8 +209,15 @@ def confirm_reveal(
         expiracao = decrypt(card.data["expiracao_encrypted"])
         titular = decrypt(card.data["titular_encrypted"])
     except Exception as e:
-        _logger.error("Erro ao decriptar via confirm %s: %s", s["cartao_id"], e)
+        _logger.error("Erro ao decriptar via confirm %s: tipo=%s", s["cartao_id"], type(e).__name__)
         raise HTTPException(500, "Erro ao processar dados do cartão")
+
+    # IP real via Kong
+    ip = (
+        request.headers.get("X-Real-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or (request.client.host if request.client else None)
+    )
 
     # Grava log de acesso
     sb.table("cards_acessos").insert({
@@ -186,6 +226,7 @@ def confirm_reveal(
         "user_id": uid,
         "user_login": user.get("email") or user.get("username") or "",
         "user_nome": user.get("display_name") or user.get("name") or "",
+        "ip_origem": ip,
         "localizador_os": s["localizador_os"],
         "nome_cliente": s["nome_cliente"],
         "produto": s["produto"],
@@ -194,9 +235,6 @@ def confirm_reveal(
         "fornecedor": s["fornecedor"],
         "valor_transacao": s["valor_transacao"],
     }).execute()
-
-    # Marca como consumida (one-time)
-    sb.table("cards_solicitacoes").update({"status": "consumida"}).eq("id", solicitacao_id).execute()
 
     return {
         "status": "revealed",

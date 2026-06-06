@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 
 from auth import require_supervisor
 from db import get_supabase
@@ -10,10 +10,7 @@ router = APIRouter(prefix="/api/cards")
 _logger = logging.getLogger(__name__)
 
 
-def _build_query(sb, params: dict):
-    q = sb.table("cards_acessos").select(
-        "*, cards_cartoes(bandeira, numero_final, cards_clientes(nome))"
-    )
+def _apply_filters(q, params: dict):
     if params.get("cartao_id"):
         q = q.eq("cartao_id", params["cartao_id"])
     if params.get("cliente_id"):
@@ -45,6 +42,19 @@ def _build_query(sb, params: dict):
     return q
 
 
+def _build_query(sb, params: dict):
+    q = sb.table("cards_acessos").select(
+        "*, cards_cartoes(bandeira, numero_final, cards_clientes(nome))"
+    )
+    return _apply_filters(q, params)
+
+
+def _count_query(sb, params: dict):
+    """Conta registros sem materializar dados — usa o header Count do PostgREST."""
+    q = sb.table("cards_acessos").select("id", count="exact")
+    return _apply_filters(q, params)
+
+
 @router.get("/access-logs")
 def list_access_logs(
     cartao_id: str | None = None,
@@ -61,21 +71,18 @@ def list_access_logs(
     valor_max: float | None = None,
     data_acesso_de: str | None = None,
     data_acesso_ate: str | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
     _sup: dict = Depends(require_supervisor),
 ):
     params = {k: v for k, v in locals().items() if k not in ("page", "page_size", "_sup") and v is not None}
     sb = get_supabase()
-    q = _build_query(sb, params)
-    q = q.order("data_hora_acesso", desc=True)
-    # Count total
-    count_q = _build_query(sb, params)
-    total_res = count_q.execute()
-    total = len(total_res.data) if total_res.data else 0
-    # Paginate
+
+    count_res = _count_query(sb, params).execute()
+    total = count_res.count or 0
+
     offset = (page - 1) * page_size
-    res = q.range(offset, offset + page_size - 1).execute()
+    res = _build_query(sb, params).order("data_hora_acesso", desc=True).range(offset, offset + page_size - 1).execute()
     return {
         "data": res.data or [],
         "total": total,
@@ -101,12 +108,18 @@ def export_access_logs(
     valor_max: float | None = None,
     data_acesso_de: str | None = None,
     data_acesso_ate: str | None = None,
-    _sup: dict = Depends(require_supervisor),
+    sup: dict = Depends(require_supervisor),
 ):
-    params = {k: v for k, v in locals().items() if k not in ("format", "_sup") and v is not None}
+    params = {k: v for k, v in locals().items() if k not in ("format", "sup") and v is not None}
     sb = get_supabase()
     res = _build_query(sb, params).order("data_hora_acesso", desc=True).limit(5000).execute()
     rows = res.data or []
+
+    sup_login = sup.get("email") or sup.get("username") or sup.get("user_id") or "unknown"
+    _logger.info(
+        "Export de logs de acesso solicitado por %s: formato=%s filtros=%s total=%d",
+        sup_login, format.lower(), list(params.keys()), len(rows),
+    )
 
     if format.lower() == "xml":
         content = to_xml(rows)

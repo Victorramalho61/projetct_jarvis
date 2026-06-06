@@ -1,11 +1,12 @@
 import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
 from auth import require_supervisor
 from db import get_supabase
+from limiter import limiter
 from services.crypto import encrypt
 
 router = APIRouter(prefix="/api/cards")
@@ -60,7 +61,8 @@ def list_cards(
 
 
 @router.post("/management", status_code=201)
-def create_card(body: CartaoCreate, sup: dict = Depends(require_supervisor)):
+@limiter.limit("30/minute")
+def create_card(request: Request, body: CartaoCreate, sup: dict = Depends(require_supervisor)):
     numero_clean = body.numero.replace(" ", "").replace("-", "")
     if len(numero_clean) < 13 or not numero_clean.isdigit():
         raise HTTPException(400, "Número de cartão inválido")
@@ -92,14 +94,16 @@ def create_card(body: CartaoCreate, sup: dict = Depends(require_supervisor)):
             "criado_por": sup.get("user_id") or sup.get("sub"),
         }).execute()
     except Exception as e:
-        _logger.error("Erro ao cadastrar cartão: %s", e)
+        _logger.error("Erro ao cadastrar cartão: %s", type(e).__name__)
         raise HTTPException(500, "Erro ao salvar cartão")
 
     return _safe(res.data[0]) if res.data else {}
 
 
 @router.put("/management/{card_id}")
+@limiter.limit("30/minute")
 def update_card(
+    request: Request,
     card_id: str,
     body: CartaoUpdate,
     _sup: dict = Depends(require_supervisor),
@@ -116,15 +120,15 @@ def update_card(
         raise HTTPException(404, "Cartão não encontrado")
 
     patch: dict = {}
-    if body.bandeira is not None:
+    if body.bandeira is not None and body.bandeira.strip():
         if body.bandeira.upper() not in _BANDEIRAS:
             raise HTTPException(400, f"Bandeira inválida. Use: {', '.join(_BANDEIRAS)}")
         patch["bandeira"] = body.bandeira.upper()
-    if body.cvv is not None:
+    if body.cvv is not None and body.cvv.strip():
         patch["cvv_encrypted"] = encrypt(body.cvv)
-    if body.expiracao is not None:
+    if body.expiracao is not None and body.expiracao.strip():
         patch["expiracao_encrypted"] = encrypt(body.expiracao)
-    if body.titular is not None:
+    if body.titular is not None and body.titular.strip():
         patch["titular_encrypted"] = encrypt(body.titular.strip().upper())
     if body.ativo is not None:
         patch["ativo"] = body.ativo
@@ -137,7 +141,8 @@ def update_card(
 
 
 @router.delete("/management/{card_id}", status_code=200)
-def deactivate_card(card_id: str, _sup: dict = Depends(require_supervisor)):
+@limiter.limit("30/minute")
+def deactivate_card(request: Request, card_id: str, _sup: dict = Depends(require_supervisor)):
     sb = get_supabase()
     res = (
         sb.table("cards_cartoes")

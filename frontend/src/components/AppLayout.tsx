@@ -162,6 +162,8 @@ export default function AppLayout() {
 
   const visible = NAV_ITEMS.filter((i) => {
     if (!user || !i.roles.includes(user.role)) return false;
+    // Admin vê todos os módulos independente de allowed_modules
+    if (user.role === "admin") return true;
     const modules = user.allowed_modules;
     if (!modules || modules.length === 0) return true;
     const mod = MODULES_BY_NAV_ID[i.id];

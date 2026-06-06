@@ -89,6 +89,18 @@ CREATE TABLE IF NOT EXISTS cards_solicitacoes (
     created_at          timestamptz NOT NULL DEFAULT now()
 );
 
+-- Trigger de imutabilidade: cards_acessos nunca pode ser alterado ou deletado
+CREATE OR REPLACE FUNCTION cards_acessos_immutable()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'cards_acessos é imutável — registros de auditoria não podem ser alterados ou excluídos';
+END;
+$$;
+
+CREATE TRIGGER trg_cards_acessos_immutable
+BEFORE UPDATE OR DELETE ON cards_acessos
+FOR EACH ROW EXECUTE FUNCTION cards_acessos_immutable();
+
 -- Índices de performance
 CREATE INDEX IF NOT EXISTS idx_cards_cartoes_cliente     ON cards_cartoes(cliente_id);
 CREATE INDEX IF NOT EXISTS idx_cards_cartoes_final       ON cards_cartoes(numero_final);

@@ -25,14 +25,13 @@ class SupabaseHandler(logging.Handler):
         _in_emit.active = True
         try:
             from db import get_supabase
-            detail: str | None = None
-            if record.exc_info:
-                detail = "".join(traceback.format_exception(*record.exc_info))[:4000]
+            # Nunca persiste traceback — exc_info pode conter tokens Fernet ou dados de cartão
+            # em contextos de criptografia. A mensagem já inclui type(e).__name__ suficiente.
             get_supabase().table("app_logs").insert({
                 "level":   "error",
                 "module":  self._service,
                 "message": record.getMessage()[:500],
-                "detail":  detail,
+                "detail":  None,
             }).execute()
         except Exception:
             pass

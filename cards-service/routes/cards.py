@@ -38,11 +38,16 @@ def _format_number(numero: str) -> str:
 
 
 @router.get("/cards")
+@limiter.limit("60/minute")
 def list_cards(
+    request: Request,
     search: str | None = None,
     user: dict = Depends(get_cards_perfil),
 ):
-    """Lista cartões ativos com 4 últimos dígitos, bandeira e cliente."""
+    """Lista cartões ativos com 4 últimos dígitos, bandeira e cliente.
+    Exposição de card IDs é intencional: colaboradores precisam para solicitar reveal.
+    Rate-limited para mitigar enumeração massiva.
+    """
     sb = get_supabase()
     q = (
         sb.table("cards_cartoes")
@@ -85,7 +90,11 @@ def reveal_card(
 
     sb = get_supabase()
     uid, login, nome = _user_fields(user)
-    ip = request.client.host if request.client else None
+    ip = (
+        request.headers.get("X-Real-IP")
+        or request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or (request.client.host if request.client else None)
+    )
 
     # Busca o cartão
     card = (
@@ -101,25 +110,28 @@ def reveal_card(
     if not card.data.get("ativo"):
         raise HTTPException(403, "Cartão inativo")
 
-    # Antirreuso: mesmo cartão + mesmo localizador já registrado?
-    reuse = (
-        sb.table("cards_acessos")
-        .select("id")
-        .eq("cartao_id", card_id)
-        .eq("localizador_os", loc)
-        .limit(1)
-        .execute()
-    )
+    # Antirreuso atômico via cards_reveal_grants com UNIQUE (cartao_id, localizador_os).
+    # INSERT falha com 409 (unique_violation) se par já existe → reuso detectado atomicamente.
+    # Elimina a race condition de dois reveals simultâneos para o mesmo par inédito.
+    reuse_detected = False
+    try:
+        sb.table("cards_reveal_grants").insert({
+            "cartao_id": card_id,
+            "localizador_os": loc,
+        }).execute()
+    except Exception:
+        # Conflito UNIQUE ou erro de DB — ambos tratados como reuso para segurança
+        reuse_detected = True
 
-    if reuse.data:
-        # Verifica se já existe solicitação pendente para não duplicar
+    if reuse_detected:
+        # Verifica se já existe solicitação pendente ou aprovada (ainda não consumida)
         pending = (
             sb.table("cards_solicitacoes")
             .select("id, status")
             .eq("cartao_id", card_id)
             .eq("user_id", uid)
             .eq("localizador_os", loc)
-            .eq("status", "pendente")
+            .in_("status", ["pendente", "aprovada"])
             .limit(1)
             .execute()
         )
@@ -159,7 +171,7 @@ def reveal_card(
         expiracao = decrypt(card.data["expiracao_encrypted"])
         titular = decrypt(card.data["titular_encrypted"])
     except Exception as e:
-        _logger.error("Erro ao decriptar cartão %s: %s", card_id, e)
+        _logger.error("Erro ao decriptar cartão %s: tipo=%s", card_id, type(e).__name__)
         raise HTTPException(500, "Erro ao processar dados do cartão")
 
     # Grava log de acesso

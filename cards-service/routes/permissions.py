@@ -17,6 +17,11 @@ class PermissaoBody(BaseModel):
     perfil: str  # colaborador | supervisor
 
 
+class PermissaoUpdate(BaseModel):
+    perfil: str | None = None   # colaborador | supervisor
+    ativo: bool | None = None
+
+
 @router.get("/permissions")
 def list_permissions(_sup: dict = Depends(require_supervisor)):
     sb = get_supabase()
@@ -41,7 +46,7 @@ def grant_permission(body: PermissaoBody, _sup: dict = Depends(require_superviso
             on_conflict="user_id",
         ).execute()
     except Exception as e:
-        _logger.error("Erro ao salvar permissão: %s", e)
+        _logger.error("Erro ao salvar permissão: %s", type(e).__name__)
         raise HTTPException(500, "Erro ao salvar permissão")
     return res.data[0] if res.data else {}
 
@@ -49,15 +54,18 @@ def grant_permission(body: PermissaoBody, _sup: dict = Depends(require_superviso
 @router.put("/permissions/{perm_id}")
 def update_permission(
     perm_id: str,
-    body: dict,
+    body: PermissaoUpdate,
     _sup: dict = Depends(require_supervisor),
 ):
-    allowed = {"perfil", "ativo"}
-    patch = {k: v for k, v in body.items() if k in allowed}
+    patch: dict = {}
+    if body.perfil is not None:
+        if body.perfil not in ("colaborador", "supervisor"):
+            raise HTTPException(400, "perfil inválido: use 'colaborador' ou 'supervisor'")
+        patch["perfil"] = body.perfil
+    if body.ativo is not None:
+        patch["ativo"] = body.ativo
     if not patch:
         raise HTTPException(400, "Nenhum campo válido para atualizar")
-    if "perfil" in patch and patch["perfil"] not in ("colaborador", "supervisor"):
-        raise HTTPException(400, "perfil inválido")
     sb = get_supabase()
     res = sb.table("cards_permissoes").update(patch).eq("id", perm_id).execute()
     if not res.data:

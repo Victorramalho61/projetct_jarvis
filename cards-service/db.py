@@ -23,3 +23,18 @@ def get_settings() -> Settings:
 def get_supabase() -> Client:
     s = get_settings()
     return create_client(s.supabase_url, s.supabase_key)
+
+
+def validate_startup() -> None:
+    """Valida dependências críticas na inicialização. Falha rápido se CARD_ENCRYPTION_KEY ausente."""
+    from cryptography.fernet import Fernet, InvalidToken
+    key = get_settings().card_encryption_key
+    if not key:
+        raise RuntimeError("CARD_ENCRYPTION_KEY não configurada — serviço não pode iniciar")
+    try:
+        f = Fernet(key.encode() if isinstance(key, str) else key)
+        # Testa round-trip para confirmar que a chave é válida
+        token = f.encrypt(b"test")
+        f.decrypt(token)
+    except Exception as e:
+        raise RuntimeError(f"CARD_ENCRYPTION_KEY inválida: {type(e).__name__}") from None

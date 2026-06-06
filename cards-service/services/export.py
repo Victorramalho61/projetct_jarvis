@@ -16,14 +16,24 @@ COLUMNS = [
     ("valor_transacao", "Valor Transação (R$)"),
 ]
 
+# Caracteres que iniciam fórmulas em planilhas (CSV injection)
+_FORMULA_PREFIXES = frozenset(("=", "+", "-", "@", "\t", "\r"))
+
+
+def _sanitize(value: str) -> str:
+    """Previne CSV injection prefixando valores que iniciam com char de fórmula."""
+    if value and value[0] in _FORMULA_PREFIXES:
+        return "'" + value
+    return value
+
 
 def _flatten(row: dict) -> dict:
     card = row.get("cards_cartoes") or {}
     cli = (card.get("cards_clientes") or {}) if isinstance(card, dict) else {}
-    flat = {k: str(row.get(k) or "") for k, _ in COLUMNS}
+    flat = {k: _sanitize(str(row.get(k) or "")) for k, _ in COLUMNS}
     flat["cartao_4dig"] = f"****{card.get('numero_final', '')}" if isinstance(card, dict) else ""
-    flat["bandeira"] = card.get("bandeira", "") if isinstance(card, dict) else ""
-    flat["cliente_cartao"] = cli.get("nome", "") if isinstance(cli, dict) else ""
+    flat["bandeira"] = _sanitize(card.get("bandeira", "") if isinstance(card, dict) else "")
+    flat["cliente_cartao"] = _sanitize(cli.get("nome", "") if isinstance(cli, dict) else "")
     return flat
 
 
@@ -54,5 +64,6 @@ def to_xml(rows: list[dict]) -> str:
         item = ET.SubElement(root, "acesso")
         for col, _ in all_cols:
             el = ET.SubElement(item, col)
-            el.text = flat.get(col, "")
+            # XML escapa automaticamente — removemos o ' anti-injection para XML (não necessário)
+            el.text = flat.get(col, "").lstrip("'") if flat.get(col, "").startswith("'") else flat.get(col, "")
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="unicode")

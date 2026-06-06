@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -31,6 +32,8 @@ from routes.access_logs import router as access_logs_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from db import validate_startup
+    validate_startup()
     yield
 
 
@@ -52,7 +55,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def trace_id_middleware(request: Request, call_next):
-    tid = request.headers.get("X-Trace-ID") or uuid.uuid4().hex[:16]
+    raw = request.headers.get("X-Trace-ID", "")
+    # Sanitiza: mantém apenas alfanuméricos e hífens (evita log injection)
+    tid = re.sub(r"[^a-zA-Z0-9\-]", "", raw)[:32] or uuid.uuid4().hex[:16]
     current_trace_id.set(tid)
     response = await call_next(request)
     response.headers["X-Trace-ID"] = tid
@@ -61,7 +66,13 @@ async def trace_id_middleware(request: Request, call_next):
 
 @app.exception_handler(Exception)
 async def unhandled(request: Request, exc: Exception) -> JSONResponse:
-    _logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    # Não usa .exception() para evitar que tracebacks vazem dados sensíveis via SupabaseHandler
+    _logger.error(
+        "Unhandled error on %s %s: %s",
+        request.method,
+        request.url.path,
+        type(exc).__name__,
+    )
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
