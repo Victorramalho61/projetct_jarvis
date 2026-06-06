@@ -125,6 +125,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "payfly",     label: "PayFly",             path: "/admin/payfly",        icon: "zap",       roles: ["admin"] },
   { id: "hermes",     label: "Hermes Agent",        path: "/admin/hermes",        icon: "cpu",       roles: ["admin"] },
   { id: "cartoes",    label: "Cofre de Cartões",    path: "/cartoes",             icon: "shield",    roles: ["admin", "user", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
+  { id: "financeiro", label: "Financeiro",           path: "/financeiro",           icon: "wallet",    roles: ["admin", "user"] },
 ];
 
 export default function AppLayout() {
@@ -158,6 +159,7 @@ export default function AppLayout() {
     payfly: "payfly",
     hermes: "hermes",
     cartoes: "cartoes",
+    financeiro: "financeiro",
   };
 
   const visible = NAV_ITEMS.filter((i) => {

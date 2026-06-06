@@ -34,6 +34,7 @@ const PublicCienciaPage = lazy(() => import("./pages/PublicCienciaPage"));
 const PublicCienciaPresencialPage = lazy(() => import("./pages/PublicCienciaPresencialPage"));
 const PublicSelfEvaluationPage = lazy(() => import("./pages/PublicSelfEvaluationPage"));
 const CartaoPage = lazy(() => import("./pages/CartaoPage"));
+const FinanceiroPage = lazy(() => import("./pages/FinanceiroPage"));
 
 export default function App() {
   return (
@@ -83,6 +84,7 @@ export default function App() {
             <Route path="/admin/hermes" element={<HermesPage />} />
             <Route path="/desempenho" element={<PerformancePage />} />
             <Route path="/cartoes" element={<CartaoPage />} />
+            <Route path="/financeiro" element={<FinanceiroPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
