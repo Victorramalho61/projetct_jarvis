@@ -33,15 +33,34 @@ def get_supabase() -> Client:
     return create_client(s.supabase_url, s.supabase_key)
 
 
+def _build_cp850_fix_table() -> dict:
+    """Mapa str.translate: caractere recebido do FreeTDS (UTF-8) → caractere CP850 correto.
+
+    Bytes 0x80-0xFF armazenados em CP850 chegam via FreeTDS/UTF-8 de duas formas:
+    - CP1252-definidos (ex: 0x80=€, 0xE5=å): mapeados para seu Unicode CP1252.
+    - CP1252-indefinidos (0x81, 0x8D, 0x8F, 0x90, 0x9D): passam como controles C1 (U+00XX).
+    Em ambos os casos, decodificamos o byte original como CP850."""
+    table: dict = {}
+    for b in range(0x80, 0x100):
+        try:
+            cp850_char = bytes([b]).decode("cp850")
+        except (UnicodeDecodeError, ValueError):
+            continue
+        try:
+            received_char = bytes([b]).decode("cp1252")  # CP1252-definido
+        except (UnicodeDecodeError, ValueError):
+            received_char = chr(b)                        # CP1252-indefinido → C1 control
+        table[ord(received_char)] = cp850_char
+    return table
+
+
+_CP850_FIX_TABLE = str.maketrans(_build_cp850_fix_table())
+
+
 def _fix_str(v: Any) -> Any:
-    """Corrige strings de VARCHAR cols armazenados em CP850 mas declarados como iso_1.
-    pymssql com charset=cp1252 passa os bytes brutos — re-encode cp1252 → decode cp850."""
     if not isinstance(v, str):
         return v
-    try:
-        return v.encode("cp1252").decode("cp850")
-    except (UnicodeEncodeError, UnicodeDecodeError):
-        return v
+    return v.translate(_CP850_FIX_TABLE)
 
 
 def _fix_row(row: dict) -> dict:
@@ -105,7 +124,7 @@ def get_mssql() -> _FixedConn:
         database=s.mssql_database,
         timeout=120,
         as_dict=True,
-        charset="cp1252",
+        charset="UTF-8",
     )
     if s.mssql_port and "\\" not in s.mssql_host:
         kwargs["port"] = s.mssql_port
