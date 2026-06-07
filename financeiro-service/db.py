@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     mssql_user: str
     mssql_password: str
     mssql_database: str = "BennerSistemaCorporativo"
-    max_period_days: int = 31
+    max_period_days: int = 366
     model_config = {"env_file": ".env"}
 
 
