@@ -4,6 +4,7 @@ Primário: Google Gemini 2.0 Flash (grátis).
 Fallback: Groq llama-3.1-8b-instant (grátis).
 Usa httpx diretamente — sem dependência de langchain.
 """
+import asyncio
 import json
 import logging
 
@@ -55,6 +56,9 @@ async def classify_articles_llm(
             raw = await _gemini(prompt, google_api_key)
         if not raw and groq_api_key:
             raw = await _groq(prompt, groq_api_key)
+        # Pausa entre batches para não saturar o rate limit do Gemini
+        if batch_start + _BATCH < len(articles):
+            await asyncio.sleep(6)
 
         if not raw:
             logger.warning("media_classifier: LLM falhou no batch %d", batch_start)
@@ -93,20 +97,29 @@ async def classify_articles_llm(
 
 
 async def _gemini(prompt: str, api_key: str) -> str | None:
-    try:
-        async with httpx.AsyncClient(timeout=40) as client:
-            resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}",
-                json={
-                    "contents": [{"parts": [{"text": prompt}]}],
-                    "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
-                },
-            )
-            resp.raise_for_status()
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-    except Exception as exc:
-        logger.warning("media_classifier[gemini]: %s", exc)
-        return None
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=40) as client:
+                resp = await client.post(
+                    url,
+                    json={
+                        "contents": [{"parts": [{"text": prompt}]}],
+                        "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},
+                    },
+                )
+                if resp.status_code == 429:
+                    wait = 15 * (2 ** attempt)  # 15s → 30s → 60s
+                    logger.warning("media_classifier[gemini]: rate limit, aguardando %ds (tentativa %d/3)", wait, attempt + 1)
+                    await asyncio.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        except Exception as exc:
+            logger.warning("media_classifier[gemini]: %s", exc)
+            return None
+    logger.warning("media_classifier[gemini]: 3 tentativas esgotadas, usando fallback")
+    return None
 
 
 async def _groq(prompt: str, api_key: str) -> str | None:
