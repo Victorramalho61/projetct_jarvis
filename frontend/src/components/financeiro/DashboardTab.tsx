@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { apiFetch } from "../../lib/api";
-import type { DashboardData, EmpresaBenner } from "../../types/financeiro";
+import type { DashboardData } from "../../types/financeiro";
 import FiltroFinanceiro from "./FiltroFinanceiro";
 import type { FiltroValues } from "./FiltroFinanceiro";
 
@@ -35,7 +35,8 @@ export default function DashboardTab() {
     setLoading(true); setErro("");
     try {
       const params = new URLSearchParams({ empresa: f.empresa });
-      if (f.dataInicio) params.set("data", f.dataInicio);
+      if (f.dataInicio) params.set("data_inicio", f.dataInicio);
+      if (f.dataFim) params.set("data_fim", f.dataFim);
       const res = await apiFetch<DashboardData>(`/api/financeiro/dashboard?${params}`, { token });
       setData(res);
     } catch (e: any) {
@@ -49,18 +50,20 @@ export default function DashboardTab() {
 
   return (
     <div className="space-y-5">
-      <FiltroFinanceiro onBuscar={buscar} loading={loading} dataUnica />
+      <FiltroFinanceiro onBuscar={buscar} loading={loading} />
 
       {erro && <p className="text-sm text-red-500 px-1">{erro}</p>}
 
       {data && (
         <>
-          <p className="text-xs text-gray-400">Referência: {data.referencia}</p>
+          <p className="text-xs text-gray-400">
+            Período: {data.periodo.inicio} a {data.periodo.fim}
+          </p>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPI label="Entradas" value={BRL(data.entradas.total)} sub={`${data.entradas.qtd} lançamentos`} color="green" />
             <KPI label="Saídas" value={BRL(data.saidas.total)} sub={`${data.saidas.qtd} lançamentos`} color="red" />
-            <KPI label="Saldo do dia" value={BRL(saldo)} color={saldo >= 0 ? "blue" : "red"} />
+            <KPI label="Saldo do período" value={BRL(saldo)} color={saldo >= 0 ? "blue" : "red"} />
             <KPI label="Total Impostos Retidos" value={BRL((data.impostosRetidos.irrf ?? 0) + (data.impostosRetidos.pis ?? 0) + (data.impostosRetidos.cofins ?? 0) + (data.impostosRetidos.iss ?? 0))} color="yellow" />
           </div>
 

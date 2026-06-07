@@ -10,7 +10,6 @@ interface Props {
   mostrarConta?: boolean;
   mostrarNatureza?: boolean;
   semPeriodo?: boolean;
-  dataUnica?: boolean;
 }
 
 export interface FiltroValues {
@@ -33,7 +32,7 @@ function diasAtras(n: number) {
 }
 
 export default function FiltroFinanceiro({
-  onBuscar, loading, mostrarFilial, mostrarConta, mostrarNatureza, semPeriodo, dataUnica,
+  onBuscar, loading, mostrarFilial, mostrarConta, mostrarNatureza, semPeriodo,
 }: Props) {
   const { token } = useAuth();
   const [empresas, setEmpresas] = useState<EmpresaBenner[]>([]);
@@ -52,7 +51,7 @@ export default function FiltroFinanceiro({
   }, [token]);
 
   function validarESubmit() {
-    if (!semPeriodo && !dataUnica) {
+    if (!semPeriodo) {
       const ini = new Date(dataInicio);
       const fim = new Date(dataFim);
       const diff = Math.ceil((fim.getTime() - ini.getTime()) / 86400000);
@@ -117,19 +116,7 @@ export default function FiltroFinanceiro({
         </div>
       )}
 
-      {dataUnica && (
-        <div className="flex flex-col gap-1">
-          <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Data de referência</label>
-          <input
-            type="date"
-            value={dataInicio}
-            onChange={e => setDataInicio(e.target.value)}
-            className="h-9 px-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-sm text-gray-800 dark:text-gray-100"
-          />
-        </div>
-      )}
-
-      {!semPeriodo && !dataUnica && (
+      {!semPeriodo && (
         <>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-gray-500 dark:text-gray-400">Data início</label>

@@ -6,7 +6,7 @@ export interface EmpresaBenner {
 
 // Dashboard
 export interface DashboardData {
-  referencia: string;
+  periodo: { inicio: string; fim: string };
   empresa: string;
   entradas: { total: number | null; qtd: number };
   saidas: { total: number | null; qtd: number };

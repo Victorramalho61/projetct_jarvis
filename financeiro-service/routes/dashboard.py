@@ -15,13 +15,15 @@ _TZ = pytz.timezone("America/Sao_Paulo")
 @router.get("/dashboard")
 def dashboard(
     empresa: str = Query(..., min_length=1),
-    data: str | None = Query(None, description="Data de referência YYYY-MM-DD (padrão: ontem)"),
+    data_inicio: str | None = Query(None),
+    data_fim: str | None = Query(None),
     current_user: dict = Depends(require_role("admin", "user")),
 ):
-    ontem = (datetime.now(_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
-    referencia = data if data else ontem
+    hoje = datetime.now(_TZ).strftime("%Y-%m-%d")
+    ini = data_inicio if data_inicio else (datetime.now(_TZ) - timedelta(days=7)).strftime("%Y-%m-%d")
+    fim = data_fim if data_fim else hoje
 
-    cache_key = f"empresa={empresa}&data={referencia}"
+    cache_key = f"empresa={empresa}&ini={ini}&fim={fim}"
     hit = cache_get("dashboard", cache_key)
     if hit is not None:
         return hit
@@ -31,15 +33,15 @@ def dashboard(
 
         cur.execute(
             "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_LANCAMENTOS"
-            " WHERE EMPRESA = %s AND DATA = %s AND NATUREZA = 'C'",
-            (empresa, referencia),
+            " WHERE EMPRESA = %s AND DATA BETWEEN %s AND %s AND NATUREZA = 'C'",
+            (empresa, ini, fim),
         )
         entradas = cur.fetchone() or {}
 
         cur.execute(
             "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_LANCAMENTOS"
-            " WHERE EMPRESA = %s AND DATA = %s AND NATUREZA = 'D'",
-            (empresa, referencia),
+            " WHERE EMPRESA = %s AND DATA BETWEEN %s AND %s AND NATUREZA = 'D'",
+            (empresa, ini, fim),
         )
         saidas = cur.fetchone() or {}
 
@@ -49,9 +51,9 @@ def dashboard(
             " FROM dbo.FN_LANCAMENTOS l"
             " LEFT JOIN dbo.FN_CONTASTESOURARIA c ON c.HANDLE = l.CONTA"
             " LEFT JOIN dbo.GN_BANCOS b ON b.HANDLE = c.BANCO"
-            " WHERE l.EMPRESA = %s AND l.DATA = %s"
+            " WHERE l.EMPRESA = %s AND l.DATA BETWEEN %s AND %s"
             " GROUP BY b.NOME, c.NUMEROCONTA ORDER BY saldo DESC",
-            (empresa, referencia),
+            (empresa, ini, fim),
         )
         saldo_por_conta = cur.fetchall()
 
@@ -60,23 +62,22 @@ def dashboard(
             " FROM dbo.FN_LANCAMENTOS l"
             " LEFT JOIN dbo.FN_LANCAMENTOCC lcc ON lcc.LANCAMENTO = l.HANDLE"
             " LEFT JOIN dbo.CT_CC cc ON cc.HANDLE = lcc.CENTROCUSTO"
-            " WHERE l.EMPRESA = %s AND l.DATA = %s AND l.NATUREZA = 'D'"
+            " WHERE l.EMPRESA = %s AND l.DATA BETWEEN %s AND %s AND l.NATUREZA = 'D'"
             " GROUP BY cc.NOME ORDER BY total DESC",
-            (empresa, referencia),
+            (empresa, ini, fim),
         )
         top_cc = cur.fetchall()
 
-        # impostos retidos ficam em FN_MOVIMENTACOES (colunas K_*)
         cur.execute(
             "SELECT SUM(ISNULL(K_IRRFARECUPERAR,0)) AS irrf, SUM(ISNULL(K_PISARECUPERAR,0)) AS pis,"
             " SUM(ISNULL(K_COFINSARECUPERAR,0)) AS cofins, SUM(ISNULL(K_ISSARECUPERAR,0)) AS iss"
-            " FROM dbo.FN_MOVIMENTACOES WHERE EMPRESA = %s AND DATA = %s",
-            (empresa, referencia),
+            " FROM dbo.FN_MOVIMENTACOES WHERE EMPRESA = %s AND DATA BETWEEN %s AND %s",
+            (empresa, ini, fim),
         )
         impostos = cur.fetchone() or {}
 
     result = {
-        "referencia": referencia,
+        "periodo": {"inicio": ini, "fim": fim},
         "empresa": empresa,
         "entradas": entradas,
         "saidas": saidas,
