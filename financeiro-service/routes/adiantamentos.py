@@ -23,7 +23,7 @@ def adiantamentos(
     if hit is not None:
         return hit
 
-    conditions = ["l.NATUREZA = %s", "l.DATA BETWEEN %s AND %s"]
+    conditions = ["l.HISTORICO LIKE '%DIANT%'", "l.NATUREZA = %s", "l.DATA BETWEEN %s AND %s"]
     params: list = [natureza_sql, data_inicio, data_fim]
     if empresa: conditions.append("l.EMPRESA = %s"); params.append(empresa)
 
@@ -36,8 +36,7 @@ def adiantamentos(
         " ISNULL(l.HISTORICO,'') AS historico"
         " FROM dbo.FN_LANCAMENTOS l"
         " LEFT JOIN dbo.GN_PESSOAS p ON p.HANDLE = l.PESSOA"
-        " LEFT JOIN dbo.FN_DOCUMENTOS d ON d.HANDLE = l.DOCUMENTO"
-        f" WHERE d.EHADIANTAMENTO='S' AND {' AND '.join(conditions)}"
+        f" WHERE {' AND '.join(conditions)}"
         " ORDER BY l.DATA DESC"
     )
 
