@@ -45,6 +45,7 @@ def get_mssql() -> pymssql.Connection:
         database=s.mssql_database,
         timeout=120,
         as_dict=True,
+        charset="UTF-8",
     )
     # Porta explícita apenas quando não há instância nomeada no host
     if s.mssql_port and "\\" not in s.mssql_host:

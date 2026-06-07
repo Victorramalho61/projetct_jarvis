@@ -15,14 +15,16 @@ _TZ = pytz.timezone("America/Sao_Paulo")
 @router.get("/dashboard")
 def dashboard(
     empresa: str = Query(..., min_length=1),
+    data: str | None = Query(None, description="Data de referência YYYY-MM-DD (padrão: ontem)"),
     current_user: dict = Depends(require_role("admin", "user")),
 ):
-    cache_key = f"empresa={empresa}"
+    ontem = (datetime.now(_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
+    referencia = data if data else ontem
+
+    cache_key = f"empresa={empresa}&data={referencia}"
     hit = cache_get("dashboard", cache_key)
     if hit is not None:
         return hit
-
-    ontem = (datetime.now(_TZ) - timedelta(days=1)).strftime("%Y-%m-%d")
 
     with get_mssql() as conn:
         cur = conn.cursor()
@@ -30,14 +32,14 @@ def dashboard(
         cur.execute(
             "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_LANCAMENTOS"
             " WHERE EMPRESA = %s AND DATA = %s AND NATUREZA = 'C'",
-            (empresa, ontem),
+            (empresa, referencia),
         )
         entradas = cur.fetchone() or {}
 
         cur.execute(
             "SELECT SUM(VALOR) AS total, COUNT(*) AS qtd FROM dbo.FN_LANCAMENTOS"
             " WHERE EMPRESA = %s AND DATA = %s AND NATUREZA = 'D'",
-            (empresa, ontem),
+            (empresa, referencia),
         )
         saidas = cur.fetchone() or {}
 
@@ -49,7 +51,7 @@ def dashboard(
             " LEFT JOIN dbo.GN_BANCOS b ON b.HANDLE = c.BANCO"
             " WHERE l.EMPRESA = %s AND l.DATA = %s"
             " GROUP BY b.NOME, c.NUMEROCONTA ORDER BY saldo DESC",
-            (empresa, ontem),
+            (empresa, referencia),
         )
         saldo_por_conta = cur.fetchall()
 
@@ -60,7 +62,7 @@ def dashboard(
             " LEFT JOIN dbo.CT_CC cc ON cc.HANDLE = lcc.CENTROCUSTO"
             " WHERE l.EMPRESA = %s AND l.DATA = %s AND l.NATUREZA = 'D'"
             " GROUP BY cc.NOME ORDER BY total DESC",
-            (empresa, ontem),
+            (empresa, referencia),
         )
         top_cc = cur.fetchall()
 
@@ -69,12 +71,12 @@ def dashboard(
             "SELECT SUM(ISNULL(K_IRRFARECUPERAR,0)) AS irrf, SUM(ISNULL(K_PISARECUPERAR,0)) AS pis,"
             " SUM(ISNULL(K_COFINSARECUPERAR,0)) AS cofins, SUM(ISNULL(K_ISSARECUPERAR,0)) AS iss"
             " FROM dbo.FN_MOVIMENTACOES WHERE EMPRESA = %s AND DATA = %s",
-            (empresa, ontem),
+            (empresa, referencia),
         )
         impostos = cur.fetchone() or {}
 
     result = {
-        "referencia": ontem,
+        "referencia": referencia,
         "empresa": empresa,
         "entradas": entradas,
         "saidas": saidas,

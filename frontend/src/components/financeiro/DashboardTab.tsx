@@ -35,6 +35,7 @@ export default function DashboardTab() {
     setLoading(true); setErro("");
     try {
       const params = new URLSearchParams({ empresa: f.empresa });
+      if (f.dataInicio) params.set("data", f.dataInicio);
       const res = await apiFetch<DashboardData>(`/api/financeiro/dashboard?${params}`, { token });
       setData(res);
     } catch (e: any) {
@@ -48,7 +49,7 @@ export default function DashboardTab() {
 
   return (
     <div className="space-y-5">
-      <FiltroFinanceiro onBuscar={buscar} loading={loading} semPeriodo />
+      <FiltroFinanceiro onBuscar={buscar} loading={loading} dataUnica />
 
       {erro && <p className="text-sm text-red-500 px-1">{erro}</p>}
 
