@@ -34,7 +34,7 @@ def razao(
         " CONVERT(varchar(10), l.DATA, 120) AS data,"
         " l.DOCUMENTO AS documento, l.VALOR AS valor, l.NATUREZA AS natureza,"
         " l.CONTABILIZADO AS contabilizado,"
-        " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CPFCNPJ,'') AS cpfCnpj,"
+        " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CGCCPF,'') AS cpfCnpj,"
         " ISNULL(l.HISTORICO,'') AS historico,"
         " ISNULL(cc.NOME,'') AS centroCusto,"
         " ISNULL(ct.NOME,'') AS contaContabil,"

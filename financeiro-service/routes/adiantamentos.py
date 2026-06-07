@@ -31,7 +31,7 @@ def adiantamentos(
         "SELECT TOP 500"
         " CONVERT(varchar(10), l.DATA, 120) AS data,"
         " l.DOCUMENTO AS documento, l.VALOR AS valor,"
-        " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CPFCNPJ,'') AS cpfCnpj,"
+        " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CGCCPF,'') AS cpfCnpj,"
         " CASE WHEN l.CONTABILIZADO='S' THEN 'baixado' ELSE 'pendente' END AS status,"
         " ISNULL(l.HISTORICO,'') AS historico"
         " FROM dbo.FN_LANCAMENTOS l"

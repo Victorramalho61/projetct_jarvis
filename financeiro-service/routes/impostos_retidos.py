@@ -56,7 +56,7 @@ def impostos_retidos(
             "SELECT TOP 500"
             " CONVERT(varchar(10), m.DATA, 120) AS data,"
             " m.DOCUMENTO AS documento,"
-            " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CPFCNPJ,'') AS cpfCnpj,"
+            " ISNULL(p.NOME,'') AS pessoaNome, ISNULL(p.CGCCPF,'') AS cpfCnpj,"
             " m.VALOR AS valorBruto,"
             " ISNULL(m.K_IRRFARECUPERAR,0) AS irrf,"
             " ISNULL(m.K_PISARECUPERAR,0) AS pis,"
