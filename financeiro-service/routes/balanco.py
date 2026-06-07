@@ -21,21 +21,18 @@ def balanco(
     if hit is not None:
         return hit
 
-    # Balanço usa competência YYYYMM, não data completa
-    competencia_ini = data_inicio[:7]
-    competencia_fim = data_fim[:7]
+    # COMPETENCIA é datetime — armazena o 1º dia de cada mês
+    competencia_ini = data_inicio[:7] + "-01"
+    competencia_fim = data_fim[:7] + "-01"
 
+    # CT_CONTAS é um plano compartilhado — apenas empresas 14 e 19 têm contas próprias.
+    # Filtramos empresa só no LEFT JOIN dos totais para que todas as empresas
+    # vejam as contas reconciliáveis com seus respectivos saldos.
     join_params: list = [competencia_ini, competencia_fim]
-    where_conditions: list[str] = []
-    where_params: list = []
-
     if empresa:
         join_params.append(empresa)
-        where_conditions.append("ct.EMPRESA = %s")
-        where_params.append(empresa)
 
     empresa_join = "AND tot.EMPRESA = %s" if empresa else ""
-    where_clause = (" AND " + " AND ".join(where_conditions)) if where_conditions else ""
 
     sql = (
         "SELECT TOP 500"
@@ -48,13 +45,12 @@ def balanco(
         "  AND tot.COMPETENCIA BETWEEN %s AND %s"
         f" {empresa_join}"
         " WHERE ct.ULTIMONIVEL='S' AND ct.PERMITECONCILIAR='S'"
-        f"{where_clause}"
         " ORDER BY ct.ESTRUTURA"
     )
 
     with get_mssql() as conn:
         cursor = conn.cursor()
-        cursor.execute(sql, join_params + where_params)
+        cursor.execute(sql, join_params)
         result = cursor.fetchall()
 
     cache_set("balanco", cache_key, result)
