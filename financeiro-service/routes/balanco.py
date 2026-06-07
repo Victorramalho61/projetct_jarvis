@@ -15,7 +15,7 @@ def balanco(
     empresa: str | None = Query(None),
     current_user: dict = Depends(require_role("admin", "user")),
 ):
-    validar_periodo(data_inicio, data_fim)
+    validar_periodo(data_inicio, data_fim, max_days=366)
     cache_key = f"empresa={empresa}&dataInicio={data_inicio}&dataFim={data_fim}"
     hit = cache_get("balanco", cache_key)
     if hit is not None:
