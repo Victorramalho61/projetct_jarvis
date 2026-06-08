@@ -656,6 +656,20 @@ class ConversationFSM:
         if not email and (name or cpf):
             description = f"Colaborador: {name}\nCPF: {cpf}\n\n{description}"
 
+        # Sem e-mail e sem requester_id — busca ou cria solicitante pelo telefone
+        if not email and not requester_id and name:
+            try:
+                existing = self._fs.search_requester_by_phone(phone)
+                if existing:
+                    requester_id = existing.get("id")
+                else:
+                    created = self._fs.create_requester_by_phone(name, phone)
+                    requester_id = (created.get("requester") or created).get("id")
+                if requester_id:
+                    self._upsert_user(db, phone, {"freshservice_requester_id": requester_id})
+            except Exception as exc:
+                logger.warning("Não foi possível obter requester_id para %s: %s", _mask_phone(phone), exc)
+
         try:
             result = self._fs.create_ticket(
                 subject=subject,

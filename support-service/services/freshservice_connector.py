@@ -209,6 +209,18 @@ class FreshserviceConnector:
                 logger.debug("search_requester_by_phone variant %s error: %s", variant, exc)
         return None
 
+    def create_requester_by_phone(self, name: str, phone: str) -> dict:
+        """Cria requester no Freshservice usando nome + telefone (sem e-mail)."""
+        digits = re.sub(r"\D", "", phone)
+        parts = name.strip().split(" ", 1)
+        body = {
+            "first_name": parts[0],
+            "mobile_phone_number": digits,
+        }
+        if len(parts) > 1:
+            body["last_name"] = parts[1]
+        return self._post("/requesters", body)
+
     def reopen_ticket(self, ticket_id: int) -> dict:
         """Reabre um chamado (status 2 = Aberto)."""
         try:
