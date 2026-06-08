@@ -210,8 +210,13 @@ class FreshserviceConnector:
         return None
 
     def create_requester_by_phone(self, name: str, phone: str) -> dict:
-        """Cria requester no Freshservice usando nome + telefone (sem e-mail)."""
+        """Cria requester no Freshservice usando nome + telefone (sem e-mail).
+        Rejeita LIDs do WhatsApp multi-device (>13 dígitos ou sem prefixo 55).
+        """
         digits = re.sub(r"\D", "", phone)
+        # LID do WhatsApp: número muito longo ou sem prefixo BR — inválido como telefone
+        if len(digits) > 13 or not digits.startswith("55"):
+            raise ValueError(f"Telefone inválido para criar requester (possível LID): {digits}")
         parts = name.strip().split(" ", 1)
         body = {
             "first_name": parts[0],
