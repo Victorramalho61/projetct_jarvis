@@ -250,7 +250,7 @@ def _send_reset_whatsapp_bg(phone: str, display_name: str, reset_url: str) -> No
     asyncio.run(_send_reset_whatsapp(phone, display_name, reset_url))
 
 
-@router.post("/auth/forgot-password")
+@router.post("/forgot-password")
 @limiter.limit("3/15minutes")
 async def forgot_password(request: Request, body: ForgotPasswordRequest, bg: BackgroundTasks) -> dict:
     email = body.email.strip().lower()
@@ -276,7 +276,7 @@ async def forgot_password(request: Request, body: ForgotPasswordRequest, bg: Bac
     return {"ok": True}
 
 
-@router.post("/auth/reset-password")
+@router.post("/reset-password")
 @limiter.limit("5/minute")
 async def reset_password(request: Request, body: ResetPasswordRequest) -> dict:
     if len(body.new_password) < 8:
