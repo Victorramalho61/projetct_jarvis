@@ -22,26 +22,28 @@ _MAX_TEXT_LEN = 2000
 _fsm = ConversationFSM()
 
 # Deduplication cache: message_id -> expiry timestamp (TTL 60s, max 1000 entries)
+# Lock garante atomicidade em requisições concorrentes (ex: WAHA reentrega simultânea)
 _seen_msg_ids: OrderedDict[str, float] = OrderedDict()
 _DEDUP_TTL = 60.0
 _DEDUP_MAX = 1000
+_dedup_lock = asyncio.Lock()
 
 
-def _is_duplicate(msg_id: str) -> bool:
-    now = time.monotonic()
-    # Evict expired entries
-    while _seen_msg_ids:
-        oldest_id, expiry = next(iter(_seen_msg_ids.items()))
-        if expiry <= now:
+async def _is_duplicate(msg_id: str) -> bool:
+    async with _dedup_lock:
+        now = time.monotonic()
+        while _seen_msg_ids:
+            oldest_id, expiry = next(iter(_seen_msg_ids.items()))
+            if expiry <= now:
+                _seen_msg_ids.popitem(last=False)
+            else:
+                break
+        if len(_seen_msg_ids) >= _DEDUP_MAX:
             _seen_msg_ids.popitem(last=False)
-        else:
-            break
-    if len(_seen_msg_ids) >= _DEDUP_MAX:
-        _seen_msg_ids.popitem(last=False)
-    if msg_id in _seen_msg_ids:
-        return True
-    _seen_msg_ids[msg_id] = now + _DEDUP_TTL
-    return False
+        if msg_id in _seen_msg_ids:
+            return True
+        _seen_msg_ids[msg_id] = now + _DEDUP_TTL
+        return False
 
 
 @router.post("/webhooks/whatsapp")
@@ -64,7 +66,7 @@ async def whatsapp_webhook(request: Request) -> JSONResponse:
             return JSONResponse({"ok": True})
 
         msg_id = waha.get("id", "")
-        if msg_id and _is_duplicate(msg_id):
+        if msg_id and await _is_duplicate(msg_id):
             return JSONResponse({"ok": True})
 
         remote_jid = waha.get("from", "")
