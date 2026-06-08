@@ -154,8 +154,10 @@ class FreshserviceConnector:
         # Agents must use requester_id; requesters use email
         if requester_id:
             body["requester_id"] = requester_id
-        else:
+        elif email:
             body["email"] = email
+        else:
+            raise ValueError("create_ticket requer email ou requester_id")
         if empresa:
             body["custom_fields"] = {"empresa": empresa}
         return self._post("/tickets", body)
