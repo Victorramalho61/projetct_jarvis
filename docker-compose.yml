@@ -813,7 +813,8 @@ services:
     image: devlikeapro/waha
     restart: unless-stopped
     logging: *logging
-    mem_limit: 512m
+    mem_limit: 768m
+    memswap_limit: 768m
     cpus: "0.5"
     ports:
       - "127.0.0.1:3000:3000"
