@@ -11,6 +11,16 @@ logger = logging.getLogger(__name__)
 TIMEOUT_SECONDS = 600          # 10 min de inatividade → prompt de retomada
 ONBOARDING_TIMEOUT_SECONDS = 1800  # 30 min no onboarding → derruba sessão
 
+# Estados de menu/idle — não faz sentido perguntar "continuar de onde parou"
+MENU_STATES = frozenset({
+    "idle",
+    "selecting_catalog",
+    "selecting_action",
+    "awaiting_ticket_selection",
+    "viewing_ticket_status",
+    "awaiting_satisfaction",
+})
+
 ONBOARDING_STATES = frozenset({
     "onboarding_login_choice",
     "onboarding_email",
@@ -243,8 +253,8 @@ class ConversationFSM:
                 except Exception:
                     pass
 
-        # Inactivity timeout check (não-onboarding)
-        if state not in ONBOARDING_STATES and state != "awaiting_resume":
+        # Inactivity timeout check — só em fluxos ativos (não menus, não onboarding)
+        if state not in ONBOARDING_STATES and state not in MENU_STATES and state != "awaiting_resume":
             last_activity = conv.get("last_activity")
             if last_activity:
                 try:
