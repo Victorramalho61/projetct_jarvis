@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""
+    redis_url: str = ""
 
     model_config = {"env_file": ".env"}
 
@@ -39,3 +40,17 @@ def get_settings() -> Settings:
 def get_supabase() -> Client:
     s = get_settings()
     return create_client(s.supabase_url, s.supabase_key)
+
+
+_redis_client = None
+
+
+async def get_redis():
+    global _redis_client
+    s = get_settings()
+    if not s.redis_url:
+        return None
+    if _redis_client is None:
+        from redis.asyncio import Redis
+        _redis_client = Redis.from_url(s.redis_url, decode_responses=True)
+    return _redis_client
