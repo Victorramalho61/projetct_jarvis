@@ -146,6 +146,7 @@ CREATE TABLE performance_employees (
   email               text,
   cargo               text,
   has_corporate_email boolean not null default true,
+  whatsapp_phone      text default '',
   hierarchy_level     int not null check (hierarchy_level in (1, 2, 3)),
   manager_id          uuid references performance_employees(id),
   management_id       uuid references performance_managements(id),

@@ -474,6 +474,124 @@ def confirmar_ciencia_presencial(body: CienciaPresencialConfirmar, request: Requ
     return {"ok": True, "acknowledged_at": now_iso, "employee_name": emp["name"]}
 
 
+# ── Auto-Avaliação Presencial (sem e-mail, acesso por CPF) ───────────────────
+
+class AutoAvaliacaoPresencialBusca(BaseModel):
+    nome: str
+    cpf: str
+
+
+@router.post("/auto-avaliacao-presencial/buscar")
+@limiter.limit("10/minute")
+def buscar_auto_avaliacao_presencial(body: AutoAvaliacaoPresencialBusca, request: Request) -> dict:
+    db = get_supabase()
+    ip = request.client.host if request.client else "unknown"
+
+    cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
+    attempts = db.table("performance_ciencia_attempts").select("id").eq("ip_address", ip).gte("attempted_at", cutoff).execute()
+    if len(attempts.data) >= MAX_ATTEMPTS:
+        raise HTTPException(429, detail=f"Muitas tentativas incorretas. Aguarde {BLOCK_MINUTES} minutos.")
+
+    cpf_clean = re.sub(r'\D', '', body.cpf.strip())
+    if len(cpf_clean) != 11:
+        raise HTTPException(400, detail="CPF inválido. Informe os 11 dígitos numéricos.")
+
+    employees = db.table("performance_employees").select("*").eq("cpf", cpf_clean).eq("active", True).execute().data
+
+    def _log_attempt():
+        db.table("performance_ciencia_attempts").insert({"matricula": cpf_clean, "ip_address": ip}).execute()
+
+    if not employees:
+        _log_attempt()
+        raise HTTPException(404, detail=_DADOS_NAO_ENCONTRADOS)
+
+    employee = employees[0]
+
+    if employee.get("has_corporate_email"):
+        _log_attempt()
+        raise HTTPException(400, detail="Este colaborador possui e-mail corporativo. Use o link enviado por e-mail para realizar a auto-avaliação.")
+
+    nome_digitado = _normalize_name(body.nome)
+    nome_cadastrado = _normalize_name(employee["name"])
+    if nome_digitado != nome_cadastrado:
+        _log_attempt()
+        raise HTTPException(404, detail=_DADOS_NAO_ENCONTRADOS)
+
+    open_cycles = db.table("performance_cycles").select("id,name").eq("status", "open").execute().data
+    if not open_cycles:
+        raise HTTPException(400, detail="Não há ciclo de avaliação aberto no momento. Procure o RH.")
+
+    cycle = open_cycles[0]
+
+    # Busca token existente (não invalidado)
+    tok_res = (
+        db.table("performance_self_evaluation_tokens")
+        .select("*")
+        .eq("employee_id", employee["id"])
+        .eq("cycle_id", cycle["id"])
+        .is_("invalidated_at", "null")
+        .execute()
+        .data
+    )
+
+    if tok_res and tok_res[0]["is_used"]:
+        company_name = ""
+        if employee.get("company_id"):
+            co = db.table("performance_companies").select("name").eq("id", employee["company_id"]).execute()
+            company_name = co.data[0]["name"] if co.data else ""
+        return {
+            "token": tok_res[0]["token"],
+            "already_completed": True,
+            "employee_name": employee["name"],
+            "cycle_name": cycle["name"],
+            "cargo": employee.get("cargo", ""),
+            "company_name": company_name,
+            "indicators": [],
+        }
+
+    # Criar token se não existe
+    if not tok_res:
+        import uuid as _uuid
+        new_tok = str(_uuid.uuid4())
+        ins = db.table("performance_self_evaluation_tokens").insert({
+            "token": new_tok,
+            "cycle_id": cycle["id"],
+            "employee_id": employee["id"],
+        }).execute()
+        if not ins.data:
+            raise HTTPException(500, detail="Erro ao criar link de auto-avaliação. Tente novamente.")
+        token_value = new_tok
+    else:
+        token_value = tok_res[0]["token"]
+
+    # Buscar indicadores pelo nível hierárquico do colaborador
+    emp_level = employee.get("hierarchy_level") or 3
+    indicators = (
+        db.table("performance_indicators")
+        .select("id,name,description")
+        .eq("active", True)
+        .eq("hierarchy_level", emp_level)
+        .order("created_at")
+        .execute()
+        .data
+    )
+
+    company_name = ""
+    if employee.get("company_id"):
+        co = db.table("performance_companies").select("name").eq("id", employee["company_id"]).execute()
+        company_name = co.data[0]["name"] if co.data else ""
+
+    return {
+        "token": token_value,
+        "already_completed": False,
+        "employee_name": employee["name"],
+        "cycle_name": cycle["name"],
+        "cargo": employee.get("cargo", ""),
+        "company_name": company_name,
+        "indicators": indicators,
+    }
+
+
 # ── Auto-avaliação ────────────────────────────────────────────────────────────
 
 class SelfEvalSubmit(BaseModel):

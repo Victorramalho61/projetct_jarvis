@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     smtp_user: str = ""
     smtp_password: str = ""
     smtp_from: str = ""
+    whatsapp_api_url: str = ""
+    whatsapp_api_key: str = ""
+    whatsapp_instance: str = ""
 
     model_config = {"env_file": ".env"}
 

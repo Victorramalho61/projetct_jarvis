@@ -44,6 +44,7 @@ def list_my_subordinates(
 
     cycle = _get_open_cycle(db)
     reviews_by_emp: dict[str, dict] = {}
+    token_by_emp: dict[str, str] = {}
     if cycle:
         sub_ids = [s["id"] for s in subordinates]
         reviews = (
@@ -64,6 +65,19 @@ def list_my_subordinates(
             st = "acknowledged" if rid in acked_ids else r.get("status", "pending")
             reviews_by_emp[r["employee_id"]] = {"review_id": rid, "status": st}
 
+        # Buscar tokens de avaliação pendentes para o gestor logado
+        tok_rows = (
+            db.table("performance_evaluation_tokens")
+            .select("employee_id,token")
+            .eq("cycle_id", cycle["id"])
+            .eq("evaluator_id", manager_id)
+            .eq("is_used", False)
+            .is_("invalidated_at", "null")
+            .execute()
+            .data
+        ) or []
+        token_by_emp = {t["employee_id"]: t["token"] for t in tok_rows}
+
     result = []
     for sub in subordinates:
         rev_info = reviews_by_emp.get(sub["id"], {})
@@ -73,8 +87,9 @@ def list_my_subordinates(
             "cargo": sub.get("cargo", ""),
             "email": sub.get("email"),
             "has_corporate_email": sub.get("has_corporate_email", False),
-            "cycle_status": rev_info.get("status", "pending"),   # campo esperado pelo frontend
+            "cycle_status": rev_info.get("status", "pending"),
             "review_id": rev_info.get("review_id"),
+            "evaluation_token": token_by_emp.get(sub["id"]),
         })
     return result
 

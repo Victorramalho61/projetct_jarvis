@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
 
 const PublicCienciaPresencialInline = lazy(() => import("./PublicCienciaPresencialPage"));
+const PublicAutoAvaliacaoPresencialInline = lazy(() => import("./PublicAutoAvaliacaoPresencialPage"));
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -21,7 +22,8 @@ const TABS: TabDef[] = [
   { id: "gestao-rh",          label: "Gestão RH",          icon: "⚙️", roles: ["admin", "rh"] },
   { id: "ciclo",              label: "Ciclo",              icon: "🔄", roles: ["admin", "rh"] },
   { id: "avaliacoes",         label: "Avaliações",         icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
-  { id: "ciencia-presencial", label: "Ciência Presencial", icon: "📋", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
+  { id: "ciencia-presencial",       label: "Ciência Presencial",  icon: "📋", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
+  { id: "auto-avaliacao-presencial", label: "Auto-Aval. Presencial", icon: "✏️", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -218,8 +220,14 @@ function TabDashboard({ companies }: { companies: any[] }) {
               onClick={() => openDrilldown("pending-ciencia")} />
             <StatCard label="Sem Avaliação" value={stats.without_evaluation ?? "—"} color="red"
               onClick={() => openDrilldown("pending-evaluators")} />
-            <StatCard label="Auto-Avaliações" value={`${stats.self_eval_pct ?? 0}%`} color="violet"
-              onClick={() => openDrilldown("pending-self-eval")} />
+            {(() => {
+              const pct = stats.self_eval_pct ?? 0;
+              const goalColor = pct >= 80 ? "green" : pct >= 60 ? "amber" : "red";
+              return (
+                <StatCard label={`Auto-Avaliações (Meta 80%)`} value={`${pct}%`} color={goalColor}
+                  onClick={() => openDrilldown("pending-self-eval")} />
+              );
+            })()}
             <StatCard label="Calibrações" value={`${stats.calibrations_count ?? 0}`} color="blue" />
           </div>
           {stats.indicator_averages?.length > 0 && (
@@ -512,6 +520,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   const [loading, setLoading] = useState(false);
   const [selCompany, setSelCompany] = useState("");
   const [selBranch, setSelBranch] = useState("");
+  const [selLevel, setSelLevel] = useState("");
+  const [selManager, setSelManager] = useState("");
   const [modal, setModal] = useState<{ open: boolean; item: Partial<Employee & { active?: boolean }> | null }>({ open: false, item: null });
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState("");
@@ -534,6 +544,14 @@ function TabHierarquia({ companies }: { companies: any[] }) {
       .then(setEmployees).catch(() => setEmployees([]))
       .finally(() => setLoading(false));
   }
+
+  // Derivados para filtros client-side
+  const managers = employees.filter(e => e.level === "gerente" || e.level === "coordenador_supervisor");
+  const filteredEmployees = employees.filter(e => {
+    if (selLevel && e.level !== selLevel) return false;
+    if (selManager && (e as any).manager_id !== selManager) return false;
+    return true;
+  });
 
   useEffect(() => { loadEmployees(); }, [token, selCompany, selBranch]);
 
@@ -640,6 +658,22 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         )}
+        {employees.length > 0 && (
+          <select value={selLevel} onChange={e => setSelLevel(e.target.value)}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+            <option value="">Todos os níveis</option>
+            <option value="gerente">Gerente</option>
+            <option value="coordenador_supervisor">Coordenador / Supervisor</option>
+            <option value="administrativo_operacional">Administrativo / Operacional</option>
+          </select>
+        )}
+        {managers.length > 0 && (
+          <select value={selManager} onChange={e => setSelManager(e.target.value)}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+            <option value="">Todos os gestores</option>
+            {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        )}
         <div className="flex-1" />
         {selCompany && (
           <>
@@ -685,8 +719,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
                 </tr>
               </thead>
               <tbody>
-                {employees.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum colaborador encontrado.</td></tr>}
-                {employees.map(emp => (
+                {filteredEmployees.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">{employees.length === 0 ? "Nenhum colaborador encontrado." : "Nenhum colaborador corresponde aos filtros."}</td></tr>}
+                {filteredEmployees.map(emp => (
                   <tr key={emp.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{emp.name}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{emp.matricula}</td>
@@ -724,6 +758,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             { label: "Cargo", key: "cargo", type: "text" },
             { label: "E-mail corporativo", key: "email", type: "email", hint: "Obrigatório para envio do link de ciência." },
             { label: "CPF *", key: "cpf", type: "text", hint: "Obrigatório para todos. 11 dígitos numéricos (validado)." },
+            { label: "WhatsApp (sem e-mail corporativo)", key: "whatsapp_phone", type: "text", hint: "Usado para enviar auto-avaliação a colaboradores sem e-mail. Ex: 11999998888" },
           ].map(f => (
             <div key={f.key}>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{f.label}</label>
@@ -803,6 +838,15 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [newEvalJust, setNewEvalJust] = useState("");
   const [newEvalErr, setNewEvalErr] = useState("");
   const [newEvalSaving, setNewEvalSaving] = useState(false);
+
+  // Nova Auto-Avaliação (override RH)
+  const [newSelfEvalModal, setNewSelfEvalModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
+  const [newSelfEvalJust, setNewSelfEvalJust] = useState("");
+  const [newSelfEvalErr, setNewSelfEvalErr] = useState("");
+  const [newSelfEvalSaving, setNewSelfEvalSaving] = useState(false);
+
+  // Link presencial (copy)
+  const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   // Ver Avaliação (leitura — gestor + auto-aval)
   const [viewModal, setViewModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
@@ -899,6 +943,28 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       loadList();
     } catch (e: any) { setNewEvalErr(e instanceof ApiError ? e.message : "Erro ao criar nova avaliação."); }
     finally { setNewEvalSaving(false); }
+  }
+
+  async function handleNewSelfEvaluation() {
+    if (!newSelfEvalJust.trim()) { setNewSelfEvalErr("Justificativa é obrigatória."); return; }
+    setNewSelfEvalSaving(true); setNewSelfEvalErr("");
+    try {
+      await apiFetch(`/api/performance/admin/employees/${newSelfEvalModal.item?.employee_id}/new-self-evaluation`, {
+        token, method: "POST", json: { justification: newSelfEvalJust }
+      });
+      setNewSelfEvalModal({ open: false, item: null });
+      setNewSelfEvalJust("");
+      loadList();
+    } catch (e: any) { setNewSelfEvalErr(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
+    finally { setNewSelfEvalSaving(false); }
+  }
+
+  function handleCopyPresentialLink() {
+    const url = `${window.location.origin}/auto-avaliacao-presencial`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedLink(url);
+      setTimeout(() => setCopiedLink(null), 2500);
+    }).catch(() => {});
   }
 
   async function handleExportCSV() {
@@ -1037,6 +1103,22 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                             🔄 Nova Aval.
                           </button>
                         )}
+                        {/* Nova Auto-Avaliação — override RH com justificativa e auditoria */}
+                        <button
+                          onClick={() => { setNewSelfEvalModal({ open: true, item: ev }); setNewSelfEvalJust(""); setNewSelfEvalErr(""); }}
+                          title="Criar nova auto-avaliação para este colaborador (requer justificativa)"
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
+                          ✏️ Nova Auto-Aval.
+                        </button>
+                        {/* Link presencial (apenas sem e-mail) */}
+                        {!ev.has_email && (
+                          <button
+                            onClick={handleCopyPresentialLink}
+                            title="Copiar link presencial de auto-avaliação para enviar via WhatsApp"
+                            className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 transition-all">
+                            {copiedLink ? "✓ Copiado!" : "🔗 Link Presencial"}
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1081,6 +1163,29 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               </div>
             </div>
 
+            {/* Card de Aderência Geral */}
+            {viewDetail.overall_adherence_index != null && (() => {
+              const adh = viewDetail.overall_adherence_index as number;
+              const label = viewDetail.overall_adherence_label as string;
+              const cfg = label === "alinhado"
+                ? { bg: "bg-emerald-50 dark:bg-emerald-900/20", border: "border-emerald-200 dark:border-emerald-800", text: "text-emerald-700 dark:text-emerald-300", badge: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300", icon: "✅", labelText: "Alinhado" }
+                : label === "atencao"
+                ? { bg: "bg-amber-50 dark:bg-amber-900/20", border: "border-amber-200 dark:border-amber-800", text: "text-amber-700 dark:text-amber-300", badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300", icon: "⚠️", labelText: "Ponto de atenção" }
+                : { bg: "bg-red-50 dark:bg-red-900/20", border: "border-red-200 dark:border-red-800", text: "text-red-700 dark:text-red-300", badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300", icon: "🔴", labelText: "Desalinhamento relevante" };
+              return (
+                <div className={`rounded-lg border p-3 flex items-center gap-4 ${cfg.bg} ${cfg.border}`}>
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-0.5">Aderência Geral</p>
+                    <p className={`text-2xl font-bold ${cfg.text}`}>{adh}%</p>
+                  </div>
+                  <div>
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cfg.badge}`}>{cfg.icon} {cfg.labelText}</span>
+                    <p className="text-xs text-gray-400 mt-1">Fórmula: (menor nota ÷ maior nota) × 100</p>
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Observações lado a lado */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {viewDetail.observations ? (
@@ -1112,11 +1217,19 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                 <span className="col-span-5">Indicador</span>
                 <span className="col-span-2 text-center">Gestor</span>
                 <span className="col-span-2 text-center">Auto-Aval.</span>
-                <span className="col-span-3 text-center">Δ Diferença</span>
+                <span className="col-span-3 text-center">% Aderência</span>
               </div>
               <div className="space-y-1 mt-2">
                 {viewDetail.indicators?.map((ind: any) => {
-                  const diff = (ind.self_score != null && ind.manager_score != null) ? ind.self_score - ind.manager_score : null;
+                  const adh = ind.adherence_index as number | null;
+                  const adhLabel = ind.adherence_label as string | null;
+                  const adhCfg = adhLabel === "alinhado"
+                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                    : adhLabel === "atencao"
+                    ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                    : adhLabel === "desalinhamento"
+                    ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400"
+                    : "bg-gray-100 text-gray-500 dark:bg-gray-700";
                   return (
                     <div key={ind.id} className="grid grid-cols-12 gap-2 items-start rounded-lg px-2 py-2 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                       <div className="col-span-5">
@@ -1139,9 +1252,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                           : <span className="text-xs text-gray-300">—</span>}
                       </div>
                       <div className="col-span-3 text-center">
-                        {diff != null ? (
-                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${diff > 0 ? "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400" : diff < 0 ? "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400" : "bg-gray-100 text-gray-500 dark:bg-gray-700"}`}>
-                            {diff > 0 ? `+${diff.toFixed(1)}` : diff === 0 ? "igual" : diff.toFixed(1)}
+                        {adh != null ? (
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${adhCfg}`}>
+                            {adh}%
                           </span>
                         ) : <span className="text-xs text-gray-300">—</span>}
                       </div>
@@ -1207,7 +1320,25 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             {/* Cabeçalho */}
             <div className="flex flex-wrap gap-4 text-sm">
               <div><span className="text-gray-400">Avaliador:</span> <strong className="text-gray-800 dark:text-gray-100">{calibDetail.evaluator?.name ?? "—"}</strong></div>
-              <div><span className="text-gray-400">Nota atual:</span> <strong className="text-violet-700 dark:text-violet-400">{calibModal.item?.final_score != null ? Number(calibModal.item.final_score).toFixed(2) : "—"}</strong></div>
+              <div><span className="text-gray-400">Nota Gestor:</span> <strong className="text-violet-700 dark:text-violet-400">{calibModal.item?.final_score != null ? Number(calibModal.item.final_score).toFixed(2) : "—"}</strong></div>
+              {calibDetail.self_eval?.final_score != null && (
+                <div><span className="text-gray-400">Auto-Aval.:</span> <strong className="text-violet-500 dark:text-violet-300">{Number(calibDetail.self_eval.final_score).toFixed(2)}</strong></div>
+              )}
+              {calibDetail.overall_adherence_index != null && (() => {
+                const adh = calibDetail.overall_adherence_index as number;
+                const label = calibDetail.overall_adherence_label as string;
+                const cls = label === "alinhado" ? "text-emerald-600 dark:text-emerald-400" : label === "atencao" ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
+                const badge = label === "alinhado" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : label === "atencao" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300";
+                return (
+                  <div className="flex items-center gap-2">
+                    <span className="text-gray-400">Aderência:</span>
+                    <strong className={cls}>{adh}%</strong>
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge}`}>
+                      {label === "alinhado" ? "Alinhado" : label === "atencao" ? "Atenção" : "Desalinhado"}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Observações */}
@@ -1373,6 +1504,45 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         </div>
       </ModalWrapper>
 
+      {/* ── Modal Nova Auto-Avaliação (override RH) ── */}
+      <ModalWrapper open={newSelfEvalModal.open} onClose={() => setNewSelfEvalModal({ open: false, item: null })} title="Nova Auto-Avaliação — Override RH">
+        <div className="space-y-4">
+          <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
+            <p className="text-sm text-violet-800 dark:text-violet-300 font-semibold mb-1">⚠️ Ação auditada</p>
+            <p className="text-xs text-violet-700 dark:text-violet-400">
+              O token de auto-avaliação anterior de <strong>{newSelfEvalModal.item?.employee_name}</strong> será invalidado e um novo será criado.
+              Esta ação ficará registrada com seu usuário, justificativa e horário.
+            </p>
+          </div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            Colaborador: <strong>{newSelfEvalModal.item?.employee_name}</strong>
+          </p>
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              Motivo obrigatório *
+            </label>
+            <textarea
+              value={newSelfEvalJust}
+              onChange={e => setNewSelfEvalJust(e.target.value)}
+              rows={4}
+              placeholder="Descreva o motivo para recriar a auto-avaliação (ex: colaborador não conseguiu acessar o link, preenchimento incorreto, solicitação do RH...)"
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100"
+            />
+          </div>
+          {newSelfEvalErr && <p className="text-sm text-red-600 dark:text-red-400">{newSelfEvalErr}</p>}
+          <div className="flex gap-3">
+            <button onClick={handleNewSelfEvaluation} disabled={newSelfEvalSaving || !newSelfEvalJust.trim()}
+              className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg text-sm disabled:opacity-60 transition-all">
+              {newSelfEvalSaving ? "Criando..." : "Criar Nova Auto-Avaliação"}
+            </button>
+            <button onClick={() => setNewSelfEvalModal({ open: false, item: null })}
+              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      </ModalWrapper>
+
       <ModalWrapper open={resetModal} onClose={() => setResetModal(false)} title="Confirmar Reset">
         <div className="space-y-4">
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
@@ -1427,8 +1597,16 @@ function TabCiclo({ companies }: { companies: any[] }) {
   const [selfEvalError,  setSelfEvalError]  = useState("");
   // Tokens de auto-avaliação
   const [selfEvalTokens, setSelfEvalTokens] = useState<any[]>([]);
-  const [showSelfEvalTokens, setShowSelfEvalTokens] = useState(false);
   const [resendingSelfEval, setResendingSelfEval] = useState<string | null>(null);
+  const [copiedPresencial, setCopiedPresencial] = useState(false);
+
+  function handleCopyPresencialLink() {
+    const url = `${window.location.origin}/auto-avaliacao-presencial`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedPresencial(true);
+      setTimeout(() => setCopiedPresencial(false), 2500);
+    }).catch(() => {});
+  }
 
   function openSendAll() { setSendTarget("all"); setSendResult(null); setSendError(""); setSendModal(true); }
   function openSendOne(tokenId: string) { setSendTarget(tokenId); setSendResult(null); setSendError(""); setSendModal(true); }
@@ -1437,7 +1615,6 @@ function TabCiclo({ companies }: { companies: any[] }) {
     try {
       const data = await apiFetch<any[]>("/api/performance/admin/cycle/self-evaluation-tokens", { token });
       setSelfEvalTokens(data || []);
-      setShowSelfEvalTokens(true);
     } catch { /* ignore */ }
   }
 
@@ -1493,7 +1670,6 @@ function TabCiclo({ companies }: { companies: any[] }) {
       setTokens(t || []);
       setHistory(h || []);
       setSelfEvalTokens(se || []);
-      if (se && se.length > 0) setShowSelfEvalTokens(true);
     }).finally(() => setLoading(false));
   }
   useEffect(() => { load(); }, [token]);
@@ -1643,194 +1819,121 @@ function TabCiclo({ companies }: { companies: any[] }) {
               Reabrir Ciclo
             </button>
           )}
-          {cycleStatus && (
-            <button onClick={loadSelfEvalTokens}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 text-sm font-semibold rounded-xl transition-all">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
-              Ver Auto-Avaliações
-            </button>
-          )}
         </div>
       </Card>
 
-      {/* ── Tabela de tokens ─────────────────────────────────────────────────── */}
-      {tokens.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Formulários de Avaliação</h3>
-            <span className="text-xs text-gray-400">{tokens.length} formulário{tokens.length !== 1 ? "s" : ""}</span>
-          </div>
-          <Card>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px]">
-                <thead>
-                  <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Colaborador", "Avaliador (Gestor)", "Status Aval.", "Auto-Avaliação", "Enviado em", "Ações"].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {tokens.map((t: any) => {
-                    const selfToken = selfEvalTokens.find((st: any) => st.employee_id === t.employee_id);
-                    return (
-                      <tr key={t.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{t.employee_name || "—"}</td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{t.evaluator_name}</td>
-                        <td className="px-4 py-3">
-                          <Badge color={t.status === "completed" ? "green" : t.status === "invalidated" ? "red" : "gray"}>
-                            {t.status === "completed" ? "Concluído" : t.status === "invalidated" ? "Inválido" : "Pendente"}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          {selfToken ? (
-                            <Badge color={selfToken.status === "completed" ? "green" : selfToken.status === "invalidated" ? "red" : "violet"}>
-                              {selfToken.status === "completed" ? "Concluída" : selfToken.status === "invalidated" ? "Inválida" : "Pendente"}
-                            </Badge>
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">não enviada</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{t.sent_at ? formatDate(t.sent_at) : "—"}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 justify-end">
-                            {/* Botão enviar avaliação do gestor */}
-                            {t.status !== "completed" && t.status !== "invalidated" && cycleStatus?.status === "open" && t.has_email && (
-                              <button onClick={() => openSendOne(t.id)}
-                                title={t.resend_count > 0 ? `Reenviar avaliação (${t.resend_count}x enviado)` : "Enviar formulário de avaliação por e-mail"}
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
-                                  bg-[#E6F4F0] hover:bg-[#CCE8E0] text-[#00694E]
-                                  dark:bg-[#00694E]/20 dark:hover:bg-[#00694E]/30 dark:text-emerald-300
-                                  rounded-lg transition-all border border-[#00694E]/30 dark:border-[#00694E]/40">
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                                </svg>
-                                {t.resend_count > 0 ? `Aval. (${t.resend_count}×)` : "Aval."}
-                              </button>
-                            )}
-                            {t.status !== "completed" && t.status !== "invalidated" && !t.has_email && (
-                              <span className="text-xs text-gray-400 italic">sem e-mail</span>
-                            )}
-                            {/* Botão enviar auto-avaliação individual */}
-                            {cycleStatus?.status === "open" && (
-                              selfToken?.status === "completed" ? null :
-                              selfToken?.status === "invalidated" ? null :
-                              selfToken ? (
-                                // Token existe — reenviar
-                                <button
-                                  onClick={() => handleResendSelfEval(selfToken.id)}
-                                  disabled={resendingSelfEval === selfToken.id}
-                                  title={selfToken.resend_count > 0 ? `Reenviar auto-avaliação (${selfToken.resend_count}x enviado)` : "Enviar link de auto-avaliação"}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
-                                    bg-violet-50 hover:bg-violet-100 text-violet-700
-                                    dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300
-                                    rounded-lg transition-all border border-violet-200 dark:border-violet-800
-                                    disabled:opacity-60 disabled:cursor-not-allowed">
-                                  {resendingSelfEval === selfToken.id
-                                    ? <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
-                                    : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                                      </svg>
-                                  }
-                                  {selfToken.resend_count > 0 ? `Auto (${selfToken.resend_count}×)` : "Auto-Aval."}
-                                </button>
-                              ) : (
-                                // Sem token — criar e enviar
-                                <button
-                                  onClick={() => handleSendSelfEvalForEmployee(t.employee_id)}
-                                  disabled={resendingSelfEval === t.employee_id}
-                                  title="Criar e enviar link de auto-avaliação"
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
-                                    bg-violet-50 hover:bg-violet-100 text-violet-700
-                                    dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300
-                                    rounded-lg transition-all border border-violet-200 dark:border-violet-800
-                                    disabled:opacity-60 disabled:cursor-not-allowed">
-                                  {resendingSelfEval === t.employee_id
-                                    ? <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
-                                    : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
-                                      </svg>
-                                  }
-                                  Auto-Aval.
-                                </button>
-                              )
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </Card>
-        </div>
-      )}
+      {/* ── Lista unificada: Avaliações + Auto-Avaliações ────────────────────── */}
+      {(tokens.length > 0 || selfEvalTokens.length > 0) && (() => {
+        // Monta lista única: union de employee_ids de ambas as listas
+        const evalByEmp: Record<string, any> = {};
+        tokens.forEach(t => { evalByEmp[t.employee_id] = t; });
+        const selfByEmp: Record<string, any> = {};
+        selfEvalTokens.forEach(st => { selfByEmp[st.employee_id] = st; });
+        const allEmpIds = Array.from(new Set([
+          ...Object.keys(evalByEmp),
+          ...Object.keys(selfByEmp),
+        ]));
+        const rows = allEmpIds.map(empId => ({
+          empId,
+          evalTok: evalByEmp[empId] ?? null,
+          selfTok: selfByEmp[empId] ?? null,
+          name: (evalByEmp[empId]?.employee_name || selfByEmp[empId]?.employee_name || ""),
+        })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
-      {/* ── Tokens de Auto-Avaliação ────────────────────────────────────────── */}
-      {showSelfEvalTokens && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-              Tokens de Auto-Avaliação
-            </h3>
-            <div className="flex items-center gap-3">
-              <span className="text-xs text-gray-400">{selfEvalTokens.length} token{selfEvalTokens.length !== 1 ? "s" : ""}</span>
-              <span className="text-xs text-green-600 font-semibold">
-                {selfEvalTokens.filter(t => t.status === "completed").length} concluído{selfEvalTokens.filter(t => t.status === "completed").length !== 1 ? "s" : ""}
-              </span>
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Formulários do Ciclo</h3>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-gray-400">{rows.length} colaborador{rows.length !== 1 ? "es" : ""}</span>
+                <span className="text-xs text-[#00694E] font-semibold">
+                  {tokens.filter(t => t.status === "completed").length}/{tokens.length} aval.
+                </span>
+                <span className="text-xs text-violet-600 font-semibold">
+                  {selfEvalTokens.filter(st => st.status === "completed").length}/{selfEvalTokens.length} auto-aval.
+                </span>
+              </div>
             </div>
-          </div>
-          {selfEvalTokens.length === 0 ? (
-            <Card className="p-6 text-center text-sm text-gray-400">Nenhum token de auto-avaliação encontrado para o ciclo atual.</Card>
-          ) : (
             <Card>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px]">
+                <table className="w-full min-w-[820px]">
                   <thead>
                     <tr className="border-b border-gray-100 dark:border-gray-700">
-                      {["Colaborador", "Status", "E-mail", "Enviado em", ""].map(h => (
+                      {["Colaborador", "Avaliador (Gestor)", "Status Aval.", "Status Auto-Aval.", "Enviado em", "Ações"].map(h => (
                         <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {selfEvalTokens.map((st: any) => (
-                      <tr key={st.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{st.employee_name || "—"}</td>
+                    {rows.map(({ empId, evalTok, selfTok, name }) => (
+                      <tr key={empId} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{name || "—"}</td>
+                        <td className="px-4 py-3 text-sm text-gray-500">{evalTok?.evaluator_name ?? <span className="text-gray-300">—</span>}</td>
                         <td className="px-4 py-3">
-                          <Badge color={st.status === "completed" ? "green" : st.status === "invalidated" ? "red" : "gray"}>
-                            {st.status === "completed" ? "Concluído" : st.status === "invalidated" ? "Inválido" : "Pendente"}
-                          </Badge>
+                          {evalTok ? (
+                            <Badge color={evalTok.status === "completed" ? "green" : evalTok.status === "invalidated" ? "red" : "gray"}>
+                              {evalTok.status === "completed" ? "Concluído" : evalTok.status === "invalidated" ? "Inválido" : "Pendente"}
+                            </Badge>
+                          ) : <span className="text-xs text-gray-300">—</span>}
                         </td>
-                        <td className="px-4 py-3 text-center">
-                          {st.has_email ? <span className="text-green-600 text-base">✓</span> : <span className="text-gray-300 text-base">—</span>}
+                        <td className="px-4 py-3">
+                          {selfTok ? (
+                            <Badge color={selfTok.status === "completed" ? "green" : selfTok.status === "invalidated" ? "red" : "violet"}>
+                              {selfTok.status === "completed" ? "Concluída" : selfTok.status === "invalidated" ? "Inválida" : "Pendente"}
+                            </Badge>
+                          ) : <span className="text-xs text-gray-400 italic">não enviada</span>}
                         </td>
-                        <td className="px-4 py-3 text-sm text-gray-500">{st.sent_at ? formatDate(st.sent_at) : "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          {st.status !== "completed" && st.status !== "invalidated" && cycleStatus?.status === "open" && st.has_email && (
-                            <button
-                              onClick={() => handleResendSelfEval(st.id)}
-                              disabled={resendingSelfEval === st.id}
-                              title={st.resend_count > 0 ? `Reenviar (${st.resend_count}x enviado)` : "Enviar link de auto-avaliação"}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold
-                                bg-violet-50 hover:bg-violet-100 text-violet-700
-                                dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300
-                                rounded-lg transition-all border border-violet-200 dark:border-violet-800
-                                disabled:opacity-60 disabled:cursor-not-allowed">
-                              {resendingSelfEval === st.id ? (
-                                <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
-                              ) : (
-                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
-                                </svg>
-                              )}
-                              {st.resend_count > 0 ? `Reenviar (${st.resend_count}×)` : "Enviar"}
-                            </button>
-                          )}
-                          {st.status !== "completed" && st.status !== "invalidated" && !st.has_email && (
-                            <span className="text-xs text-gray-400 italic">sem e-mail</span>
-                          )}
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {evalTok?.sent_at ? formatDate(evalTok.sent_at) : selfTok?.sent_at ? formatDate(selfTok.sent_at) : "—"}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* Botão reenviar avaliação do gestor */}
+                            {evalTok && evalTok.status !== "completed" && evalTok.status !== "invalidated" && cycleStatus?.status === "open" && (
+                              evalTok.has_email ? (
+                                <button onClick={() => openSendOne(evalTok.id)}
+                                  title={evalTok.resend_count > 0 ? `Reenviar avaliação (${evalTok.resend_count}x)` : "Enviar formulário de avaliação"}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#E6F4F0] hover:bg-[#CCE8E0] text-[#00694E] dark:bg-[#00694E]/20 dark:hover:bg-[#00694E]/30 dark:text-emerald-300 rounded-lg transition-all border border-[#00694E]/30">
+                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                  </svg>
+                                  {evalTok.resend_count > 0 ? `Aval. (${evalTok.resend_count}×)` : "Aval."}
+                                </button>
+                              ) : <span className="text-xs text-gray-400 italic">sem e-mail</span>
+                            )}
+                            {/* Botão enviar/reenviar auto-avaliação */}
+                            {cycleStatus?.status === "open" && selfTok?.status !== "completed" && selfTok?.status !== "invalidated" && (
+                              selfTok ? (
+                                <button onClick={() => handleResendSelfEval(selfTok.id)}
+                                  disabled={resendingSelfEval === selfTok.id}
+                                  title={selfTok.resend_count > 0 ? `Reenviar auto-avaliação (${selfTok.resend_count}x)` : "Reenviar link de auto-avaliação"}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300 rounded-lg transition-all border border-violet-200 dark:border-violet-800 disabled:opacity-60">
+                                  {resendingSelfEval === selfTok.id
+                                    ? <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
+                                    : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>}
+                                  {selfTok.resend_count > 0 ? `Auto (${selfTok.resend_count}×)` : "Auto-Aval."}
+                                </button>
+                              ) : cycleStatus?.status === "open" ? (
+                                <button onClick={() => handleSendSelfEvalForEmployee(empId)}
+                                  disabled={resendingSelfEval === empId}
+                                  title="Criar e enviar link de auto-avaliação"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-violet-50 hover:bg-violet-100 text-violet-700 dark:bg-violet-900/20 dark:hover:bg-violet-900/30 dark:text-violet-300 rounded-lg transition-all border border-violet-200 dark:border-violet-800 disabled:opacity-60">
+                                  {resendingSelfEval === empId
+                                    ? <span className="w-3.5 h-3.5 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin" />
+                                    : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>}
+                                  Auto-Aval.
+                                </button>
+                              ) : null
+                            )}
+                            {/* Link presencial — para colaboradores sem e-mail */}
+                            {!(evalTok?.has_email || selfTok?.has_email) && (
+                              <button onClick={handleCopyPresencialLink}
+                                title="Copiar link de auto-avaliação presencial para enviar via WhatsApp"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold bg-gray-50 hover:bg-gray-100 text-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700 dark:text-gray-400 rounded-lg transition-all border border-gray-200 dark:border-gray-700">
+                                {copiedPresencial ? "✓ Copiado!" : "🔗 Link Presencial"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1838,9 +1941,9 @@ function TabCiclo({ companies }: { companies: any[] }) {
                 </table>
               </div>
             </Card>
-          )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* ── Histórico de reaberturas ─────────────────────────────────────────── */}
       {history.length > 0 && (
@@ -2124,10 +2227,10 @@ function TabAvaliacoes() {
       ) : (
         <Card>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px]">
+            <table className="w-full min-w-[600px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Colaborador", "Cargo", "Status Ciclo", "E-mail", "Ações"].map(h => (
+                  {["Colaborador", "Cargo", "Status Ciclo", "Avaliar", "Ações"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                   ))}
                 </tr>
@@ -2143,14 +2246,21 @@ function TabAvaliacoes() {
                         {sub.cycle_status === "pending" ? "Pendente" : sub.cycle_status === "completed" ? "Avaliado" : sub.cycle_status === "acknowledged" ? "Ciência Dada" : sub.cycle_status ?? "—"}
                       </Badge>
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      {sub.email ? <span className="text-green-600 text-base" title={sub.email}>✓</span> : <span className="text-gray-300 text-base">—</span>}
+                    <td className="px-4 py-3">
+                      {sub.evaluation_token && (sub.cycle_status === "pending" || sub.cycle_status === "calibrated") ? (
+                        <a href={`/avaliar/${sub.evaluation_token}`} target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 bg-[#00694E] hover:bg-[#004F3A] text-white rounded-lg transition-all">
+                          Avaliar →
+                        </a>
+                      ) : (
+                        <span className="text-xs text-gray-300">—</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {sub.email && (
                         <button onClick={() => handleResend(sub.employee_id)} disabled={resending === sub.employee_id}
                           className="text-xs text-[#00694E] hover:underline dark:text-emerald-400 disabled:opacity-60">
-                          {resending === sub.employee_id ? "Enviando..." : "Reenviar Link"}
+                          {resending === sub.employee_id ? "Enviando..." : "Reenviar Ciência"}
                         </button>
                       )}
                     </td>
@@ -2175,6 +2285,20 @@ function TabCienciaPresencial() {
       </div>
     }>
       <PublicCienciaPresencialInline />
+    </Suspense>
+  );
+}
+
+// ─── Tab Auto-Avaliação Presencial (inline) ───────────────────────────────────
+
+function TabAutoAvaliacaoPresencial() {
+  return (
+    <Suspense fallback={
+      <div className="flex justify-center py-20">
+        <div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <PublicAutoAvaliacaoPresencialInline inline={true} />
     </Suspense>
   );
 }
@@ -2230,7 +2354,8 @@ export default function PerformancePage() {
       {activeTab === "gestao-rh"          && <TabGestaoRH   companies={companies} />}
       {activeTab === "ciclo"              && <TabCiclo       companies={companies} />}
       {activeTab === "avaliacoes"         && <TabAvaliacoes />}
-      {activeTab === "ciencia-presencial" && <TabCienciaPresencial />}
+      {activeTab === "ciencia-presencial"       && <TabCienciaPresencial />}
+      {activeTab === "auto-avaliacao-presencial" && <TabAutoAvaliacaoPresencial />}
     </div>
   );
 }

@@ -864,6 +864,7 @@ class EmployeeBody(BaseModel):
     email: str | None = None
     cpf: str | None = None       # obrigatório quando não há e-mail
     has_corporate_email: bool = True
+    whatsapp_phone: str = ""
     manager_id: str | None = None
     branch_id: str | None = None
     company_id: str | None = None
@@ -958,6 +959,7 @@ def create_employee(
         "cpf": cpf_clean,
         "cargo": body.cargo or "",
         "has_corporate_email": has_email,
+        "whatsapp_phone": body.whatsapp_phone or "",
         "hierarchy_level": hierarchy_level,
         "manager_id": body.manager_id or None,
         "management_id": mgmt_id,
@@ -1002,6 +1004,8 @@ def update_employee(
         updates["has_corporate_email"] = bool(body.email and body.email.strip())
     if body.cpf is not None:
         updates["cpf"] = re.sub(r'\D', '', body.cpf).strip() or None
+    if body.whatsapp_phone is not None:
+        updates["whatsapp_phone"] = re.sub(r'\D', '', body.whatsapp_phone or "").strip()
     if body.manager_id is not None:
         updates["manager_id"] = body.manager_id or None
     if body.active is not None:
@@ -1337,7 +1341,7 @@ def send_tokens_current_cycle(
     request: Request,
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
-    from services.email import send_evaluation_token_email
+    from services.email import send_evaluation_batch_email
 
     db = get_supabase()
     s = get_settings()
@@ -1398,6 +1402,10 @@ def send_tokens_current_cycle(
     ).execute().data or []
     _token_map: dict = {r["employee_id"]: r["token"] for r in _prefetch_tokens}
 
+    # Agrupar colaboradores pendentes por gestor para envio de email único por gestor
+    # manager_id → list[{name, cargo, company_name, branch_name, token}]
+    manager_batches: dict[str, list[dict]] = {}
+
     for emp in employees_to_eval:
         manager_id = emp.get("manager_id")
         if not manager_id:
@@ -1414,7 +1422,7 @@ def send_tokens_current_cycle(
             no_email_count += 1
             continue
 
-        # Verificar se já existe token válido (via pre-fetch)
+        # Verificar ou criar token
         token_value = _token_map.get(emp["id"])
         if token_value is None:
             token_value = str(uuid_mod.uuid4())
@@ -1430,25 +1438,32 @@ def send_tokens_current_cycle(
                 continue
             tokens_created += 1
 
-        # Enviar para o e-mail do GESTOR (não do colaborador)
-        if mgr.get("has_corporate_email") and mgr.get("email"):
-            branch_name = branches_map.get(emp.get("branch_id", ""), "")
-            company_name = companies_map.get(emp.get("company_id", ""), "")
-            ok = send_evaluation_token_email(
-                evaluator_name=mgr["name"],
-                evaluator_email=mgr["email"],
-                employee_name=emp["name"],
-                employee_cargo=emp.get("cargo", ""),
-                company_name=company_name,
-                branch_name=branch_name,
-                cycle_name=cycle["name"],
-                token=token_value,
-                frontend_url=frontend_url,
-            )
-            if ok:
-                sent_emails += 1
-        else:
+        if not (mgr.get("has_corporate_email") and mgr.get("email")):
             no_email_count += 1
+            continue
+
+        branch_name = branches_map.get(emp.get("branch_id", ""), "")
+        company_name = companies_map.get(emp.get("company_id", ""), "")
+        manager_batches.setdefault(manager_id, []).append({
+            "name": emp["name"],
+            "cargo": emp.get("cargo", ""),
+            "company_name": company_name,
+            "branch_name": branch_name,
+            "token": token_value,
+        })
+
+    # Enviar um e-mail por gestor com todos os colaboradores pendentes
+    for manager_id, emp_list in manager_batches.items():
+        mgr = managers_map[manager_id]
+        ok = send_evaluation_batch_email(
+            evaluator_name=mgr["name"],
+            evaluator_email=mgr["email"],
+            employees=emp_list,
+            cycle_name=cycle["name"],
+            frontend_url=frontend_url,
+        )
+        if ok:
+            sent_emails += 1
 
     log_action("cycle", cycle["id"], "send_tokens", None,
                {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created},
@@ -1640,9 +1655,10 @@ def send_self_evaluation_tokens(
             tok_id = tok_res.data[0]["id"]
             tokens_created += 1
 
+        channel_ok = False
         if emp.get("has_corporate_email") and emp.get("email"):
             company_name = _companies_map_self.get(emp.get("company_id", ""), "")
-            ok = send_self_evaluation_email(
+            channel_ok = send_self_evaluation_email(
                 employee_name=emp["name"],
                 employee_email=emp["email"],
                 cycle_name=cycle["name"],
@@ -1650,14 +1666,27 @@ def send_self_evaluation_tokens(
                 frontend_url=frontend_url,
                 company_name=company_name,
             )
-            if ok:
-                db.table("performance_self_evaluation_tokens").update({
-                    "sent_at": datetime.now(tz=timezone.utc).isoformat(),
-                    "resend_count": (existing_tok.data[0].get("resend_count", 0) + 1) if existing_tok.data else 1,
-                }).eq("id", tok_id).execute()
+            if channel_ok:
+                sent_emails += 1
+        elif emp.get("whatsapp_phone"):
+            from services.whatsapp import send_self_evaluation_whatsapp
+            channel_ok = send_self_evaluation_whatsapp(
+                employee_name=emp["name"],
+                phone=emp["whatsapp_phone"],
+                token=tok_val,
+                cycle_name=cycle["name"],
+                frontend_url=frontend_url,
+            )
+            if channel_ok:
                 sent_emails += 1
         else:
             no_email_count += 1
+
+        if channel_ok:
+            db.table("performance_self_evaluation_tokens").update({
+                "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+                "resend_count": (existing_tok.data[0].get("resend_count", 0) + 1) if existing_tok.data else 1,
+            }).eq("id", tok_id).execute()
 
     _cache_invalidate_prefix("dashboard:")
     log_action("self_eval_tokens", cycle["id"], "send", None,
@@ -2081,9 +2110,36 @@ def get_evaluation_detail(
         )
         self_scores = {s["indicator_id"]: float(s["score"]) for s in s_scores}
 
-    # Mesclar self scores nos indicadores
+    # Mesclar self scores + calcular índice de aderência por indicador
     for iid, ind in manager_scores.items():
         ind["self_score"] = self_scores.get(iid)
+        ms = ind.get("manager_score")
+        ss = ind.get("self_score")
+        if ms and ss:
+            lo, hi = min(ms, ss), max(ms, ss)
+            adh = round((lo / hi) * 100, 1) if hi else None
+            ind["adherence_index"] = adh
+            ind["adherence_label"] = (
+                "alinhado" if adh >= 80 else "atencao" if adh >= 60 else "desalinhamento"
+            ) if adh is not None else None
+        else:
+            ind["adherence_index"] = None
+            ind["adherence_label"] = None
+
+    # Aderência geral (notas finais)
+    overall_adherence_index = None
+    overall_adherence_label = None
+    mgr_final = r.get("final_score")
+    self_final = self_rev_data.get("final_score") if self_rev_data else None
+    if mgr_final and self_final:
+        lo, hi = min(float(mgr_final), float(self_final)), max(float(mgr_final), float(self_final))
+        overall_adherence_index = round((lo / hi) * 100, 1) if hi else None
+        if overall_adherence_index is not None:
+            overall_adherence_label = (
+                "alinhado" if overall_adherence_index >= 80
+                else "atencao" if overall_adherence_index >= 60
+                else "desalinhamento"
+            )
 
     # Histórico de calibrações
     calibs = (
@@ -2124,6 +2180,8 @@ def get_evaluation_detail(
         "calibration_history": calibration_history,
         "observations": r.get("observations"),
         "self_observations": self_rev_data.get("observations") if self_rev_data else None,
+        "overall_adherence_index": overall_adherence_index,
+        "overall_adherence_label": overall_adherence_label,
     }
 
 
@@ -2374,6 +2432,79 @@ def create_new_evaluation(
         "previous_review_id": previous_review_id,
         "employee_name": emp_data.get("name", ""),
         "email_sent": email_sent,
+    }
+
+
+# ── Nova Auto-Avaliação (Override RH) ─────────────────────────────────────────
+
+class NewSelfEvaluationBody(BaseModel):
+    justification: str
+
+
+@router.post("/employees/{employee_id}/new-self-evaluation", status_code=status.HTTP_201_CREATED)
+def create_new_self_evaluation(
+    employee_id: str,
+    body: NewSelfEvaluationBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """RH invalida a auto-avaliação anterior e cria novo token para o colaborador.
+    Requer justificativa; registra auditoria com motivo e responsável."""
+    if not body.justification.strip():
+        raise HTTPException(400, detail="Justificativa é obrigatória")
+
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto para criar nova auto-avaliação")
+
+    emp_res = db.table("performance_employees").select("id,name").eq("id", employee_id).execute()
+    if not emp_res.data:
+        raise HTTPException(404, detail="Colaborador não encontrado")
+
+    # Registro do token anterior (se existir)
+    prev_tok = (
+        db.table("performance_self_evaluation_tokens")
+        .select("id,token,is_used")
+        .eq("cycle_id", cycle["id"])
+        .eq("employee_id", employee_id)
+        .is_("invalidated_at", "null")
+        .execute()
+        .data
+    )
+    previous_token = prev_tok[0]["token"] if prev_tok else None
+    previous_status = ("completed" if prev_tok and prev_tok[0]["is_used"] else "pending") if prev_tok else None
+
+    # Invalidar tokens existentes
+    db.table("performance_self_evaluation_tokens").update({
+        "invalidated_at": datetime.now(tz=timezone.utc).isoformat(),
+    }).eq("cycle_id", cycle["id"]).eq("employee_id", employee_id).is_("invalidated_at", "null").execute()
+
+    # Criar novo token
+    new_token_value = str(uuid_mod.uuid4())
+    tok_res = db.table("performance_self_evaluation_tokens").insert({
+        "cycle_id": cycle["id"],
+        "employee_id": employee_id,
+        "token": new_token_value,
+        "is_used": False,
+        "resend_count": 0,
+    }).execute()
+    if not tok_res.data:
+        raise HTTPException(500, detail="Erro ao criar novo token de auto-avaliação")
+
+    log_action(
+        "self_eval_override", employee_id, "new_self_evaluation",
+        old_data={"previous_token": previous_token, "previous_status": previous_status},
+        new_data={"justification": body.justification.strip(), "new_token": new_token_value},
+        actor=current_user["username"],
+        request=request,
+    )
+
+    _cache_invalidate_prefix("dashboard:")
+    return {
+        "ok": True,
+        "new_token": new_token_value,
+        "employee_name": emp_res.data[0]["name"],
     }
 
 

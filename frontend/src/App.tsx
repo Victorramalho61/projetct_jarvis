@@ -33,6 +33,7 @@ const PublicEvaluationPage = lazy(() => import("./pages/PublicEvaluationPage"));
 const PublicCienciaPage = lazy(() => import("./pages/PublicCienciaPage"));
 const PublicCienciaPresencialPage = lazy(() => import("./pages/PublicCienciaPresencialPage"));
 const PublicSelfEvaluationPage = lazy(() => import("./pages/PublicSelfEvaluationPage"));
+const PublicAutoAvaliacaoPresencialPage = lazy(() => import("./pages/PublicAutoAvaliacaoPresencialPage"));
 const CartaoPage = lazy(() => import("./pages/CartaoPage"));
 const FinanceiroPage = lazy(() => import("./pages/FinanceiroPage"));
 
@@ -56,6 +57,8 @@ export default function App() {
           <Route path="/desempenho/ciencia-presencial" element={<PublicCienciaPresencialPage />} />
           <Route path="/auto-avaliar/:token" element={<PublicSelfEvaluationPage />} />
           <Route path="/desempenho/auto-avaliar/:token" element={<PublicSelfEvaluationPage />} />
+          <Route path="/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
+          <Route path="/desempenho/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
 
           <Route
             element={

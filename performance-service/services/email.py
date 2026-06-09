@@ -284,6 +284,93 @@ def send_evaluation_token_email(
                       _email_base(header_html, body_html, is_vtclog))
 
 
+def send_evaluation_batch_email(
+    evaluator_name: str, evaluator_email: str,
+    employees: list[dict],
+    cycle_name: str, frontend_url: str,
+) -> bool:
+    """Um único e-mail ao gestor com tabela de todos os colaboradores pendentes."""
+    subject = f"Avaliações de Desempenho Pendentes — {cycle_name}"
+
+    header_html = f"""
+    <p style="margin:18px 0 0;color:rgba(255,255,255,0.85);
+              font-size:13px;font-weight:600;letter-spacing:0.3px;">
+      &#128202; Gestão de Desempenho &mdash; {cycle_name}
+    </p>"""
+
+    rows_html = ""
+    for emp in employees:
+        link = f"{frontend_url}/avaliar/{emp['token']}"
+        unidade = f"{emp.get('company_name', '')} / {emp.get('branch_name', '')}".strip(" /")
+        rows_html += f"""
+      <tr style="border-bottom:1px solid #E5E7EB;">
+        <td style="padding:12px 14px;font-size:13px;font-weight:600;color:{_TEXT_DARK};">
+          {emp['name']}
+        </td>
+        <td style="padding:12px 8px;font-size:12px;color:{_TEXT_MUTED};">{emp.get('cargo', '')}</td>
+        <td style="padding:12px 8px;font-size:12px;color:{_TEXT_MUTED};">{unidade}</td>
+        <td style="padding:12px 14px;text-align:center;">
+          <a href="{link}"
+             style="display:inline-block;padding:7px 18px;background:{_BRAND_GREEN};
+                    color:{_WHITE};font-size:12px;font-weight:bold;
+                    text-decoration:none;border-radius:6px;white-space:nowrap;">
+            Avaliar &rarr;
+          </a>
+        </td>
+      </tr>"""
+
+    body_html = f"""
+    <p style="margin:0 0 20px;color:{_TEXT_DARK};font-size:16px;font-weight:600;line-height:1.4;">
+      Olá, <span style="color:{_BRAND_GREEN};">{evaluator_name}</span>!
+    </p>
+    <p style="margin:0 0 20px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      Você tem <strong style="color:{_TEXT_DARK};">{len(employees)} avaliação(ões) de desempenho pendente(s)</strong>
+      no ciclo <strong style="color:{_TEXT_DARK};">{cycle_name}</strong>.
+      Clique em <em>Avaliar</em> ao lado de cada colaborador para preencher o formulário.
+    </p>
+
+    <!-- Tabela de colaboradores -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;margin:0 0 24px;">
+      <thead>
+        <tr style="background:{_BRAND_LIGHT};">
+          <th style="padding:10px 14px;text-align:left;font-size:11px;
+                     font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
+                     color:{_BRAND_DARK};">Colaborador</th>
+          <th style="padding:10px 8px;text-align:left;font-size:11px;
+                     font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
+                     color:{_BRAND_DARK};">Cargo</th>
+          <th style="padding:10px 8px;text-align:left;font-size:11px;
+                     font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
+                     color:{_BRAND_DARK};">Unidade</th>
+          <th style="padding:10px 14px;text-align:center;font-size:11px;
+                     font-weight:700;text-transform:uppercase;letter-spacing:0.8px;
+                     color:{_BRAND_DARK};">Avaliação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows_html}
+      </tbody>
+    </table>
+
+    <!-- Aviso -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:#FFFBEB;border:1px solid #FCD34D;
+                  border-radius:8px;margin:0 0 12px;">
+      <tr>
+        <td style="padding:12px 18px;">
+          <p style="margin:0;font-size:13px;color:#92400E;line-height:1.6;">
+            &#9888;&#65039; <strong>Links individuais e intransferíveis.</strong>
+            Cada botão é exclusivo para o respectivo colaborador. Não compartilhe os links.
+          </p>
+        </td>
+      </tr>
+    </table>"""
+
+    return send_email(evaluator_email, evaluator_name, subject,
+                      _email_base(header_html, body_html))
+
+
 def send_self_evaluation_email(
     employee_name: str, employee_email: str,
     cycle_name: str, token: str, frontend_url: str,
