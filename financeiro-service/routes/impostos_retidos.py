@@ -1,10 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote as _url_quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from auth import require_role
 from cache import cache_get, cache_set
-from db import get_mssql
+from db import get_mssql, fmt_sql_raw
 from routes._validators import validar_periodo
 
 router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
 
 @router.get("/impostos-retidos")
 def impostos_retidos(
+    response: Response,
     data_inicio: str = Query(..., alias="dataInicio"),
     data_fim:    str = Query(..., alias="dataFim"),
     empresa: str | None = Query(None),
@@ -49,7 +51,7 @@ def impostos_retidos(
         with get_mssql() as conn:
             cursor = conn.cursor()
             cursor.execute(sql, params)
-            return cursor.fetchone() or {}
+            return cursor.fetchone() or {}, sql
 
     def _detalhes():
         sql = (
@@ -73,12 +75,19 @@ def impostos_retidos(
         with get_mssql() as conn:
             cursor = conn.cursor()
             cursor.execute(sql, params)
-            return cursor.fetchall()
+            return cursor.fetchall(), sql
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_totais   = pool.submit(_totais)
         f_detalhes = pool.submit(_detalhes)
-        result = {"totais": f_totais.result(), "detalhes": f_detalhes.result()}
+        totais_rows, sql_totais     = f_totais.result()
+        detalhes_rows, sql_detalhes = f_detalhes.result()
 
+    _debug = "\n\n-- ===\n\n".join([
+        f"-- TOTAIS\n{fmt_sql_raw(sql_totais, params)}",
+        f"-- DETALHES\n{fmt_sql_raw(sql_detalhes, params)}",
+    ])
+    response.headers["X-SQL"] = _url_quote(_debug)
+    result = {"totais": totais_rows, "detalhes": detalhes_rows}
     cache_set("impostos_retidos", cache_key, result)
     return result

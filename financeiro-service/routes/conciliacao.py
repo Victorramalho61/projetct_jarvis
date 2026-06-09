@@ -1,10 +1,12 @@
 from concurrent.futures import ThreadPoolExecutor
 
-from fastapi import APIRouter, Depends, Query
+from urllib.parse import quote as _url_quote
+
+from fastapi import APIRouter, Depends, Query, Response
 
 from auth import require_role
 from cache import cache_get, cache_set
-from db import get_mssql
+from db import get_mssql, fmt_sql_raw
 from routes._validators import validar_periodo
 
 router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
@@ -41,7 +43,7 @@ def _query_movimentacoes(empresa, filial, conta, data_inicio, data_fim):
     with get_mssql() as conn:
         cursor = conn.cursor()
         cursor.execute(sql, params)
-        return cursor.fetchall()
+        return cursor.fetchall(), sql, params
 
 
 def _query_resumo(empresa, data_inicio, data_fim):
@@ -67,11 +69,12 @@ def _query_resumo(empresa, data_inicio, data_fim):
     with get_mssql() as conn:
         cursor = conn.cursor()
         cursor.execute(sql, params)
-        return cursor.fetchall()
+        return cursor.fetchall(), sql, params
 
 
 @router.get("/conciliacao")
 def conciliacao(
+    response: Response,
     data_inicio: str = Query(..., alias="dataInicio"),
     data_fim:    str = Query(..., alias="dataFim"),
     empresa: str | None = Query(None),
@@ -88,9 +91,14 @@ def conciliacao(
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_mov    = pool.submit(_query_movimentacoes, empresa, filial, conta, data_inicio, data_fim)
         f_resumo = pool.submit(_query_resumo, empresa, data_inicio, data_fim)
-        movimentacoes    = f_mov.result()
-        resumo_por_conta = f_resumo.result()
+        movimentacoes, sql_mov, params_mov       = f_mov.result()
+        resumo_por_conta, sql_resumo, params_resumo = f_resumo.result()
 
+    _debug = "\n\n-- ===\n\n".join([
+        f"-- MOVIMENTACOES\n{fmt_sql_raw(sql_mov, params_mov)}",
+        f"-- RESUMO\n{fmt_sql_raw(sql_resumo, params_resumo)}",
+    ])
+    response.headers["X-SQL"] = _url_quote(_debug)
     result = {"movimentacoes": movimentacoes, "resumoPorConta": resumo_por_conta}
     cache_set("conciliacao", cache_key, result)
     return result

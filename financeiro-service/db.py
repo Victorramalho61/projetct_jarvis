@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from functools import lru_cache
 from typing import Any
+from urllib.parse import quote as _url_quote
 
 import pymssql
 from pydantic_settings import BaseSettings
@@ -55,6 +56,26 @@ def _build_cp850_fix_table() -> dict:
 
 
 _CP850_FIX_TABLE = str.maketrans(_build_cp850_fix_table())
+
+
+def fmt_sql_raw(sql: str, params: list | tuple | None = None) -> str:
+    """Como fmt_sql mas sem URL-encode — para concatenar múltiplos SQLs."""
+    result = sql.strip()
+    if params:
+        for p in (list(params) if not isinstance(params, list) else params):
+            if isinstance(p, str):
+                val = f"'{p}'"
+            elif p is None:
+                val = "NULL"
+            else:
+                val = str(p)
+            result = result.replace("%s", val, 1)
+    return result
+
+
+def fmt_sql(sql: str, params: list | tuple | None = None) -> str:
+    """Formata SQL com parâmetros substituídos para o header X-SQL de debug."""
+    return _url_quote(fmt_sql_raw(sql, params))
 
 
 def _fix_str(v: Any) -> Any:

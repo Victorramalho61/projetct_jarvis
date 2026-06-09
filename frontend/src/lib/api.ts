@@ -20,11 +20,12 @@ type FetchOptions = Omit<RequestInit, "body"> & {
   token?: string | null;
   json?: unknown;
   timeoutMs?: number;
+  onHeaders?: (headers: Headers) => void;
 };
 
 export async function apiFetch<T = unknown>(
   path: string,
-  { token, json, timeoutMs = API_TIMEOUT_MS, signal: userSignal, ...init }: FetchOptions = {}
+  { token, json, timeoutMs = API_TIMEOUT_MS, signal: userSignal, onHeaders, ...init }: FetchOptions = {}
 ): Promise<T> {
   const headers: Record<string, string> = {
     ...(init.headers as Record<string, string>),
@@ -67,6 +68,8 @@ export async function apiFetch<T = unknown>(
       (body as { detail?: string }).detail ?? `Erro ${response.status}`
     );
   }
+
+  if (onHeaders) onHeaders(response.headers);
 
   const contentType = response.headers.get("content-type") ?? "";
   if (response.status === 204 || !contentType.includes("application/json")) {

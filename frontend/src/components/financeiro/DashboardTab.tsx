@@ -4,6 +4,7 @@ import { apiFetch } from "../../lib/api";
 import type { DashboardData } from "../../types/financeiro";
 import FiltroFinanceiro from "./FiltroFinanceiro";
 import type { FiltroValues } from "./FiltroFinanceiro";
+import SqlDebugModal from "./SqlDebugModal";
 
 const BRL = (v: number | null) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v ?? 0);
@@ -30,6 +31,8 @@ export default function DashboardTab() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState("");
+  const [sql, setSql] = useState("");
+  const [showSql, setShowSql] = useState(false);
 
   async function buscar(f: FiltroValues) {
     setLoading(true); setErro("");
@@ -37,7 +40,10 @@ export default function DashboardTab() {
       const params = new URLSearchParams({ empresa: f.empresa });
       if (f.dataInicio) params.set("data_inicio", f.dataInicio);
       if (f.dataFim) params.set("data_fim", f.dataFim);
-      const res = await apiFetch<DashboardData>(`/api/financeiro/dashboard?${params}`, { token });
+      const res = await apiFetch<DashboardData>(`/api/financeiro/dashboard?${params}`, {
+        token,
+        onHeaders: h => { const s = h.get("X-SQL"); if (s) setSql(decodeURIComponent(s)); },
+      });
       setData(res);
     } catch (e: any) {
       setErro(e.message ?? "Erro ao carregar dashboard.");
@@ -53,6 +59,11 @@ export default function DashboardTab() {
       <FiltroFinanceiro onBuscar={buscar} loading={loading} />
 
       {erro && <p className="text-sm text-red-500 px-1">{erro}</p>}
+      {sql && (
+        <button onClick={() => setShowSql(true)} className="text-xs font-mono px-2 py-1 bg-gray-800 text-green-400 rounded border border-gray-600 hover:bg-gray-700">
+          {"{ }"} SQL
+        </button>
+      )}
 
       {data && (
         <>
@@ -129,6 +140,7 @@ export default function DashboardTab() {
           </div>
         </>
       )}
+      {showSql && <SqlDebugModal sql={sql} onClose={() => setShowSql(false)} />}
     </div>
   );
 }

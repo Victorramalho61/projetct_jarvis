@@ -1,10 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote as _url_quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from auth import require_role
 from cache import cache_get, cache_set
-from db import get_mssql
+from db import get_mssql, fmt_sql_raw
 from routes._validators import validar_periodo
 
 router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
 
 @router.get("/receitas")
 def receitas(
+    response: Response,
     data_inicio: str = Query(..., alias="dataInicio"),
     data_fim:    str = Query(..., alias="dataFim"),
     empresa: str | None = Query(None),
@@ -42,7 +44,7 @@ def receitas(
         with get_mssql() as conn:
             cursor = conn.cursor()
             cursor.execute(sql, params)
-            return cursor.fetchall()
+            return cursor.fetchall(), sql
 
     def _detalhe():
         sql = (
@@ -62,12 +64,19 @@ def receitas(
         with get_mssql() as conn:
             cursor = conn.cursor()
             cursor.execute(sql, params)
-            return cursor.fetchall()
+            return cursor.fetchall(), sql
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         f_resumo  = pool.submit(_resumo)
         f_detalhe = pool.submit(_detalhe)
-        result = {"resumoPorOperacao": f_resumo.result(), "detalhe": f_detalhe.result()}
+        resumo_rows, sql_resumo   = f_resumo.result()
+        detalhe_rows, sql_detalhe = f_detalhe.result()
 
+    _debug = "\n\n-- ===\n\n".join([
+        f"-- RESUMO\n{fmt_sql_raw(sql_resumo, params)}",
+        f"-- DETALHE\n{fmt_sql_raw(sql_detalhe, params)}",
+    ])
+    response.headers["X-SQL"] = _url_quote(_debug)
+    result = {"resumoPorOperacao": resumo_rows, "detalhe": detalhe_rows}
     cache_set("receitas", cache_key, result)
     return result

@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 
 from auth import require_role
 from cache import cache_get, cache_set
-from db import get_mssql
+from db import get_mssql, fmt_sql
 from routes._validators import validar_periodo
 
 router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
@@ -10,6 +10,7 @@ router = APIRouter(prefix="/api/financeiro", tags=["financeiro"])
 
 @router.get("/log-movimentacoes")
 def log_movimentacoes(
+    response: Response,
     data_inicio: str = Query(..., alias="dataInicio"),
     data_fim:    str = Query(..., alias="dataFim"),
     empresa: str | None = Query(None),
@@ -56,5 +57,6 @@ def log_movimentacoes(
         cursor.execute(sql, params)
         result = cursor.fetchall()
 
+    response.headers["X-SQL"] = fmt_sql(sql, params)
     cache_set("log_movimentacoes", cache_key, result)
     return result

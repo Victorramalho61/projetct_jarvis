@@ -4,6 +4,7 @@ import { apiFetch } from "../../lib/api";
 import type { LinhaRazao } from "../../types/financeiro";
 import FiltroFinanceiro from "./FiltroFinanceiro";
 import type { FiltroValues } from "./FiltroFinanceiro";
+import SqlDebugModal from "./SqlDebugModal";
 
 const BRL = (v: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v);
@@ -13,6 +14,8 @@ export default function RazaoTab() {
   const [data, setData] = useState<LinhaRazao[]>([]);
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState("");
+  const [sql, setSql] = useState("");
+  const [showSql, setShowSql] = useState(false);
 
   async function buscar(f: FiltroValues) {
     setLoading(true); setErro("");
@@ -20,7 +23,10 @@ export default function RazaoTab() {
       const p = new URLSearchParams({ natureza: f.natureza, dataInicio: f.dataInicio, dataFim: f.dataFim });
       if (f.empresa) p.set("empresa", f.empresa);
       if (f.filial)  p.set("filial", f.filial);
-      const res = await apiFetch<LinhaRazao[]>(`/api/financeiro/razao?${p}`, { token });
+      const res = await apiFetch<LinhaRazao[]>(`/api/financeiro/razao?${p}`, {
+        token,
+        onHeaders: h => { const s = h.get("X-SQL"); if (s) setSql(decodeURIComponent(s)); },
+      });
       setData(res);
     } catch (e: any) {
       setErro(e.message ?? "Erro ao carregar razão.");
@@ -35,6 +41,11 @@ export default function RazaoTab() {
     <div className="space-y-5">
       <FiltroFinanceiro onBuscar={buscar} loading={loading} mostrarFilial mostrarNatureza />
       {erro && <p className="text-sm text-red-500">{erro}</p>}
+      {sql && (
+        <button onClick={() => setShowSql(true)} className="text-xs font-mono px-2 py-1 bg-gray-800 text-green-400 rounded border border-gray-600 hover:bg-gray-700">
+          {"{ }"} SQL
+        </button>
+      )}
 
       {data.length > 0 && (
         <div>
@@ -78,6 +89,7 @@ export default function RazaoTab() {
           </div>
         </div>
       )}
+      {showSql && <SqlDebugModal sql={sql} onClose={() => setShowSql(false)} />}
     </div>
   );
 }
