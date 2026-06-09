@@ -37,9 +37,9 @@ def start_scheduler() -> None:
     from services.log_monitor import run_log_monitor, run_error_growth_check
     from services.retention import run_data_retention
 
-    _scheduler.add_job(_ensure_waha_session, CronTrigger(minute="*/2"),
+    _scheduler.add_job(_ensure_waha_session, CronTrigger(minute="*/5"),
                        id="waha_session_watchdog", replace_existing=True,
-                       max_instances=1, misfire_grace_time=30)
+                       max_instances=1, misfire_grace_time=60)
 
     _scheduler.add_job(run_all_checks, CronTrigger(minute="*/5"),
                        id="monitoring_checks", replace_existing=True,
