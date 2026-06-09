@@ -49,12 +49,16 @@ class LoginResponse(BaseModel):
     user: UserInfo
 
 
-def _hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+async def _hash_password(password: str) -> str:
+    return await asyncio.to_thread(
+        lambda: bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    )
 
 
-def _verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode(), hashed.encode())
+async def _verify_password(password: str, hashed: str) -> bool:
+    return await asyncio.to_thread(
+        lambda: bcrypt.checkpw(password.encode(), hashed.encode())
+    )
 
 
 def _lookup_profile(identifier: str) -> dict | None:
@@ -76,7 +80,7 @@ async def login(request: Request, body: LoginRequest) -> LoginResponse:
         log_event("warning", "auth", f"Falha de login: {identifier}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
 
-    if not _verify_password(body.password, profile["password_hash"]):
+    if not await _verify_password(body.password, profile["password_hash"]):
         log_event("warning", "auth", f"Falha de login: {identifier}", user_id=profile["id"])
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
 
@@ -134,7 +138,7 @@ async def request_access(request: Request, body: AccessRequest) -> dict:
 
     username = email.split("@")[0]
     display_name = username.replace(".", " ").title()
-    password_hash = _hash_password(body.password)
+    password_hash = await _hash_password(body.password)
 
     count = db.table("profiles").select("id", count="exact").execute()
     is_first = (count.count or 0) == 0
@@ -291,7 +295,7 @@ async def reset_password(request: Request, body: ResetPasswordRequest) -> dict:
     expires_at = datetime.fromisoformat(token_row["expires_at"].replace("Z", "+00:00"))
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
-    new_hash = _hash_password(body.new_password)
+    new_hash = await _hash_password(body.new_password)
     db.table("profiles").update({"password_hash": new_hash}).eq("id", token_row["user_id"]).execute()
     db.table("password_reset_tokens").update({"used_at": datetime.now(timezone.utc).isoformat()}).eq("id", token_row["id"]).execute()
     log_event("info", "auth", "Senha redefinida", user_id=token_row["user_id"])
