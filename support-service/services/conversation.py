@@ -107,8 +107,10 @@ EMPRESAS = {
     "5": "VIP CARGAS RIO (MATRIZ)",
 }
 EMPRESA_MSG = (
-    "🏢 Qual é a sua empresa?\n\n"
-    + "\n".join(f"{k} - {v}" for k, v in EMPRESAS.items())
+    "🏢 *EMPRESA / GRUPO*\n"
+    "━━━━━━━━━━━━━━━━━━━━━━\n"
+    "Selecione sua empresa:\n\n"
+    + "\n".join(f"*{k}* — {v}" for k, v in EMPRESAS.items())
 )
 
 _FS_COMPANY_TO_EMPRESA_KEY: dict[str, str] = {
@@ -129,13 +131,10 @@ _TICKET_STATUS_MAP = {
 }
 
 CLOSING_PHRASES = [
-    "🚛 ✈️ 🚕\n\n*Obrigado por confiar no Grupo Voetur!*\n\n_Movimentamos o melhor do Brasil._ 🇧🇷",
-    "✈️ 🚛 🚕\n\n*Muito obrigado pelo seu contato!*\n\nO Grupo Voetur segue firme, conectando pessoas, cargas e destinos por todo o Brasil. 💪",
-    "🚕 ✈️ 🚛\n\n*Agradecemos sua confiança!*\n\nSeguimos em movimento — porque é assim que o Brasil avança. 🇧🇷",
-    "🚛 🚕 ✈️\n\n*Fico feliz em ter ajudado!*\n\nO Grupo Voetur está sempre em movimento por você. Até a próxima! 😊",
-    "✈️ 🚕 🚛\n\n*Obrigado! Sua satisfação nos move.*\n\n_Movimentamos o melhor do Brasil, todos os dias._ 🚀",
-    "🚛 ✈️ 🚕\n\n*Foi um prazer te atender!*\n\nNa logística, no turismo e na mobilidade — o Grupo Voetur nunca para. 💼",
-    "🚕 🚛 ✈️\n\n*Muito obrigado pelo feedback!*\n\nÉ a sua confiança que nos faz continuar movimentando o Brasil. 🇧🇷",
+    "✅ *Atendimento encerrado*\n━━━━━━━━━━━━━━━━━━━━━━\n\n*Obrigado pela confiança!* 🙏\n\nO Grupo Voetur segue em movimento por você. Até a próxima! ✈️ 🚛 🚕",
+    "✅ *Atendimento encerrado*\n━━━━━━━━━━━━━━━━━━━━━━\n\n*Ficamos felizes em ajudar!* 😊\n\n_Na logística, no turismo e na mobilidade — o Grupo Voetur nunca para._ 💼",
+    "✅ *Atendimento encerrado*\n━━━━━━━━━━━━━━━━━━━━━━\n\n*Agradecemos sua avaliação!* ⭐\n\nSua satisfação é o que nos move. Até a próxima! 🇧🇷",
+    "✅ *Atendimento encerrado*\n━━━━━━━━━━━━━━━━━━━━━━\n\n*Obrigado pelo contato!* 🤝\n\nConnectamos pessoas, cargas e destinos por todo o Brasil. Conte sempre conosco! 🚀",
 ]
 
 
@@ -157,27 +156,29 @@ def _is_back(text: str) -> bool:
 
 
 WELCOME = (
-    "✈️ 🚛 🚕\n\n"
-    "Olá! Seja bem-vindo(a) à *Central de Serviços do Grupo Voetur*!\n\n"
-    "Sou o *VoeIA*, seu assistente virtual — aqui para te ajudar com agilidade e cuidado em tudo que precisar. 😊\n\n"
-    "Para começar, como você prefere se identificar?\n\n"
-    "1️⃣ Tenho *e-mail corporativo*\n"
-    "2️⃣ Não tenho e-mail — vou usar *nome e CPF*"
+    "✈️ 🚛 🚕  *Grupo Voetur*\n"
+    "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+    "Olá! Sou o *VoeIA*, assistente virtual do Grupo Voetur. 👋\n\n"
+    "Estou aqui para registrar e acompanhar suas solicitações com agilidade.\n\n"
+    "Como você prefere se identificar?\n\n"
+    "*1* — 📧 Tenho e-mail corporativo\n"
+    "*2* — 🪪 Usar nome e CPF"
 )
 CATALOG_MSG = (
-    "📋 *Central de Demandas VoeIA*\n\n"
+    "📋 *CENTRAL DE ATENDIMENTO*\n"
+    "━━━━━━━━━━━━━━━━━━━━━━\n"
     "Selecione o departamento:\n\n"
-    "1 - 💻 TI\n"
-    "2 - 🧾 Financeiro\n"
-    "3 - 🏢 RH / Pessoal\n"
-    "4 - ✈️ Operações\n"
-    "5 - 📦 Suprimentos"
+    "*1* — 💻 Tecnologia (TI)\n"
+    "*2* — 🧾 Financeiro\n"
+    "*3* — 🏢 RH / Pessoal\n"
+    "*4* — ✈️ Operações\n"
+    "*5* — 📦 Suprimentos"
 )
 RESUME_MSG = (
-    "Sua conversa anterior ficou pausada por inatividade. 😴\n\n"
-    "Deseja continuar de onde parou?\n"
-    "*1* — Sim, continuar\n"
-    "*2* — Não, recomeçar do início"
+    "⏸️ *Sessão pausada por inatividade*\n\n"
+    "Deseja continuar de onde parou?\n\n"
+    "*1* — ▶️ Sim, continuar\n"
+    "*2* — 🔄 Recomeçar do início"
 )
 
 
@@ -299,8 +300,9 @@ class ConversationFSM:
         choice = text.strip()
         if choice == "1":
             return (
-                "📧 Certo! Por favor, me informe seu *e-mail corporativo*:\n"
-                "Exemplo: seu.nome@voetur.com.br",
+                "📧 *Identificação por e-mail*\n\n"
+                "Informe seu e-mail corporativo:\n"
+                "_Exemplo: nome.sobrenome@voetur.com.br_",
                 "onboarding_email",
                 ctx,
             )
@@ -314,15 +316,19 @@ class ConversationFSM:
                 ctx["empresa_key"] = _match_empresa_key(requester.get("company_name"))
                 ctx["fs_requester"] = requester
                 msg = (
-                    f"✅ Encontrei seu cadastro:\n\n"
+                    f"✅ *Cadastro encontrado!*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
                     f"*Nome:* {requester['name']}\n"
                     f"*Telefone:* {phone}\n\n"
-                    f"Esses dados estão corretos?\n1 - ✅ Sim\n2 - ❌ Não, quero corrigir"
+                    f"Esses dados estão corretos?\n\n"
+                    f"*1* — ✅ Sim, são meus dados\n"
+                    f"*2* — ❌ Não, quero corrigir"
                 )
                 return msg, "onboarding_confirm_phone", ctx
             else:
                 return (
-                    "Não encontrei seu cadastro. Vamos criar rapidinho! 😊\n\n"
+                    "🪪 *Identificação por CPF*\n\n"
+                    "Não encontrei seu cadastro. Vamos criá-lo agora!\n\n"
                     "Qual é o seu *nome completo*?",
                     "onboarding_name_cpf",
                     ctx,
@@ -330,8 +336,8 @@ class ConversationFSM:
         else:
             return (
                 "Por favor, escolha uma das opções:\n\n"
-                "1️⃣ Tenho *e-mail corporativo*\n"
-                "2️⃣ Não tenho e-mail — vou usar *nome e CPF*",
+                "*1* — 📧 Tenho e-mail corporativo\n"
+                "*2* — 🪪 Usar nome e CPF",
                 "onboarding_login_choice",
                 ctx,
             )
@@ -405,15 +411,16 @@ class ConversationFSM:
             empresa_name = EMPRESAS.get(empresa_key, "") if empresa_key else ""
             empresa_line = f"*Empresa:* {empresa_name}\n" if empresa_name else ""
             msg = (
-                f"✅ Encontrei seu cadastro:\n\n"
+                f"✅ *Cadastro encontrado!*\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"*Nome:* {name}\n"
                 f"*E-mail:* {requester['primary_email']}\n"
-                f"*Filial:* {location or '(não informada)'}\n"
-                f"*Departamento(s):* {depts}\n"
+                f"*Filial:* {location or '_(não informada)_'}\n"
+                f"*Dept.:* {depts}\n"
                 f"{empresa_line}"
-                f"\nEsses dados estão corretos?\n"
-                f"1 - ✅ Sim\n"
-                f"2 - ❌ Não, quero corrigir"
+                f"\nEsses dados estão corretos?\n\n"
+                f"*1* — ✅ Sim, são meus dados\n"
+                f"*2* — ❌ Não, quero corrigir"
             )
             return msg, "onboarding_confirm_fs", {
                 "email": text,
@@ -505,14 +512,15 @@ class ConversationFSM:
         company = ctx.get("company", "")
         email = ctx.get("email", "")
         msg = (
-            f"Confirme seus dados:\n\n"
+            f"🔍 *CONFIRME SEUS DADOS*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"*Nome:* {name}\n"
             f"*Empresa:* {company}\n"
             f"*Filial:* {text}\n"
-            f"*E-mail:* {email}\n\n"
-            f"Está correto?\n"
-            f"1 - ✅ Sim\n"
-            f"2 - ❌ Não, recomeçar"
+            f"*E-mail:* {email or '_(não informado)_'}\n\n"
+            f"Está correto?\n\n"
+            f"*1* — ✅ Sim, confirmar\n"
+            f"*2* — ❌ Não, recomeçar"
         )
         return msg, "onboarding_final_confirm", {**ctx, "location": text}
 
@@ -552,9 +560,11 @@ class ConversationFSM:
             try:
                 self._fs.reopen_ticket(int(ticket_id))
                 msg = (
-                    f"🔄 Chamado *#{ticket_id}* reaberto!\n"
-                    f"Nossa equipe entrará em contato em breve.\n\n"
-                    f"Digite qualquer mensagem para voltar ao menu."
+                    f"🔄 *CHAMADO REABERTO*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"Protocolo: *#{ticket_id}*\n\n"
+                    f"Nossa equipe foi notificada e entrará em contato em breve.\n\n"
+                    f"_Digite qualquer mensagem para voltar ao menu._"
                 )
             except Exception as exc:
                 logger.error("reopen_ticket error: %s", exc)
@@ -585,8 +595,8 @@ class ConversationFSM:
                 {},
             )
         dept = CATALOG[text]
-        subs = "\n".join(f"{k} - {v}" for k, v in dept["subcategories"].items())
-        msg = f"*{dept['label']}* — Selecione a subcategoria:\n\n{subs}\n\n0 - ↩️ Voltar"
+        subs = "\n".join(f"*{k}* — {v}" for k, v in dept["subcategories"].items())
+        msg = f"{dept['label']}  *Selecione a categoria:*\n━━━━━━━━━━━━━━━━━━━━━━\n\n{subs}\n\n*0* — ↩️ Voltar"
         return msg, "selecting_subcategory", {"catalog_key": text, "workspace_id": dept["workspace_id"]}
 
     def _handle_selecting_subcategory(self, phone, text, ctx, user, db):
@@ -604,10 +614,10 @@ class ConversationFSM:
             )
         subcategory = subcategories[text]
         msg = (
-            f"O que você deseja fazer?\n\n"
-            f"1 - 📝 Abrir novo chamado\n"
-            f"2 - 🔍 Consultar chamados em aberto\n"
-            f"0 - ↩️ Voltar"
+            f"O que deseja fazer?\n\n"
+            f"*1* — 📝 Abrir novo chamado\n"
+            f"*2* — 🔍 Consultar chamados abertos\n\n"
+            f"*0* — ↩️ Voltar"
         )
         return msg, "selecting_action", {**ctx, "subcategory": subcategory}
 
@@ -616,7 +626,11 @@ class ConversationFSM:
             return CATALOG_MSG, "selecting_catalog", {}
         if text == "1":
             return (
-                "Descreva sua solicitação com detalhes:\n\n_(Digite 0 para voltar ao menu)_",
+                "📝 *DESCREVA SUA SOLICITAÇÃO*\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Informe com detalhes o que precisa:\n\n"
+                "_Dica: inclua o equipamento, sistema ou situação envolvida._\n\n"
+                "*(0 para cancelar)*",
                 "collecting_description",
                 ctx,
             )
@@ -636,12 +650,13 @@ class ConversationFSM:
         dept = CATALOG.get(ctx.get("catalog_key", ""), {})
         subject = f"[{dept.get('category', 'Suporte')}] {ctx.get('subcategory', 'Solicitação')}"
         msg = (
-            f"Confirme a abertura do chamado:\n\n"
+            f"🔍 *CONFIRMAR ABERTURA*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"*Assunto:* {subject}\n"
             f"*Descrição:* {text[:200]}{'...' if len(text) > 200 else ''}\n\n"
-            f"1 - ✅ Confirmar\n"
-            f"2 - ❌ Cancelar\n"
-            f"0 - ↩️ Voltar ao menu"
+            f"*1* — ✅ Abrir chamado\n"
+            f"*2* — ❌ Cancelar\n"
+            f"*0* — ↩️ Voltar ao menu"
         )
         return msg, "confirming_ticket", {**ctx, "description": text, "subject": subject}
 
@@ -706,9 +721,12 @@ class ConversationFSM:
                     "subject": subject,
                 }).execute()
                 reply = (
-                    f"✅ Chamado *#{ticket_id}* aberto com sucesso!\n"
-                    f"Você receberá atualizações aqui pelo WhatsApp.\n\n"
-                    f"Digite qualquer mensagem para voltar ao menu principal."
+                    f"✅ *CHAMADO ABERTO COM SUCESSO!*\n"
+                    f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                    f"🎫 Protocolo: *#{ticket_id}*\n\n"
+                    f"Sua solicitação foi registrada e nossa equipe já foi notificada.\n\n"
+                    f"_Você receberá atualizações aqui pelo WhatsApp._\n\n"
+                    f"Digite qualquer mensagem para voltar ao menu."
                 )
             else:
                 reply = "⚠️ Chamado criado, mas não consegui obter o número. Nossa equipe entrará em contato."
@@ -741,10 +759,15 @@ class ConversationFSM:
         if not tickets:
             return CATALOG_MSG, "selecting_catalog", {}
 
-        lines = ["👋 Como posso ajudar?\n", "*1.* 📝 Abrir novo chamado\n", "📋 *Chamados em aberto:*"]
+        lines = [
+            "📋 *CENTRAL DE ATENDIMENTO*",
+            "━━━━━━━━━━━━━━━━━━━━━━",
+            "*1* — 📝 Abrir novo chamado\n",
+            "🔓 *Chamados em aberto:*",
+        ]
         for t in tickets[:5]:
-            lines.append(f"#*{t.get('id')}* — {t.get('subject', '(sem assunto)')}")
-        lines.append("\n_Digite *1* para novo chamado ou o número do chamado para ver o status._")
+            lines.append(f"• *#{t.get('id')}* — {t.get('subject', '(sem assunto)')}")
+        lines.append("\n_Digite *1* para novo chamado ou o número do protocolo para acompanhar._")
         return "\n".join(lines), "main_menu", {}
 
     def _parse_ticket_number(self, text: str) -> int | None:
@@ -763,10 +786,11 @@ class ConversationFSM:
             )
         status = _TICKET_STATUS_MAP.get(ticket.get("status", 0), "Desconhecido")
         msg = (
-            f"📋 *Chamado #{ticket.get('id')}*\n"
+            f"📋 *CHAMADO #{ticket.get('id')}*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"*Assunto:* {ticket.get('subject', '(sem assunto)')}\n"
             f"*Status:* {status}\n\n"
-            f"*0* — Voltar ao menu  •  *1* — Abrir novo chamado"
+            f"*0* — ↩️ Menu  •  *1* — 📝 Novo chamado"
         )
         return msg, "viewing_ticket_status", {"viewed_ticket_id": ticket_id}
 
@@ -777,15 +801,15 @@ class ConversationFSM:
         tickets = self._fs.get_tickets_by_requester(email, workspace_id) if email else []
         if not tickets:
             return (
-                "Não encontrei chamados em aberto para você neste departamento.\n\n"
+                "ℹ️ Nenhum chamado aberto encontrado neste departamento.\n\n"
                 + CATALOG_MSG,
                 "selecting_catalog",
                 {},
             )
-        lines = ["📋 *Chamados em aberto:*\n"]
+        lines = ["📋 *CHAMADOS EM ABERTO*\n━━━━━━━━━━━━━━━━━━━━━━"]
         for t in tickets[:5]:
-            lines.append(f"• #{t.get('id')} — {t.get('subject', '(sem assunto)')}")
-        lines.append("\nDigite qualquer mensagem para voltar ao menu.")
+            lines.append(f"• *#{t.get('id')}* — {t.get('subject', '(sem assunto)')}")
+        lines.append("\n_Digite o número do protocolo para detalhes ou qualquer mensagem para voltar._")
         return "\n".join(lines), "idle", {}
 
     def _upsert_user(self, db, phone: str, data: dict) -> None:
