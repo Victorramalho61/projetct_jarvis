@@ -12,6 +12,7 @@ type NavItem = {
   icon: string;
   roles: Role[];
   external?: boolean;   // true = abre em nova aba (link externo ao app)
+  sub?: boolean;        // true = item secundário indentado sob o item anterior
 };
 
 // ── SidebarContent definido FORA do AppLayout para evitar remontagem a cada render ──
@@ -39,10 +40,11 @@ function SidebarContent({ visible, onLinkClick }: SidebarContentProps) {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={onLinkClick}
-                className="relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors
-                  text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
+                className={`relative flex w-full items-center gap-3 rounded-md py-2.5 text-[14px] font-medium transition-colors
+                  text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid
+                  ${item.sub ? "pl-7 pr-3 text-[13px]" : "px-3"}`}
               >
-                <Icon name={item.icon} size={17} strokeWidth={1.75} />
+                <Icon name={item.icon} size={item.sub ? 14 : 17} strokeWidth={1.75} />
                 <span className="flex-1">{item.label}</span>
                 {/* Ícone indicando nova aba */}
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -59,10 +61,11 @@ function SidebarContent({ visible, onLinkClick }: SidebarContentProps) {
                 end={item.path === "/"}
                 onClick={onLinkClick}
                 className={({ isActive }) =>
-                  `relative flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-[14px] font-medium transition-colors ${
-                    isActive
-                      ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
-                      : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
+                  `relative flex w-full items-center gap-3 rounded-md py-2.5 font-medium transition-colors
+                  ${item.sub ? "pl-7 pr-3 text-[13px]" : "px-3 text-[14px]"}
+                  ${isActive
+                    ? "bg-brand-soft text-brand-deep dark:bg-brand-green/15 dark:text-brand-mid"
+                    : "text-gray-600 hover:bg-brand-soft hover:text-brand-deep dark:text-gray-400 dark:hover:bg-brand-green/10 dark:hover:text-brand-mid"
                   }`
                 }
               >
@@ -71,7 +74,7 @@ function SidebarContent({ visible, onLinkClick }: SidebarContentProps) {
                     {isActive && (
                       <span className="absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full bg-brand-green" />
                     )}
-                    <Icon name={item.icon} size={17} strokeWidth={isActive ? 2 : 1.75} />
+                    <Icon name={item.icon} size={item.sub ? 14 : 17} strokeWidth={isActive ? 2 : 1.75} />
                     <span className="flex-1">{item.label}</span>
                   </>
                 )}
@@ -117,11 +120,11 @@ const NAV_ITEMS: NavItem[] = [
   { id: "access",     label: "Gestão de Acesso",  path: "/admin/acesso",         icon: "users",     roles: ["admin", "user"] },
   { id: "logs",       label: "Logs",              path: "/admin/logs",           icon: "file",      roles: ["admin"] },
   { id: "monitoring",   label: "Monitoramento",   path: "/admin/monitoramento",  icon: "chart",     roles: ["admin"] },
+  { id: "benner",     label: "Integrações Benner",  path: "/admin/benner",         icon: "zap",       roles: ["admin"], sub: true },
   { id: "freshservice", label: "Freshservice",    path: "/freshservice",         icon: "briefcase", roles: ["admin"] },
   { id: "agents",     label: "Agentes (desligado)", path: "/admin/agentes",      icon: "cpu",       roles: ["admin"] },
   { id: "expenses",   label: "Gastos TI",         path: "/admin/gastos",         icon: "wallet",    roles: ["admin"] },
   { id: "fiscal",     label: "Validação NFe/NFSe",  path: "/admin/fiscal",         icon: "file",      roles: ["admin"] },
-  { id: "benner",     label: "Integrações Benner",  path: "/admin/benner",         icon: "zap",       roles: ["admin"] },
   { id: "governance", label: "Governança",         path: "/admin/governanca",    icon: "shield",    roles: ["admin"] },
   { id: "payfly",     label: "PayFly",             path: "/admin/payfly",        icon: "zap",       roles: ["admin"] },
   { id: "hermes",     label: "Hermes Agent",        path: "/admin/hermes",        icon: "cpu",       roles: ["admin"] },
