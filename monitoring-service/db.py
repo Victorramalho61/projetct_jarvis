@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     monitor_agent_tokens: str = ""
     freshservice_api_key: str = ""
     github_token: str = ""
+    sql_server_host: str = "10.141.0.111"
+    sql_server_port: int = 1444
+    sql_server_db: str = "BennerSistemaCorporativo"
+    sql_server_user: str = "usr_jarvis_read"
+    sql_server_password: str = ""
 
     model_config = {"env_file": ".env"}
 

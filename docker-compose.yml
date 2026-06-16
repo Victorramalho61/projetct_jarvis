@@ -403,6 +403,11 @@ services:
       WHATSAPP_API_KEY: ${WHATSAPP_API_KEY:-}
       WHATSAPP_INSTANCE: ${WHATSAPP_INSTANCE:-}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      SQL_SERVER_HOST: ${SQL_SERVER_HOST:-10.141.0.111}
+      SQL_SERVER_PORT: ${SQL_SERVER_PORT:-1444}
+      SQL_SERVER_DB: ${SQL_SERVER_DB:-BennerSistemaCorporativo}
+      SQL_SERVER_USER: ${SQL_SERVER_USER:-usr_jarvis_read}
+      SQL_SERVER_PASSWORD: ${SQL_SERVER_PASSWORD:-}
     networks:
       - app_net
     healthcheck:

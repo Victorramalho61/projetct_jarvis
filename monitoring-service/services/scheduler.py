@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 import httpx
@@ -32,6 +33,58 @@ async def _ensure_waha_session() -> None:
         logger.debug("_ensure_waha_session erro: %s", exc)
 
 
+async def _sync_benner() -> None:
+    """Captura snapshot comprimido do Benner e salva no Supabase; alerta se houver erros novos."""
+    from db import get_settings
+    from benner_db import query_new_errors
+    from services.benner_monitor import sync_benner_snapshot
+
+    await sync_benner_snapshot()
+
+    try:
+        errors = await asyncio.to_thread(query_new_errors, 15)
+    except Exception as exc:
+        logger.warning("benner_check: falha ao consultar SQL Server: %s", exc)
+        return
+
+    if not errors:
+        return
+
+    s = get_settings()
+    if not s.whatsapp_api_url or not s.whatsapp_api_key:
+        logger.info("benner_check: %d erros novos (WhatsApp não configurado)", len(errors))
+        return
+
+    logger.warning("benner_check: %d erros novos detectados", len(errors))
+    produtos = {}
+    for e in errors:
+        p = e.get("produto") or "?"
+        produtos[p] = produtos.get(p, 0) + 1
+
+    linhas = "\n".join(f"  • {prod}: {qty}" for prod, qty in produtos.items())
+    msg = (
+        f"⚠️ *Benner Integração — Erros detectados*\n"
+        f"Últimos 15 min: *{len(errors)} erros*\n\n"
+        f"{linhas}\n\n"
+        f"Último: {errors[0].get('mensagem', '')[:120]}"
+    )
+
+    try:
+        base = s.whatsapp_api_url.rstrip("/")
+        headers = {"X-Api-Key": s.whatsapp_api_key}
+        payload = {
+            "session": s.whatsapp_instance,
+            "chatId": "admins",
+            "text": msg,
+        }
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.post(f"{base}/api/sendText", headers=headers, json=payload)
+            if r.status_code not in (200, 201):
+                logger.warning("benner_check: falha no envio WhatsApp: %s", r.text[:200])
+    except Exception as exc:
+        logger.warning("benner_check: erro ao enviar WhatsApp: %s", exc)
+
+
 def start_scheduler() -> None:
     from services.monitor import run_all_checks
     from services.log_monitor import run_log_monitor, run_error_growth_check
@@ -60,8 +113,13 @@ def start_scheduler() -> None:
                        id="data_retention", replace_existing=True,
                        max_instances=1, misfire_grace_time=600)
 
+    # Diário às 07h BRT (10h UTC) — snapshot comprimido Benner → Supabase
+    _scheduler.add_job(_sync_benner, CronTrigger(hour=10, minute=0, timezone="UTC"),
+                       id="benner_sync", replace_existing=True,
+                       max_instances=1, misfire_grace_time=600)
+
     _scheduler.start()
-    logger.info("Monitoring scheduler started — waha watchdog 2min, checks 5min, log monitor 08h BRT, growth 6h, retention 03h BRT")
+    logger.info("Monitoring scheduler started — waha watchdog 2min, checks 5min, log monitor 08h BRT, growth 6h, retention 03h BRT, benner 15min")
 
 
 def stop_scheduler() -> None:

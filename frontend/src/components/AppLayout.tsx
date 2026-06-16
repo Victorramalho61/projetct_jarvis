@@ -121,6 +121,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "agents",     label: "Agentes (desligado)", path: "/admin/agentes",      icon: "cpu",       roles: ["admin"] },
   { id: "expenses",   label: "Gastos TI",         path: "/admin/gastos",         icon: "wallet",    roles: ["admin"] },
   { id: "fiscal",     label: "Validação NFe/NFSe",  path: "/admin/fiscal",         icon: "file",      roles: ["admin"] },
+  { id: "benner",     label: "Integrações Benner",  path: "/admin/benner",         icon: "zap",       roles: ["admin"] },
   { id: "governance", label: "Governança",         path: "/admin/governanca",    icon: "shield",    roles: ["admin"] },
   { id: "payfly",     label: "PayFly",             path: "/admin/payfly",        icon: "zap",       roles: ["admin"] },
   { id: "hermes",     label: "Hermes Agent",        path: "/admin/hermes",        icon: "cpu",       roles: ["admin"] },
