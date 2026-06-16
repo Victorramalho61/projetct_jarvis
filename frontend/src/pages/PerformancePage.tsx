@@ -546,7 +546,13 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   }
 
   // Derivados para filtros client-side
-  const managers = employees.filter(e => e.level === "gerente" || e.level === "coordenador_supervisor");
+  // Gestores relevantes = apenas quem tem pelo menos 1 subordinado no conjunto
+  // filtrado por nível (evita circular: não aplica selManager aqui)
+  const levelFiltered = selLevel ? employees.filter(e => e.level === selLevel) : employees;
+  const relevantMgrIds = new Set(levelFiltered.map(e => (e as any).manager_id).filter(Boolean));
+  const managers = employees.filter(
+    e => (e.level === "gerente" || e.level === "coordenador_supervisor") && relevantMgrIds.has(e.id)
+  );
   const filteredEmployees = employees.filter(e => {
     if (selLevel && e.level !== selLevel) return false;
     if (selManager && (e as any).manager_id !== selManager) return false;
