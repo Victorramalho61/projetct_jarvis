@@ -73,11 +73,15 @@ def query_summary(hours: int = 24) -> dict:
     cur.execute(
         """
         SELECT TOP 50
-            HANDLE, SITUACAO, PRODUTO, CODIGORESERVA, DATAREENVIO, MENSAGEM
-        FROM BB_LOGINTEGRACOES
-        WHERE SITUACAO != 1
-          AND DATAREENVIO >= DATEADD(HOUR, ?, GETDATE())
-        ORDER BY DATAREENVIO DESC
+            l.HANDLE, l.SITUACAO, l.PRODUTO, l.CODIGORESERVA, l.DATAREENVIO, l.MENSAGEM,
+            COALESCE(i.SISRES, 'Benner') AS SISTEMA,
+            COALESCE(e.NOMEFANTASIA, CAST(l.EMPRESA AS VARCHAR(20))) AS CLIENTE
+        FROM BB_LOGINTEGRACOES l
+        LEFT JOIN BB_INTEGRACAO i ON i.HANDLE = l.CONFIGURACAOINTEGRACAO
+        LEFT JOIN EMPRESAS e ON e.HANDLE = l.EMPRESA
+        WHERE l.SITUACAO != 1
+          AND l.DATAREENVIO >= DATEADD(HOUR, ?, GETDATE())
+        ORDER BY l.DATAREENVIO DESC
         """,
         (-hours,),
     )
@@ -89,6 +93,8 @@ def query_summary(hours: int = 24) -> dict:
             "reserva": r[3],
             "data": r[4].isoformat() if r[4] else None,
             "mensagem": r[5],
+            "sistema": r[6],
+            "cliente": r[7],
         }
         for r in cur.fetchall()
     ]

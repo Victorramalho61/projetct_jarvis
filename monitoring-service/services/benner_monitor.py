@@ -28,8 +28,10 @@ async def sync_benner_snapshot() -> None:
             "p": (e["produto"] or "")[:30],
             "r": (e["reserva"] or "")[:20],
             "s": e["situacao"],
-            "m": (e["mensagem"] or "")[:150],
+            "m": (e["mensagem"] or "")[:200],
             "t": e["data"],
+            "o": (e.get("sistema") or "")[:20],
+            "c": (e.get("cliente") or "")[:35],
         }
         for e in raw["ultimos_erros"]
     ]

@@ -12,6 +12,8 @@ interface ErroItem {
   situacao_label: string;
   mensagem: string;
   data: string;
+  sistema: string;
+  cliente: string;
 }
 
 interface Snapshot {
@@ -58,6 +60,14 @@ function SituacaoBadge({ label, s }: { label: string; s: number }) {
   );
 }
 
+// Extrai a parte mais útil da mensagem (último segmento após "→")
+function shortMsg(msg: string | null | undefined): string {
+  if (!msg) return "—";
+  const parts = msg.split(/[→>]/);
+  const last = parts[parts.length - 1].trim();
+  return last.length > 10 ? last : msg;
+}
+
 // ── componente principal ─────────────────────────────────────────────────────
 
 export default function BennerIntegracaoPage() {
@@ -67,6 +77,7 @@ export default function BennerIntegracaoPage() {
   const [error, setError] = useState<string | null>(null);
   const [filtProduto, setFiltProduto] = useState<string>("");
   const [search, setSearch] = useState<string>("");
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async (initial = false) => {
@@ -89,6 +100,14 @@ export default function BennerIntegracaoPage() {
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [load]);
 
+  function toggleRow(id: number) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   // ── dados derivados ───────────────────────────────────────────────────────
 
   const produtos = snap
@@ -97,8 +116,13 @@ export default function BennerIntegracaoPage() {
 
   const errosFiltrados = (snap?.erros_recentes ?? []).filter(e => {
     if (filtProduto && e.produto !== filtProduto) return false;
-    if (search && !e.mensagem?.toLowerCase().includes(search.toLowerCase()) &&
-        !e.reserva?.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      if (!e.mensagem?.toLowerCase().includes(q) &&
+          !e.reserva?.toLowerCase().includes(q) &&
+          !e.sistema?.toLowerCase().includes(q) &&
+          !e.cliente?.toLowerCase().includes(q)) return false;
+    }
     return true;
   });
 
@@ -153,7 +177,7 @@ export default function BennerIntegracaoPage() {
 
       {!snap && !error && (
         <div className="text-center py-16 text-sm text-gray-400">
-          Nenhum snapshot disponível. O scheduler coleta dados a cada 15 min.
+          Nenhum snapshot disponível. O scheduler coleta dados diariamente às 07h BRT.
         </div>
       )}
 
@@ -237,8 +261,8 @@ export default function BennerIntegracaoPage() {
                 <input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Buscar mensagem ou reserva…"
-                  className="h-7 text-xs px-2.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-green w-44"
+                  placeholder="Buscar mensagem, reserva, sistema…"
+                  className="h-7 text-xs px-2.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-green w-52"
                 />
                 <select
                   value={filtProduto}
@@ -264,35 +288,77 @@ export default function BennerIntegracaoPage() {
                 <table className="w-full text-xs">
                   <thead>
                     <tr className="bg-gray-50 dark:bg-gray-700/50 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      <th className="px-3 py-2.5 font-medium">Data/Hora</th>
+                      <th className="px-3 py-2.5 font-medium w-[1px]"></th>
+                      <th className="px-3 py-2.5 font-medium whitespace-nowrap">Data/Hora</th>
                       <th className="px-3 py-2.5 font-medium">Produto</th>
                       <th className="px-3 py-2.5 font-medium">Reserva</th>
                       <th className="px-3 py-2.5 font-medium">Status</th>
-                      <th className="px-3 py-2.5 font-medium w-full">Mensagem</th>
+                      <th className="px-3 py-2.5 font-medium">Sistema</th>
+                      <th className="px-3 py-2.5 font-medium">Cliente</th>
+                      <th className="px-3 py-2.5 font-medium">Erro</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                    {errosFiltrados.map((e, idx) => (
-                      <tr key={`${e.id}-${idx}`} className="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                        <td className="px-3 py-2.5 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums">
-                          {fmt(e.data)}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                            {e.produto || "—"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 font-mono whitespace-nowrap text-gray-700 dark:text-gray-300">
-                          {e.reserva || "—"}
-                        </td>
-                        <td className="px-3 py-2.5 whitespace-nowrap">
-                          <SituacaoBadge label={e.situacao_label} s={e.situacao} />
-                        </td>
-                        <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 max-w-xs truncate" title={e.mensagem}>
-                          {e.mensagem || "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    {errosFiltrados.map((e, idx) => {
+                      const isOpen = expanded.has(e.id);
+                      const short = shortMsg(e.mensagem);
+                      const hasMore = e.mensagem && e.mensagem.length > short.length + 5;
+                      return (
+                        <>
+                          <tr
+                            key={`${e.id}-${idx}`}
+                            onClick={() => hasMore && toggleRow(e.id)}
+                            className={`transition-colors ${hasMore ? "cursor-pointer" : ""} hover:bg-gray-50 dark:hover:bg-gray-700/30`}
+                          >
+                            <td className="px-2 py-2.5 text-gray-400">
+                              {hasMore ? (
+                                <svg
+                                  width="11" height="11" viewBox="0 0 24 24" fill="none"
+                                  stroke="currentColor" strokeWidth="2.5"
+                                  strokeLinecap="round" strokeLinejoin="round"
+                                  className={`transition-transform ${isOpen ? "rotate-90" : ""}`}
+                                >
+                                  <polyline points="9 18 15 12 9 6"/>
+                                </svg>
+                              ) : null}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums">
+                              {fmt(e.data)}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                                {e.produto || "—"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 font-mono whitespace-nowrap text-gray-700 dark:text-gray-300">
+                              {e.reserva || "—"}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <SituacaoBadge label={e.situacao_label} s={e.situacao} />
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap text-gray-500 dark:text-gray-400">
+                              {e.sistema || "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400 max-w-[140px] truncate" title={e.cliente}>
+                              {e.cliente || "—"}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 max-w-[220px] truncate" title={e.mensagem}>
+                              {short}
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr key={`${e.id}-${idx}-detail`} className="bg-gray-50 dark:bg-gray-700/20">
+                              <td colSpan={8} className="px-6 py-3">
+                                <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Mensagem completa</p>
+                                <p className="text-xs text-gray-700 dark:text-gray-300 font-mono leading-relaxed whitespace-pre-wrap break-all">
+                                  {e.mensagem}
+                                </p>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -301,7 +367,7 @@ export default function BennerIntegracaoPage() {
 
           {/* Footer */}
           <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
-            Snapshot de {fmt(snap.capturado_em)} · coleta automática a cada 15 min
+            Snapshot de {fmt(snap.capturado_em)} · coleta automática diária (07h BRT) · banco D-1
           </p>
         </>
       )}

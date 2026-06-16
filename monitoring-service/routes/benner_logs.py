@@ -57,6 +57,8 @@ async def benner_latest(
             "situacao_label": _SITUACAO_LABEL.get(e.get("s"), str(e.get("s"))),
             "mensagem": e.get("m"),
             "data":     e.get("t"),
+            "sistema":  e.get("o") or "—",
+            "cliente":  e.get("c") or "—",
         }
         for e in (snap.get("erros_recentes") or [])
     ]
