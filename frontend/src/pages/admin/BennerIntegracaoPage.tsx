@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { apiFetch, ApiError } from "../../lib/api";
 
@@ -135,8 +135,6 @@ export default function BennerIntegracaoPage() {
   const [filtProduto, setFiltProduto] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
   // ── estado RPA ───────────────────────────────────────────────────────────
   const [rpaSummary, setRpaSummary] = useState<RpaSummary | null>(null);
   const [rpaQueue, setRpaQueue] = useState<RpaErro[]>([]);
@@ -183,8 +181,6 @@ export default function BennerIntegracaoPage() {
 
   useEffect(() => {
     loadSnap(true);
-    intervalRef.current = setInterval(() => loadSnap(), 5 * 60_000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [loadSnap]);
 
   useEffect(() => {
@@ -251,27 +247,16 @@ export default function BennerIntegracaoPage() {
     <div className="p-4 sm:p-6 space-y-5 max-w-7xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900 dark:text-white">Integrações Benner</h1>
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-            Log de reservas integradas — últimas 24 h
-            {snap && (
-              <span className="ml-2 text-gray-400">
-                · Atualizado {minutesAgo(snap.capturado_em)}
-              </span>
-            )}
-          </p>
-        </div>
-        <button
-          onClick={() => tab === "monitoramento" ? loadSnap() : loadRpa()}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 transition-colors"
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16"/>
-          </svg>
-          Atualizar
-        </button>
+      <div>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Integrações Benner</h1>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+          Log de reservas integradas — coleta diária (07h BRT)
+          {snap && (
+            <span className="ml-2 text-gray-400">
+              · Snapshot de {fmt(snap.capturado_em)}
+            </span>
+          )}
+        </p>
       </div>
 
       {/* Tabs */}
