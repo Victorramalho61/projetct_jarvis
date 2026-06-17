@@ -5,6 +5,7 @@ import smtplib
 from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import parseaddr
 from typing import Annotated
 
 import bcrypt
@@ -224,12 +225,16 @@ def _send_reset_email(to_email: str, display_name: str, reset_url: str) -> None:
         f"<p>Se você não solicitou, ignore este e-mail.</p>"
     )
     msg.attach(MIMEText(html, "html"))
+    _, sender_addr = parseaddr(s.smtp_from or s.smtp_user)
+    sender_addr = sender_addr or s.smtp_user
     try:
         with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
+            smtp.ehlo()
             smtp.starttls()
             smtp.ehlo()
             smtp.login(s.smtp_user, s.smtp_password)
-            smtp.sendmail(s.smtp_from or s.smtp_user, to_email, msg.as_string())
+            smtp.sendmail(sender_addr, to_email, msg.as_string())
+            logger.info("E-mail de reset enviado para %s", to_email)
     except Exception:
         logger.exception("Erro ao enviar e-mail de reset para %s", to_email)
 

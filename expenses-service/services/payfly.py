@@ -27,6 +27,8 @@ _CATEGORIA_RULES = [
     (["HIPERLINK", "HIPER LINK", "NEXT SQUAD", "NEXTSQUAD"], "Desenvolvimento"),
     (["PROPRIEDADE INDUSTRIAL"], "Desenvolvimento"),
     (["AMAZON WEB SERVICES", "AWS"], "Infraestrutura"),
+    (["CASSIO JULIANO"], "Infraestrutura"),
+    (["RESEND"], "Infraestrutura"),
     (["BRINDES", "IMPRESSOS", "GRAFIC", "PROD GRAF", "MLABS"], "Marketing"),
     (["NUSBE", "VOLUS"], "Sustentação"),
 ]
@@ -79,15 +81,20 @@ _DEV_NAME_MATCH = """(
     OR UPPER(DOC.HISTORICO) LIKE '%HIPER LINK%'
 )"""
 
-# Gastos PayFly/AWS — apenas empresa 3 (ledger PayFly)
+# Gastos PayFly — apenas empresa 3 (ledger PayFly)
 _PAYFLY_EMPRESA3 = """(
     PAR.EMPRESA = 3
-    AND (
-        UPPER(DOC.HISTORICO) LIKE '%PAYFLY%'
-        OR UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%'
-        OR UPPER(PES.NOME) LIKE '%AWS%'
-        OR UPPER(DOC.HISTORICO) LIKE '%AWS%'
-    )
+    AND UPPER(DOC.HISTORICO) LIKE '%PAYFLY%'
+)"""
+
+# Infraestrutura por nome — qualquer empresa (AWS pode faturar fora da empresa 3, Cassio Juliano, Resend)
+_INFRA_NAME_MATCH = """(
+    UPPER(PES.NOME) LIKE '%AMAZON WEB SERVICES%'
+    OR UPPER(PES.NOME) LIKE '%AWS%'
+    OR UPPER(DOC.HISTORICO) LIKE '%AWS%'
+    OR UPPER(PES.NOME) LIKE '%CASSIO JULIANO%'
+    OR UPPER(PES.NOME) LIKE '%RESEND%'
+    OR UPPER(DOC.HISTORICO) LIKE '%RESEND%'
 )"""
 
 # Exclusão de hotéis/hospedagem e lançamentos de relocação (RLOC)
@@ -107,8 +114,8 @@ _EXCLUSION = """NOT (
     OR ISNULL(UPPER(DOC.HISTORICO), '') LIKE '%RLOC%'
 )"""
 
-# Filtro composto: (PayFly empresa3 OU dev fornecedores qualquer empresa) E NÃO exclusões
-_COMBINED_FILTER = f"({_PAYFLY_EMPRESA3} OR {_DEV_NAME_MATCH}) AND {_EXCLUSION}"
+# Filtro composto: (PayFly empresa3 OU dev OU infra por nome) E NÃO exclusões
+_COMBINED_FILTER = f"({_PAYFLY_EMPRESA3} OR {_DEV_NAME_MATCH} OR {_INFRA_NAME_MATCH}) AND {_EXCLUSION}"
 
 
 # ── Queries ────────────────────────────────────────────────────────────────────
