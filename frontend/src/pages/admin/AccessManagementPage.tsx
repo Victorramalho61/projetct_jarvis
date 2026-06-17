@@ -10,8 +10,12 @@ const ALL_MODULES = [
   { id: "freshservice", label: "Freshservice" },
   { id: "agentes",     label: "Agentes" },
   { id: "gastos_ti",   label: "Gastos TI" },
+  { id: "fiscal",      label: "Validação NFe/NFSe" },
   { id: "governanca",  label: "Governança" },
   { id: "payfly",      label: "PayFly" },
+  { id: "hermes",      label: "Hermes Agent" },
+  { id: "cartoes",     label: "Cofre de Cartões" },
+  { id: "financeiro",  label: "Financeiro" },
 ];
 
 const PERF_ROLES = new Set(["rh", "gerente", "coordenador_supervisor", "administrativo_operacional"]);
