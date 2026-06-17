@@ -595,7 +595,7 @@ def buscar_auto_avaliacao_presencial(body: AutoAvaliacaoPresencialBusca, request
 # ── Auto-avaliação ────────────────────────────────────────────────────────────
 
 class SelfEvalSubmit(BaseModel):
-    indicator_scores: list[IndicatorScore]   # justificativa sempre opcional
+    indicator_scores: list[IndicatorScore]   # justificativa obrigatória para notas 1 e 5
     observations: str | None = None          # sempre opcional, sem mínimo de palavras
 
 
@@ -676,7 +676,9 @@ def submit_self_evaluation(token: str, body: SelfEvalSubmit, request: Request) -
     for sc in body.indicator_scores:
         if sc.score < 1 or sc.score > 5:
             raise HTTPException(400, detail=f"Nota {sc.score} inválida. Use valores de 1 a 5.")
-    # Auto-avaliação NÃO exige justificativa para notas extremas
+        if sc.score in (1, 5) and not (sc.justification or "").strip():
+            label = "NAE (Não Atende)" if sc.score == 1 else "EE (Excede as Expectativas)"
+            raise HTTPException(400, detail=f"Justificativa obrigatória para nota {sc.score} — {label}.")
 
     final_score = round(sum(scores_list) / len(scores_list), 2)
     obs = (body.observations or "").strip() or None

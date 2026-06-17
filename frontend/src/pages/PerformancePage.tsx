@@ -11,7 +11,7 @@ const PublicAutoAvaliacaoPresencialInline = lazy(() => import("./PublicAutoAvali
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
-type AppRole = "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional";
+type AppRole = "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional" | "administrativo" | "operacional";
 
 type TabDef = { id: string; label: string; icon: string; roles: AppRole[] };
 
@@ -22,8 +22,8 @@ const TABS: TabDef[] = [
   { id: "gestao-rh",          label: "Gestão RH",          icon: "⚙️", roles: ["admin", "rh"] },
   { id: "ciclo",              label: "Ciclo",              icon: "🔄", roles: ["admin", "rh"] },
   { id: "avaliacoes",         label: "Avaliações",         icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
-  { id: "ciencia-presencial",       label: "Ciência Presencial",  icon: "📋", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
-  { id: "auto-avaliacao-presencial", label: "Auto-Aval. Presencial", icon: "✏️", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
+  { id: "ciencia-presencial",       label: "Ciência Presencial",  icon: "📋", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"] },
+  { id: "auto-avaliacao-presencial", label: "Auto-Aval. Presencial", icon: "✏️", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"] },
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -350,7 +350,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
 
 type Indicator = { id: string; name: string; description?: string; active: boolean; hierarchy_level?: number | null };
 
-const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3 — Oper./Admin." };
+const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3 — Adm./Operacional" };
 const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "gray" };
 
 function TabIndicadores() {
@@ -506,10 +506,18 @@ const LEVEL_LABELS: Record<string, string> = {
   gerente: "Gerente",
   coordenador_supervisor: "Coord./Supervisor",
   administrativo_operacional: "Adm./Operacional",
+  administrativo: "Administrativo",
+  operacional: "Operacional",
 };
 
 function LevelBadge({ level }: { level: string }) {
-  const colors: Record<string, string> = { gerente: "violet", coordenador_supervisor: "blue", administrativo_operacional: "gray" };
+  const colors: Record<string, string> = {
+    gerente: "violet",
+    coordenador_supervisor: "blue",
+    administrativo_operacional: "gray",
+    administrativo: "green",
+    operacional: "amber",
+  };
   return <Badge color={colors[level] ?? "gray"}>{LEVEL_LABELS[level] ?? level}</Badge>;
 }
 
@@ -562,7 +570,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   useEffect(() => { loadEmployees(); }, [token, selCompany, selBranch]);
 
   function openCreate() {
-    setModal({ open: true, item: { company_id: selCompany, branch_id: selBranch, level: "administrativo_operacional", active: true } });
+    setModal({ open: true, item: { company_id: selCompany, branch_id: selBranch, level: "administrativo", active: true } });
     setFormErr("");
   }
   function openEdit(e: Employee) { setModal({ open: true, item: { ...e } }); setFormErr(""); }
@@ -670,7 +678,9 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <option value="">Todos os níveis</option>
             <option value="gerente">Gerente</option>
             <option value="coordenador_supervisor">Coordenador / Supervisor</option>
-            <option value="administrativo_operacional">Administrativo / Operacional</option>
+            <option value="administrativo">Administrativo</option>
+            <option value="operacional">Operacional</option>
+            <option value="administrativo_operacional">Adm./Operacional (legado)</option>
           </select>
         )}
         {managers.length > 0 && (
@@ -779,12 +789,14 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           ))}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nível *</label>
-            <select value={modal.item?.level ?? "administrativo_operacional"}
+            <select value={modal.item?.level ?? "administrativo"}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, level: e.target.value } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="gerente">Gerente</option>
               <option value="coordenador_supervisor">Coordenador / Supervisor</option>
-              <option value="administrativo_operacional">Administrativo / Operacional</option>
+              <option value="administrativo">Administrativo</option>
+              <option value="operacional">Operacional</option>
+              <option value="administrativo_operacional">Adm./Operacional (legado)</option>
             </select>
           </div>
           <div>

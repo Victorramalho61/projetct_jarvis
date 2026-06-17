@@ -49,13 +49,20 @@ _LEVEL_MAP = {
     "gerente": 1,
     "coordenador_supervisor": 2,
     "administrativo_operacional": 3,
+    "administrativo": 3,
+    "operacional": 3,
 }
 _LEVEL_RMAP = {1: "gerente", 2: "coordenador_supervisor", 3: "administrativo_operacional"}
+
+# Todos os perfis válidos para armazenar na coluna `perfil`
+_PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"}
 
 
 def _emp_out(e: dict) -> dict:
     out = dict(e)
-    out["level"] = _LEVEL_RMAP.get(e.get("hierarchy_level"), "administrativo_operacional")
+    perfil = e.get("perfil") or ""
+    # Usa `perfil` quando preenchido; legado usa _LEVEL_RMAP pelo hierarchy_level
+    out["level"] = perfil if perfil in _PERFIS_VALIDOS else _LEVEL_RMAP.get(e.get("hierarchy_level"), "administrativo_operacional")
     out["cpf"] = e.get("cpf") or ""
     return out
 
@@ -307,7 +314,14 @@ def dashboard_pending_self_eval(
         .data
     }
 
-    level_label = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    _PERFIL_LABEL = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
+                     "administrativo": "Administrativo", "operacional": "Operacional",
+                     "administrativo_operacional": "Adm./Operacional"}
+    _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    def _level_str(emp_data: dict) -> str:
+        p = emp_data.get("perfil") or ""
+        return _PERFIL_LABEL.get(p) or _HLEVEL_LABEL.get(emp_data.get("hierarchy_level"), "")
+
     result = []
     for emp in employees:
         if emp["id"] not in completed_self:
@@ -317,7 +331,7 @@ def dashboard_pending_self_eval(
                 "employee_id": emp["id"],
                 "employee_name": emp["name"],
                 "employee_cargo": emp.get("cargo", ""),
-                "hierarchy_level": level_label.get(emp.get("hierarchy_level"), ""),
+                "hierarchy_level": _level_str(emp),
                 "branch_name": branch.get("name", "") if isinstance(branch, dict) else "",
                 "company_name": company.get("name", "") if isinstance(company, dict) else "",
             })
@@ -434,7 +448,14 @@ def dashboard_export(
     for cell in ws2[1]:
         header_style(cell)
 
-    level_label = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    _PERFIL_LABEL_XLS = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
+                         "administrativo": "Administrativo", "operacional": "Operacional",
+                         "administrativo_operacional": "Adm./Operacional"}
+    _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    def _emp_level_label(emp_data: dict) -> str:
+        p = emp_data.get("perfil") or ""
+        return _PERFIL_LABEL_XLS.get(p) or _HLEVEL_LABEL_XLS.get(emp_data.get("hierarchy_level"), "")
+
     status_label = {"pending": "Pendente", "completed": "Avaliado", "acknowledged": "Ciência Dada", "calibrated": "Calibrado"}
 
     for r in manager_reviews:
@@ -446,7 +467,7 @@ def dashboard_export(
         ws2.append([
             emp.get("name", ""),
             emp.get("cargo", ""),
-            level_label.get(emp.get("hierarchy_level"), ""),
+            _emp_level_label(emp),
             company.get("name", "") if isinstance(company, dict) else "",
             branch.get("name", "") if isinstance(branch, dict) else "",
             ev.get("name", ""),
@@ -476,7 +497,7 @@ def dashboard_export(
         ws3.append([
             emp.get("name", ""),
             emp.get("cargo", ""),
-            level_label.get(emp.get("hierarchy_level"), ""),
+            _emp_level_label(emp),
             company.get("name", "") if isinstance(company, dict) else "",
             branch.get("name", "") if isinstance(branch, dict) else "",
             "Concluída" if se else "Pendente",
@@ -872,6 +893,10 @@ class EmployeeBody(BaseModel):
     jarvis_username: str | None = None
     active: bool | None = None
 
+    @property
+    def perfil(self) -> str:
+        return self.level if self.level in _PERFIS_VALIDOS else "administrativo_operacional"
+
 
 _PREPS = {"da", "de", "di", "do", "dos", "das", "e"}
 
@@ -960,6 +985,7 @@ def create_employee(
         "cargo": body.cargo or "",
         "has_corporate_email": has_email,
         "whatsapp_phone": body.whatsapp_phone or "",
+        "perfil": body.perfil,
         "hierarchy_level": hierarchy_level,
         "manager_id": body.manager_id or None,
         "management_id": mgmt_id,
@@ -997,8 +1023,6 @@ def update_employee(
         updates["matricula"] = body.matricula.strip()
     if body.cargo:
         updates["cargo"] = body.cargo
-    if body.level:
-        updates["hierarchy_level"] = _LEVEL_MAP.get(body.level, 3)
     if body.email is not None:
         updates["email"] = body.email or None
         updates["has_corporate_email"] = bool(body.email and body.email.strip())
@@ -1006,6 +1030,9 @@ def update_employee(
         updates["cpf"] = re.sub(r'\D', '', body.cpf).strip() or None
     if body.whatsapp_phone is not None:
         updates["whatsapp_phone"] = re.sub(r'\D', '', body.whatsapp_phone or "").strip()
+    if body.level:
+        updates["perfil"] = body.perfil
+        updates["hierarchy_level"] = _LEVEL_MAP.get(body.level, 3)
     if body.manager_id is not None:
         updates["manager_id"] = body.manager_id or None
     if body.active is not None:
@@ -1054,7 +1081,22 @@ async def import_employees(
         for e in db.table("performance_employees").select("cpf").execute().data
         if e.get("cpf")
     }
-    NIVEL_MAP = {"gerente": 1, "coordenador-supervisor": 2, "operacional-administrativo": 3}
+    NIVEL_MAP = {
+        "gerente": 1,
+        "coordenador-supervisor": 2,
+        "operacional-administrativo": 3,   # legado
+        "administrativo-operacional": 3,   # legado alternativo
+        "administrativo": 3,
+        "operacional": 3,
+    }
+    NIVEL_PERFIL = {
+        "gerente": "gerente",
+        "coordenador-supervisor": "coordenador_supervisor",
+        "operacional-administrativo": "administrativo_operacional",
+        "administrativo-operacional": "administrativo_operacional",
+        "administrativo": "administrativo",
+        "operacional": "operacional",
+    }
 
     errors: list[dict] = []
     rows_data: list[dict] = []
@@ -1108,8 +1150,9 @@ async def import_employees(
         # Nível
         nivel_key = nivel_str.lower()
         hierarchy_level = NIVEL_MAP.get(nivel_key)
+        nivel_perfil = NIVEL_PERFIL.get(nivel_key, "administrativo_operacional")
         if hierarchy_level is None:
-            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido. Use: Gerente / Coordenador-Supervisor / Operacional-Administrativo"})
+            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido. Use: Gerente / Coordenador-Supervisor / Administrativo / Operacional"})
 
         # E-mail
         tem_email = tem_email_str.lower() in ("sim", "s", "yes")
@@ -1140,7 +1183,9 @@ async def import_employees(
                 "branch_id": branch["id"] if branch else None,
                 "gerencia_name": gerencia_name,
                 "name": nome, "matricula": matricula, "cargo": cargo,
-                "hierarchy_level": hierarchy_level, "email": email,
+                "hierarchy_level": hierarchy_level,
+                "perfil": nivel_perfil,
+                "email": email,
                 "has_corporate_email": tem_email,
                 "cpf": cpf,
             })
@@ -1173,6 +1218,7 @@ async def import_employees(
             "has_corporate_email": row["has_corporate_email"],
             "cpf": row.get("cpf"),
             "hierarchy_level": row["hierarchy_level"],
+            "perfil": row.get("perfil", "administrativo_operacional"),
             "manager_id": None,           # hierarquia definida via UI
             "management_id": mgmt_id,
             "branch_id": row["branch_id"], "company_id": row["company_id"],
@@ -1940,27 +1986,55 @@ def list_evaluations(
     if not cycle:
         return []
 
-    # Apenas avaliações do gestor (não auto-avaliações)
-    q = (
+    # ── Reviews existentes (gestor, não auto-avaliação) ─────────────────────────
+    reviews_raw = (
         db.table("performance_reviews")
         .select("*")
         .eq("cycle_id", cycle["id"])
         .eq("is_self_evaluation", False)
+        .execute()
+        .data
     )
-    reviews = q.order("created_at", desc=True).execute().data
+    review_by_emp: dict[str, dict] = {r["employee_id"]: r for r in reviews_raw if r.get("employee_id")}
 
-    all_ids = set()
-    for r in reviews:
-        if r.get("employee_id"):
-            all_ids.add(r["employee_id"])
+    # ── Tokens de avaliação (inclui pendentes sem review) ───────────────────────
+    tokens_raw = (
+        db.table("performance_evaluation_tokens")
+        .select("id,employee_id,evaluator_id,token,is_used,invalidated_at,resend_count")
+        .eq("cycle_id", cycle["id"])
+        .execute()
+        .data
+    )
+    # token válido mais recente por colaborador
+    token_by_emp: dict[str, dict] = {}
+    for t in tokens_raw:
+        eid = t.get("employee_id")
+        if not eid:
+            continue
+        if t.get("invalidated_at"):
+            continue
+        token_by_emp[eid] = t
+
+    # União: todos os employee_ids que têm review ou token
+    all_emp_ids = set(review_by_emp.keys()) | set(token_by_emp.keys())
+    if not all_emp_ids:
+        return []
+
+    # ── Dados de colaboradores e avaliadores ─────────────────────────────────────
+    evaluator_ids: set[str] = set()
+    for r in reviews_raw:
         if r.get("evaluator_id"):
-            all_ids.add(r["evaluator_id"])
-    emp_map: dict[str, dict] = {}
-    if all_ids:
-        emps = db.table("performance_employees").select("id,name,cargo,company_id,has_corporate_email").in_("id", list(all_ids)).execute().data
-        emp_map = {e["id"]: e for e in emps}
+            evaluator_ids.add(r["evaluator_id"])
+    for t in tokens_raw:
+        if t.get("evaluator_id"):
+            evaluator_ids.add(t["evaluator_id"])
 
-    review_ids = [r["id"] for r in reviews]
+    all_lookup_ids = all_emp_ids | evaluator_ids
+    emps = db.table("performance_employees").select("id,name,cargo,company_id,has_corporate_email").in_("id", list(all_lookup_ids)).execute().data
+    emp_map: dict[str, dict] = {e["id"]: e for e in emps}
+
+    # ── Acks e calibrações ────────────────────────────────────────────────────────
+    review_ids = [r["id"] for r in reviews_raw]
     acked_ids: set[str] = set()
     calibrated_ids: set[str] = set()
     if review_ids:
@@ -1969,7 +2043,7 @@ def list_evaluations(
         calibs = db.table("performance_calibrations").select("review_id").in_("review_id", review_ids).execute().data
         calibrated_ids = {c["review_id"] for c in calibs}
 
-    # Mapear self-eval status por employee_id
+    # ── Self-eval status ──────────────────────────────────────────────────────────
     self_eval_reviews = (
         db.table("performance_reviews")
         .select("employee_id,status")
@@ -1978,12 +2052,9 @@ def list_evaluations(
         .execute()
         .data
     )
-    self_eval_map: dict[str, str] = {}
-    for se in self_eval_reviews:
-        if se.get("employee_id"):
-            self_eval_map[se["employee_id"]] = se.get("status", "pending")
+    self_eval_map: dict[str, str] = {se["employee_id"]: se.get("status", "pending") for se in self_eval_reviews if se.get("employee_id")}
 
-    self_eval_tokens = (
+    self_eval_tokens_raw = (
         db.table("performance_self_evaluation_tokens")
         .select("employee_id,is_used")
         .eq("cycle_id", cycle["id"])
@@ -1991,56 +2062,65 @@ def list_evaluations(
         .data
     )
     self_eval_token_map: dict[str, bool] = {
-        t["employee_id"]: t["is_used"] for t in self_eval_tokens if t.get("employee_id")
+        t["employee_id"]: t["is_used"] for t in self_eval_tokens_raw if t.get("employee_id")
     }
 
+    # ── Montar resultado ──────────────────────────────────────────────────────────
     result = []
-    for r in reviews:
-        emp = emp_map.get(r.get("employee_id", ""), {})
+    for emp_id in all_emp_ids:
+        emp = emp_map.get(emp_id, {})
         if company_id and emp.get("company_id") != company_id:
             continue
         emp_name = emp.get("name", "")
         if search and search.lower() not in emp_name.lower():
             continue
 
-        rid = r["id"]
-        if rid in calibrated_ids:
-            final_status = "calibrated"
-        elif rid in acked_ids:
-            final_status = "acknowledged"
-        elif r.get("status") in ("completed",):
-            final_status = "completed"
+        r = review_by_emp.get(emp_id)
+        tok = token_by_emp.get(emp_id)
+
+        # Status da avaliação
+        if r:
+            rid = r["id"]
+            if rid in calibrated_ids:
+                final_status = "calibrated"
+            elif rid in acked_ids:
+                final_status = "acknowledged"
+            elif r.get("status") == "completed":
+                final_status = "completed"
+            else:
+                final_status = "pending"
         else:
+            rid = None
             final_status = "pending"
 
         if status and final_status != status:
             continue
 
-        emp_id = r.get("employee_id", "")
-        if self_eval_map.get(emp_id) == "completed":
-            self_eval_status = "completed"
-        elif self_eval_token_map.get(emp_id):
+        # Self-eval status
+        if self_eval_map.get(emp_id) == "completed" or self_eval_token_map.get(emp_id):
             self_eval_status = "completed"
         elif emp_id in self_eval_token_map:
             self_eval_status = "pending"
         else:
             self_eval_status = "not_sent"
 
-        evaluator = emp_map.get(r.get("evaluator_id", ""), {})
+        evaluator_id = (r.get("evaluator_id") if r else None) or (tok.get("evaluator_id") if tok else None)
+        evaluator = emp_map.get(evaluator_id or "", {})
         result.append({
             "id": rid,
             "employee_name": emp_name,
             "evaluator_name": evaluator.get("name", ""),
-            "final_score": r.get("final_score"),
+            "final_score": r.get("final_score") if r else None,
             "status": final_status,
-            "submitted_at": r.get("submitted_at"),
+            "submitted_at": r.get("submitted_at") if r else None,
             "employee_id": emp_id,
-            "evaluator_id": r.get("evaluator_id"),
+            "evaluator_id": evaluator_id,
             "has_email": emp.get("has_corporate_email", False),
-            "observations": r.get("observations"),
+            "observations": r.get("observations") if r else None,
             "self_eval_status": self_eval_status,
         })
-    return result
+
+    return sorted(result, key=lambda x: (x["employee_name"] or ""))
 
 
 # ── Detalhe da avaliação (para modal de calibração) ───────────────────────────

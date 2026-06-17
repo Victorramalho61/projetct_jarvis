@@ -269,58 +269,72 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
   const indicators: any[] = data?.indicators ?? [];
   const totalFields  = indicators.length;
   const filledFields = Object.keys(scores).length;
-  const allFilled    = filledFields === totalFields && totalFields > 0;
+  const justOk = Object.entries(scores).every(
+    ([indId, score]) => score !== 1 && score !== 5 || (justifications[indId] || "").trim().length > 0
+  );
+  const allFilled    = filledFields === totalFields && totalFields > 0 && justOk;
 
   const content = (
     <div className={inline ? "space-y-6" : "max-w-3xl mx-auto px-4 py-6 space-y-4"}>
 
       {/* ── Step: Busca ── */}
       {step === "busca" && (
-        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <div className={`${PRIMARY_BG} px-6 py-5`}>
-            <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">Auto-Avaliação Presencial</p>
-            <p className="text-white text-xl font-bold">Identificação</p>
-            <p className="text-white/60 text-sm mt-1">Informe seus dados para acessar o formulário de auto-avaliação.</p>
+        <div className="space-y-4">
+          {/* Banner — mesmo padrão da ciência presencial, cor verde */}
+          <div className={`${PRIMARY_BG} text-white rounded-2xl shadow-lg overflow-hidden`}>
+            <div className="h-1 bg-gradient-to-r from-yellow-500 via-yellow-300 to-yellow-500" />
+            <div className="p-6">
+              <p className="text-white/70 text-xs font-semibold uppercase tracking-widest mb-1">
+                Avaliação de Desempenho
+              </p>
+              <h1 className="text-xl font-bold mb-1">Auto-Avaliação Presencial</h1>
+              <p className="text-white/80 text-sm">
+                Para colaboradores sem e-mail corporativo. Informe seus dados para acessar e preencher sua auto-avaliação.
+              </p>
+            </div>
           </div>
-          <form onSubmit={handleBuscar} className="p-6 space-y-5">
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                CPF <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text" inputMode="numeric" value={cpf}
-                onChange={e => setCpf(applyCpfMask(e.target.value))}
-                placeholder="000.000.000-00" maxLength={14} autoComplete="off"
-                className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-                Nome Completo <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text" value={nome}
-                onChange={e => setNome(e.target.value.toUpperCase())}
-                placeholder="Como consta no cadastro" autoComplete="off"
-                className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 uppercase"
-              />
-              <p className="text-xs text-gray-400 mt-1">Informe o nome completo conforme o cadastro do RH.</p>
-            </div>
-            {searchError && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">
-                <p className="text-sm text-red-700 dark:text-red-300">{searchError}</p>
+
+          {/* Formulário de busca — card branco separado */}
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow border border-gray-100 dark:border-gray-700">
+            <form onSubmit={handleBuscar} className="space-y-5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
+                  Nome Completo
+                </label>
+                <input
+                  type="text" value={nome}
+                  onChange={e => { setNome(e.target.value.toUpperCase()); setSearchError(""); }}
+                  placeholder="Ex: Maria Silva Santos"
+                  autoComplete="name"
+                  className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100 placeholder:text-gray-400 uppercase"
+                />
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Digite seu nome como consta na empresa (mínimo 2 palavras).
+                </p>
               </div>
-            )}
-            <button type="submit" disabled={searching}
-              className={`w-full py-3.5 rounded-xl font-bold text-white text-sm transition-all shadow ${searching ? "bg-gray-300 dark:bg-gray-700 cursor-not-allowed" : `${PRIMARY_BTN} cursor-pointer`}`}>
-              {searching ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                  Buscando...
-                </span>
-              ) : "Buscar minha Auto-Avaliação →"}
-            </button>
-          </form>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1.5">CPF</label>
+                <input
+                  type="text" inputMode="numeric" value={cpf}
+                  onChange={e => { setCpf(applyCpfMask(e.target.value)); setSearchError(""); }}
+                  placeholder="000.000.000-00" maxLength={14} autoComplete="off"
+                  className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100 placeholder:text-gray-400"
+                />
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Digite com ou sem pontuação — o sistema aceita das duas formas.
+                </p>
+              </div>
+              {searchError && (
+                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">
+                  <p className="text-sm text-red-700 dark:text-red-300">{searchError}</p>
+                </div>
+              )}
+              <button type="submit" disabled={searching}
+                className={`w-full py-3.5 rounded-xl font-bold text-white text-sm transition-all shadow ${searching ? "bg-gray-300 dark:bg-gray-700 cursor-not-allowed" : `${PRIMARY_BTN} cursor-pointer`}`}>
+                {searching ? "Buscando..." : "Acessar minha Auto-Avaliação"}
+              </button>
+            </form>
+          </div>
         </div>
       )}
 
@@ -383,7 +397,7 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
             <div className={`${PRIMARY_BG} px-6 py-4`}>
               <h3 className="text-white font-bold text-sm uppercase tracking-wide">Como você avalia seu desempenho?</h3>
-              <p className="text-white/60 text-xs mt-0.5">Para notas extremas (1 ou 5), um campo de comentário opcional é exibido</p>
+              <p className="text-white/60 text-xs mt-0.5">Para notas 1 (NAE) ou 5 (EE), a justificativa é obrigatória</p>
             </div>
             <div className="divide-y divide-gray-100 dark:divide-gray-700">
               {indicators.map((ind: any, idx: number) => {
@@ -418,9 +432,9 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
                       })}
                     </div>
                     {needsJust && (
-                      <div className="mt-4 ml-10 rounded-xl border-2 border-[#00694E]/30 dark:border-[#00694E]/40 overflow-hidden">
-                        <div className="px-3 py-2 bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400 text-xs font-semibold">
-                          {selected === 5 ? "💬 Comentário sobre nota máxima (opcional)" : "💬 Comentário sobre nota mínima (opcional)"}
+                      <div className={`mt-4 ml-10 rounded-xl border-2 overflow-hidden ${!justVal.trim() ? "border-red-300 dark:border-red-700" : "border-[#00694E]/30 dark:border-[#00694E]/40"}`}>
+                        <div className={`px-3 py-2 text-xs font-semibold ${!justVal.trim() ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400" : "bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400"}`}>
+                          {selected === 5 ? "💬 Justificativa obrigatória para nota máxima *" : "💬 Justificativa obrigatória para nota mínima *"}
                         </div>
                         <textarea value={justVal}
                           onChange={e => setJustifications(prev => ({ ...prev, [ind.id]: e.target.value }))}

@@ -443,6 +443,7 @@ services:
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
       FRONTEND_URL: ${FRONTEND_URL}
       FRESHSERVICE_API_KEY: ${FRESHSERVICE_API_KEY:-}
+      FRESHDESK_API_KEY: ${FRESHDESK_API_KEY:-}
     networks:
       - app_net
     healthcheck:

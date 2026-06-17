@@ -32,7 +32,7 @@ def list_my_subordinates(
 
     subordinates = (
         db.table("performance_employees")
-        .select("id,name,cargo,email,has_corporate_email,hierarchy_level")
+        .select("id,name,cargo,email,has_corporate_email,hierarchy_level,perfil")
         .eq("manager_id", manager_id)
         .eq("active", True)
         .order("name")

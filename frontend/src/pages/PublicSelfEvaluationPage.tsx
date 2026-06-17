@@ -269,8 +269,11 @@ export default function PublicSelfEvaluationPage() {
   const totalFields  = indicators.length;
   const filledFields = Object.keys(scores).length;
 
-  // Auto-avaliação: justificativa opcional (nunca bloqueia)
-  const allFilled = filledFields === totalFields && totalFields > 0;
+  // Justificativa obrigatória para notas 1 (NAE) e 5 (EE)
+  const justOk = Object.entries(scores).every(
+    ([indId, score]) => score !== 1 && score !== 5 || (justifications[indId] || "").trim().length > 0
+  );
+  const allFilled = filledFields === totalFields && totalFields > 0 && justOk;
 
   const primaryBg   = "bg-[#00694E]";
   const primaryBtn  = "bg-[#00694E] hover:bg-[#004F3A]";
@@ -426,7 +429,7 @@ export default function PublicSelfEvaluationPage() {
               <div className={`${primaryBg} px-6 py-4`}>
                 <h3 className="text-white font-bold text-sm uppercase tracking-wide">Como você avalia seu desempenho?</h3>
                 <p className="text-white/60 text-xs mt-0.5">
-                  Para notas extremas (1 ou 5), um campo de comentário opcional é exibido
+                  Para notas 1 (NAE) ou 5 (EE), a justificativa é obrigatória
                 </p>
               </div>
               <div className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -477,13 +480,13 @@ export default function PublicSelfEvaluationPage() {
                         })}
                       </div>
 
-                      {/* Campo de comentário — opcional para notas 1 e 5 */}
+                      {/* Campo de justificativa — obrigatório para notas 1 e 5 */}
                       {needsJust && (
-                        <div className="mt-4 ml-10 rounded-xl border-2 border-[#00694E]/30 dark:border-[#00694E]/40 overflow-hidden">
-                          <div className="px-3 py-2 bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400 text-xs font-semibold flex items-center gap-2">
+                        <div className={`mt-4 ml-10 rounded-xl border-2 overflow-hidden ${!justVal.trim() ? "border-red-300 dark:border-red-700" : "border-[#00694E]/30 dark:border-[#00694E]/40"}`}>
+                          <div className={`px-3 py-2 text-xs font-semibold ${!justVal.trim() ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400" : "bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400"}`}>
                             {selected === 5
-                              ? <span>💬 Comentário sobre nota máxima (opcional)</span>
-                              : <span>💬 Comentário sobre nota mínima (opcional)</span>
+                              ? "💬 Justificativa obrigatória para nota máxima *"
+                              : "💬 Justificativa obrigatória para nota mínima *"
                             }
                           </div>
                           <textarea

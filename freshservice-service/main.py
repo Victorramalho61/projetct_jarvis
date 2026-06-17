@@ -21,6 +21,7 @@ from db import get_settings
 from limiter import limiter
 from routes.health import router as health_router
 from routes.freshservice import router as freshservice_router
+from routes.freshdesk import router as freshdesk_router
 from services.scheduler import start_scheduler, stop_scheduler
 
 
@@ -65,3 +66,4 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 
 app.include_router(health_router)
 app.include_router(freshservice_router, prefix="/api")
+app.include_router(freshdesk_router, prefix="/api")
