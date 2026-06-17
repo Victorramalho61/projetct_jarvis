@@ -36,8 +36,13 @@ async def collect_benner_erros(horas: int = 48) -> int:
         logger.error("benner_collector: falha ao buscar handles existentes: %s", exc)
         return 0
 
-    # 3. Filtra só os novos
-    new_rows = [r for r in rows if r["benner_handle"] not in existing_handles]
+    # 3. Filtra só os novos + classifica
+    from services.benner_classifier import classify
+    new_rows = []
+    for r in rows:
+        if r["benner_handle"] not in existing_handles:
+            r["rpa_categoria"] = classify(r.get("mensagem"), r.get("tipo_erro"))
+            new_rows.append(r)
     if not new_rows:
         logger.info("benner_collector: %d erros consultados, nenhum novo", len(rows))
         return 0
