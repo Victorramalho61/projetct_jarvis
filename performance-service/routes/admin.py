@@ -1986,6 +1986,21 @@ def list_evaluations(
     if not cycle:
         return []
 
+    # ── Base: TODOS os ativos L2+L3 do ciclo (aparecem mesmo sem token/review) ───
+    base_emps_raw = (
+        db.table("performance_employees")
+        .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
+        .in_("hierarchy_level", [2, 3])
+        .eq("active", True)
+        .execute()
+        .data
+    )
+    emp_map: dict[str, dict] = {e["id"]: e for e in base_emps_raw}
+    all_emp_ids: set[str] = set(emp_map.keys())
+
+    if not all_emp_ids:
+        return []
+
     # ── Reviews existentes (gestor, não auto-avaliação) ─────────────────────────
     reviews_raw = (
         db.table("performance_reviews")
@@ -1997,7 +2012,7 @@ def list_evaluations(
     )
     review_by_emp: dict[str, dict] = {r["employee_id"]: r for r in reviews_raw if r.get("employee_id")}
 
-    # ── Tokens de avaliação (inclui pendentes sem review) ───────────────────────
+    # ── Tokens de avaliação válidos por colaborador ──────────────────────────────
     tokens_raw = (
         db.table("performance_evaluation_tokens")
         .select("id,employee_id,evaluator_id,token,is_used,invalidated_at,resend_count")
@@ -2005,22 +2020,14 @@ def list_evaluations(
         .execute()
         .data
     )
-    # token válido mais recente por colaborador
     token_by_emp: dict[str, dict] = {}
     for t in tokens_raw:
         eid = t.get("employee_id")
-        if not eid:
-            continue
-        if t.get("invalidated_at"):
+        if not eid or t.get("invalidated_at"):
             continue
         token_by_emp[eid] = t
 
-    # União: todos os employee_ids que têm review ou token
-    all_emp_ids = set(review_by_emp.keys()) | set(token_by_emp.keys())
-    if not all_emp_ids:
-        return []
-
-    # ── Dados de colaboradores e avaliadores ─────────────────────────────────────
+    # ── Carregar dados de avaliadores (gestores) ──────────────────────────────────
     evaluator_ids: set[str] = set()
     for r in reviews_raw:
         if r.get("evaluator_id"):
@@ -2028,10 +2035,15 @@ def list_evaluations(
     for t in tokens_raw:
         if t.get("evaluator_id"):
             evaluator_ids.add(t["evaluator_id"])
+    # Inclui manager_id de cada colaborador como fallback para mostrar gestor esperado
+    for e in base_emps_raw:
+        if e.get("manager_id"):
+            evaluator_ids.add(e["manager_id"])
 
-    all_lookup_ids = all_emp_ids | evaluator_ids
-    emps = db.table("performance_employees").select("id,name,cargo,company_id,has_corporate_email").in_("id", list(all_lookup_ids)).execute().data
-    emp_map: dict[str, dict] = {e["id"]: e for e in emps}
+    if evaluator_ids:
+        mgr_emps = db.table("performance_employees").select("id,name").in_("id", list(evaluator_ids)).execute().data
+        for m in mgr_emps:
+            emp_map[m["id"]] = emp_map.get(m["id"]) or m
 
     # ── Acks e calibrações ────────────────────────────────────────────────────────
     review_ids = [r["id"] for r in reviews_raw]
@@ -2104,7 +2116,11 @@ def list_evaluations(
         else:
             self_eval_status = "not_sent"
 
-        evaluator_id = (r.get("evaluator_id") if r else None) or (tok.get("evaluator_id") if tok else None)
+        evaluator_id = (
+            (r.get("evaluator_id") if r else None)
+            or (tok.get("evaluator_id") if tok else None)
+            or emp_map.get(emp_id, {}).get("manager_id")
+        )
         evaluator = emp_map.get(evaluator_id or "", {})
         result.append({
             "id": rid,
