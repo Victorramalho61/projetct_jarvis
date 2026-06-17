@@ -247,6 +247,8 @@ services:
       KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
       KONG_MEM_CACHE_SIZE: 32m   # padrão 128m → 4×128m=512m alocados; 32m é suficiente em DBless com 18 serviços
       KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_DNS_RESOLVER: "127.0.0.11"   # DNS interno do Docker — sempre retorna IP atual
+      KONG_DNS_STALE_TTL: "0"           # não serve IP em cache após TTL expirar
       ANON_KEY: ${ANON_KEY}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting

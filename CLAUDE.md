@@ -15,8 +15,8 @@ Documentação completa do projeto em `docs/arquitetura.md`.
 
 - **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas nos 7 serviços.
 - **Autenticação**: rotas admin usam `Depends(require_role("admin"))`, nunca `get_current_user` diretamente.
-- **Deploy**: `docker compose up -d --build <serviço>`. CI/CD via GitHub Actions (self-hosted runner no servidor).
-- **Kong**: `volumes/api/kong.yml` — declarativo, restart do Kong aplica mudanças.
+- **Deploy**: `docker compose up -d --build --no-deps <serviço>`. O flag `--no-deps` evita recriar serviços dependentes (ex: core-service ao deployar frontend) e previne IP stale no Kong. CI/CD via GitHub Actions (self-hosted runner no servidor).
+- **Kong**: `volumes/api/kong.yml` — declarativo, restart do Kong aplica mudanças. Kong usa `KONG_DNS_RESOLVER=127.0.0.11` (DNS Docker) com `KONG_DNS_STALE_TTL=0` para re-resolver IPs automaticamente após restart de containers.
 - **Portas**: apenas 80/443/8181 expostas. Microsserviços 8001–8008 são internos à rede Docker.
 - **Rate-limiting global no Kong removido** — causava 429 entre microsserviços.
 
