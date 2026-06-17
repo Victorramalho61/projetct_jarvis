@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cofre de Cartões — Guia de Testes</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      color: #1a1a1a;
+      line-height: 1.6;
+    }
+
+    .cover {
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+      color: white;
+      padding: 56px 40px 48px;
+      position: relative;
+      overflow: hidden;
+    }
+    .cover::after {
+      content: "🔒";
+      position: absolute;
+      right: 40px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 80px;
+      opacity: 0.12;
+    }
+    .cover h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .cover p  { margin-top: 8px; font-size: 14px; opacity: 0.75; }
+    .cover .badge {
+      display: inline-block;
+      margin-top: 16px;
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .badge-uso-interno { background: rgba(255,255,255,0.15); color: #e2e8f0; }
+
+    .container { max-width: 860px; margin: 0 auto; padding: 40px 24px 80px; }
+
+    /* ── Alerta ── */
+    .alerta {
+      border-left: 4px solid;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin-bottom: 28px;
+      font-size: 13.5px;
+    }
+    .alerta-amarelo { border-color: #f59e0b; background: #fffbeb; color: #78350f; }
+    .alerta-azul    { border-color: #3b82f6; background: #eff6ff; color: #1e3a8a; }
+    .alerta-verde   { border-color: #22c55e; background: #f0fdf4; color: #14532d; }
+    .alerta strong  { font-weight: 700; }
+
+    /* ── Perfis ── */
+    .perfis { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 40px; }
+    @media (max-width: 600px) { .perfis { grid-template-columns: 1fr; } }
+    .perfil-card {
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid;
+    }
+    .perfil-colaborador { border-color: #bfdbfe; background: #eff6ff; }
+    .perfil-supervisor  { border-color: #fde68a; background: #fffbeb; }
+    .perfil-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 10px; }
+    .perfil-colaborador h3 { color: #1d4ed8; }
+    .perfil-supervisor  h3 { color: #92400e; }
+    .perfil-card ul { padding-left: 18px; font-size: 13px; }
+    .perfil-card li { margin-bottom: 4px; }
+
+    /* ── Seção de submenu ── */
+    .section {
+      background: white;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      margin-bottom: 24px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    .section-icon {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .ic-cartoes   { background: #dbeafe; }
+    .ic-aprovacao { background: #fef3c7; }
+    .ic-gestao    { background: #dcfce7; }
+    .ic-clientes  { background: #f3e8ff; }
+    .ic-logs      { background: #fee2e2; }
+
+    .section-header h2 { font-size: 16px; font-weight: 700; color: #111827; }
+    .section-header .perfil-tag {
+      margin-left: auto;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 10px;
+      border-radius: 20px;
+      white-space: nowrap;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .tag-todos      { background: #e0f2fe; color: #0369a1; }
+    .tag-supervisor { background: #fef3c7; color: #92400e; }
+
+    .section-body { padding: 20px 24px; }
+
+    .descricao { font-size: 14px; color: #4b5563; margin-bottom: 16px; }
+
+    /* ── Passos de teste ── */
+    .passos { counter-reset: passo; }
+    .passo {
+      display: flex;
+      gap: 14px;
+      padding: 12px 0;
+      border-bottom: 1px solid #f9fafb;
+    }
+    .passo:last-child { border-bottom: none; }
+    .passo-num {
+      counter-increment: passo;
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      background: #1e3a5f;
+      color: white;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .passo-num::before { content: counter(passo); }
+    .passo-texto { font-size: 13.5px; color: #374151; flex: 1; }
+    .passo-texto strong { color: #111827; }
+    .passo-texto code {
+      background: #f3f4f6;
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 12px;
+      font-family: "Courier New", monospace;
+    }
+
+    /* ── Resultado esperado ── */
+    .resultado {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin-top: 8px;
+      padding: 10px 14px;
+      background: #f0fdf4;
+      border-radius: 8px;
+      font-size: 12.5px;
+      color: #166534;
+    }
+    .resultado::before { content: "✓"; font-weight: 700; flex-shrink: 0; }
+
+    /* ── Observações ── */
+    .obs {
+      margin-top: 14px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-radius: 8px;
+      font-size: 12.5px;
+      color: #64748b;
+      border: 1px solid #e2e8f0;
+    }
+    .obs strong { color: #475569; }
+
+    /* ── Fluxo de aprovação ── */
+    .fluxo {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      flex-wrap: wrap;
+      margin: 16px 0;
+      gap: 4px;
+    }
+    .fluxo-step {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: #334155;
+      white-space: nowrap;
+    }
+    .fluxo-arrow { color: #94a3b8; font-size: 16px; padding: 0 2px; }
+
+    /* ── Tabela de resumo ── */
+    table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+    th { background: #f8fafc; text-align: left; padding: 10px 14px; font-weight: 600; color: #374151; border-bottom: 2px solid #e5e7eb; }
+    td { padding: 10px 14px; border-bottom: 1px solid #f3f4f6; color: #4b5563; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    .ok  { color: #16a34a; font-weight: 700; }
+    .nao { color: #dc2626; font-weight: 700; }
+
+    /* ── Rodapé ── */
+    footer {
+      margin-top: 48px;
+      text-align: center;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+  </style>
+</head>
+<body>
+
+<!-- CAPA -->
+<div class="cover">
+  <h1>🔒 Cofre de Cartões — Guia de Testes</h1>
+  <p>Jarvis · Módulo de armazenamento seguro de cartões de crédito com criptografia e auditoria</p>
+  <span class="badge badge-uso-interno">Uso interno</span>
+</div>
+
+<div class="container">
+
+  <!-- AVISOS -->
+  <div class="alerta alerta-amarelo">
+    <strong>Ambiente de testes.</strong> Use apenas os usuários de teste fornecidos. Não insira dados reais de cartões durante os testes.
+  </div>
+
+  <div class="alerta alerta-azul">
+    <strong>Acesso:</strong> O módulo fica em <strong>Jarvis → Cofre de Cartões</strong> no menu lateral. Todos os dados são criptografados — apenas os últimos 4 dígitos do cartão ficam visíveis na listagem.
+  </div>
+
+  <!-- PERFIS -->
+  <h2 style="font-size:18px;font-weight:700;margin-bottom:16px;color:#111827;">Perfis do módulo</h2>
+  <div class="perfis">
+    <div class="perfil-card perfil-colaborador">
+      <h3>👤 Colaborador</h3>
+      <ul>
+        <li>Visualiza lista de cartões</li>
+        <li>Solicita revelação de dados</li>
+        <li>Aguarda aprovação em casos de reuso</li>
+        <li><em>Dados desaparecem em 60 segundos</em></li>
+      </ul>
+    </div>
+    <div class="perfil-card perfil-supervisor">
+      <h3>🛡 Supervisor</h3>
+      <ul>
+        <li>Tudo do colaborador</li>
+        <li>Aprova ou rejeita solicitações</li>
+        <li>Cadastra / edita / desativa cartões</li>
+        <li>Gerencia clientes</li>
+        <li>Acessa log completo de acessos</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="alerta alerta-verde">
+    <strong>Como configurar o perfil de um usuário:</strong> Acesse <strong>Gestão de Acesso → Cofre de Cartões → Permissões</strong> e atribua o perfil (colaborador ou supervisor) para cada usuário. Usuários sem perfil atribuído não conseguem acessar o módulo.
+  </div>
+
+  <!-- ─────────────────────────────────────────
+       1. ABA CARTÕES
+  ───────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon ic-cartoes">💳</div>
+      <div>
+        <h2>Cartões</h2>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Listagem e revelação de dados</div>
+      </div>
+      <span class="perfil-tag tag-todos">Colaborador + Supervisor</span>
+    </div>
+    <div class="section-body">
+      <p class="descricao">
+        Tela principal do módulo. Lista todos os cartões cadastrados mostrando apenas bandeira, últimos 4 dígitos e cliente. Para ver os dados completos é preciso preencher um formulário de justificativa.
+      </p>
+
+      <div class="passos">
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Acesse <strong>Cofre de Cartões</strong> no menu lateral. Confirme que a tela exibe a mensagem <em>"Dados criptografados"</em> no cabeçalho e que o número do cartão aparece mascarado (<code>•••• •••• •••• 1234</code>).
+            <div class="resultado">Cartões listados com dados mascarados, sem expor número completo.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Utilize a barra de busca para filtrar por <strong>bandeira</strong> (ex: VISA), <strong>últimos 4 dígitos</strong> (ex: 1234) ou <strong>nome do cliente</strong>.
+            <div class="resultado">Lista filtrada em tempo real conforme o termo digitado.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Clique em <strong>"Ver dados"</strong> em qualquer cartão. Um formulário será exibido com campos obrigatórios: <em>Localizador/OS</em>, <em>Nome do PAX</em>, <em>Fornecedor</em>, <em>Produto</em> e <em>Valor estimado</em>.
+            <div class="resultado">Modal de revelação aberto com formulário em branco.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Preencha todos os campos e clique em <strong>"Revelar dados"</strong>. <em>Primeira revelação com esse localizador:</em> os dados aparecem imediatamente com um contador de <strong>60 segundos</strong>. Após o tempo, os dados somem automaticamente.
+            <div class="resultado">Número completo, CVV, validade e titular exibidos por 60s, depois apagados.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Feche o modal e clique em <strong>"Ver dados"</strong> novamente com o <strong>mesmo localizador</strong>. O sistema detecta reuso e cria uma <em>solicitação de aprovação</em>.
+            <div class="resultado">Tela de espera exibida: "Aguardando aprovação do supervisor…"</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="obs">
+        <strong>Atenção:</strong> Fechar o modal antes do tempo apaga todos os dados imediatamente. Para ver novamente será necessário preencher o formulário e aguardar nova aprovação.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────
+       2. ABA APROVAÇÕES
+  ───────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon ic-aprovacao">✅</div>
+      <div>
+        <h2>Aprovações</h2>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Workflow de liberação de acesso em casos de reuso</div>
+      </div>
+      <span class="perfil-tag tag-supervisor">Somente Supervisor</span>
+    </div>
+    <div class="section-body">
+      <p class="descricao">
+        Quando um colaborador tenta revelar dados de um cartão com um localizador já utilizado anteriormente, o sistema cria uma solicitação pendente que precisa ser aprovada ou rejeitada pelo supervisor.
+      </p>
+
+      <div class="fluxo">
+        <div class="fluxo-step">Colaborador solicita</div>
+        <div class="fluxo-arrow">→</div>
+        <div class="fluxo-step">Supervisor vê pendência</div>
+        <div class="fluxo-arrow">→</div>
+        <div class="fluxo-step">Aprova ou Rejeita</div>
+        <div class="fluxo-arrow">→</div>
+        <div class="fluxo-step">Colaborador revela (10 min)</div>
+      </div>
+
+      <div class="passos">
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Com o usuário supervisor, acesse a aba <strong>"Aprovações"</strong>. O contador no badge da aba indica quantas solicitações estão pendentes (atualiza a cada 30s automaticamente).
+            <div class="resultado">Lista de solicitações pendentes com dados: colaborador solicitante, cartão, localizador, valor estimado e horário.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Clique em <strong>"Aprovar"</strong> em uma solicitação. Confirme no diálogo. O colaborador (em outra aba/sessão) verá a tela de espera ser substituída pelos dados do cartão.
+            <div class="resultado">Solicitação removida da fila; colaborador recebe os dados por <strong>10 minutos</strong>.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Crie outra solicitação de reuso (repita o passo 5 da aba Cartões com outro localizador). Desta vez clique em <strong>"Rejeitar"</strong> e informe o motivo obrigatório.
+            <div class="resultado">Colaborador vê mensagem de rejeição com o motivo informado.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="obs">
+        <strong>Regra de segurança:</strong> O supervisor não pode aprovar solicitações feitas por ele mesmo. A janela de uso após aprovação é de exatamente 10 minutos e não pode ser renovada — o colaborador deve solicitar novamente após o vencimento.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────
+       3. ABA GESTÃO DE CARTÕES
+  ───────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon ic-gestao">⚙️</div>
+      <div>
+        <h2>Gestão de Cartões</h2>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Cadastro e manutenção do cofre</div>
+      </div>
+      <span class="perfil-tag tag-supervisor">Somente Supervisor</span>
+    </div>
+    <div class="section-body">
+      <p class="descricao">
+        Permite cadastrar novos cartões no cofre, editar informações secundárias (CVV, validade, titular) e desativar cartões que não devem mais ser usados. O número do cartão é gravado uma única vez e não pode ser alterado posteriormente por segurança.
+      </p>
+
+      <div class="passos">
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Clique em <strong>"Novo cartão"</strong>. Preencha: bandeira, número completo, CVV, validade (MM/AA), titular e selecione o cliente. Clique em <strong>"Salvar"</strong>.
+            <div class="resultado">Cartão cadastrado e visível na aba Cartões com número mascarado. Os dados sensíveis ficam criptografados no banco.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Localize o cartão cadastrado e clique em <strong>"Editar"</strong>. Observe que o campo <em>número</em> está bloqueado — apenas CVV, validade e titular são editáveis.
+            <div class="resultado">Edição salva com sucesso. O número original permanece inalterado.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Clique em <strong>"Desativar"</strong> em um cartão de teste. Confirme a ação.
+            <div class="resultado">Cartão removido da listagem principal. Não é excluído — fica inativo no banco para fins de auditoria.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────
+       4. ABA CLIENTES
+  ───────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon ic-clientes">🏢</div>
+      <div>
+        <h2>Clientes</h2>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Empresas vinculadas aos cartões</div>
+      </div>
+      <span class="perfil-tag tag-supervisor">Somente Supervisor</span>
+    </div>
+    <div class="section-body">
+      <p class="descricao">
+        Cadastro das empresas (clientes) que são titulares dos cartões. Um cartão sempre pertence a um cliente. Clientes não podem ser excluídos — apenas editados — para preservar o vínculo histórico com os cartões e os logs de acesso.
+      </p>
+
+      <div class="passos">
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Clique em <strong>"Novo cliente"</strong>. Informe nome da empresa e CNPJ. Salve.
+            <div class="resultado">Cliente criado e disponível para seleção no cadastro de cartões.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Edite o cliente recém-criado alterando o nome. Salve e confirme que o nome aparece atualizado na listagem.
+            <div class="resultado">Nome atualizado. Cartões vinculados refletem o novo nome imediatamente.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────
+       5. ABA LOG DE ACESSOS
+  ───────────────────────────────────────── -->
+  <div class="section">
+    <div class="section-header">
+      <div class="section-icon ic-logs">📋</div>
+      <div>
+        <h2>Log de Acessos</h2>
+        <div style="font-size:12px;color:#6b7280;margin-top:2px;">Auditoria imutável de todas as revelações</div>
+      </div>
+      <span class="perfil-tag tag-supervisor">Somente Supervisor</span>
+    </div>
+    <div class="section-body">
+      <p class="descricao">
+        Registro permanente e imutável de cada vez que um cartão teve seus dados revelados. Inclui quem acessou, qual cartão, localizador informado, endereço IP e data/hora. Não é possível deletar ou alterar registros de log.
+      </p>
+
+      <div class="passos">
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Realize algumas revelações de cartão (passos 3–5 da aba Cartões) e volte ao <strong>Log de Acessos</strong>. Confirme que todas as revelações aparecem registradas.
+            <div class="resultado">Cada acesso listado com: usuário, cartão (mascarado), localizador, data/hora e IP.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Use os filtros disponíveis: <em>localizador</em>, <em>nome do cliente</em>, <em>intervalo de datas</em>. Aplique e confirme que os resultados são filtrados corretamente.
+            <div class="resultado">Resultados filtrados. Paginação de 50 por página.</div>
+          </div>
+        </div>
+
+        <div class="passo">
+          <div class="passo-num"></div>
+          <div class="passo-texto">
+            Clique em <strong>"Exportar CSV"</strong> e depois em <strong>"Exportar XML"</strong>. Verifique se os arquivos são baixados corretamente e contêm os registros filtrados.
+            <div class="resultado">Arquivos <code>acessos.csv</code> e <code>acessos.xml</code> baixados com todos os campos de auditoria.</div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="obs">
+        <strong>Imutabilidade:</strong> Os registros de log são protegidos por trigger no banco de dados — nenhum usuário, nem o próprio administrador do sistema, consegue alterar ou remover entradas do log.
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────────────────────
+       TABELA RESUMO
+  ───────────────────────────────────────── -->
+  <h2 style="font-size:18px;font-weight:700;margin:40px 0 16px;color:#111827;">Resumo de permissões por perfil</h2>
+
+  <div class="section" style="margin-bottom:0;">
+    <div class="section-body" style="padding:0;">
+      <table>
+        <thead>
+          <tr>
+            <th>Funcionalidade</th>
+            <th>Colaborador</th>
+            <th>Supervisor</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>Visualizar lista de cartões (mascarada)</td>     <td class="ok">✓</td><td class="ok">✓</td></tr>
+          <tr><td>Revelar dados (1ª vez com localizador)</td>       <td class="ok">✓</td><td class="ok">✓</td></tr>
+          <tr><td>Solicitar revelação de reuso</td>                <td class="ok">✓</td><td class="ok">✓</td></tr>
+          <tr><td>Aprovar / Rejeitar solicitações</td>             <td class="nao">✗</td><td class="ok">✓</td></tr>
+          <tr><td>Cadastrar / editar / desativar cartões</td>      <td class="nao">✗</td><td class="ok">✓</td></tr>
+          <tr><td>Gerenciar clientes</td>                         <td class="nao">✗</td><td class="ok">✓</td></tr>
+          <tr><td>Ver log completo de acessos</td>                 <td class="nao">✗</td><td class="ok">✓</td></tr>
+          <tr><td>Exportar log (CSV / XML)</td>                   <td class="nao">✗</td><td class="ok">✓</td></tr>
+          <tr><td>Atribuir perfis (colaborador/supervisor)</td>    <td class="nao">✗</td><td class="ok">✓</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Jarvis — Uso interno Grupo Voetur &nbsp;·&nbsp; Cofre de Cartões v1.0
+</footer>
+
+</body>
+</html>
