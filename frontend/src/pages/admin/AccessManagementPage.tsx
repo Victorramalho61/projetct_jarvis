@@ -20,13 +20,19 @@ const ALL_MODULES = [
 
 const PERF_ROLES = new Set(["rh", "gerente", "coordenador_supervisor", "administrativo_operacional"]);
 
+type CardsPermissao = { id: string; user_id: string; perfil: string; ativo: boolean };
+
 function ModulesPanel({
   token,
   username,
+  userId,
+  userNome,
   role,
 }: {
   token: string | null;
   username: string;
+  userId: string;
+  userNome: string;
   role: string;
 }) {
   const { toast, showToast } = useToast();
@@ -34,18 +40,58 @@ function ModulesPanel({
   const [perfRole, setPerfRole] = useState(PERF_ROLES.has(role) ? role : "administrativo_operacional");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [cardsPerfil, setCardsPerfil] = useState<string>("sem_acesso");
+  const [cardsPermId, setCardsPermId] = useState<string | null>(null);
+  const [savingCards, setSavingCards] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    apiFetch<{ allowed_modules: string[] }>(`/api/users/${username}/modules`, { token })
-      .then((d) => setSelected(d.allowed_modules))
-      .catch(() => showToast("Erro ao carregar módulos."))
+    Promise.all([
+      apiFetch<{ allowed_modules: string[] }>(`/api/users/${username}/modules`, { token }),
+      apiFetch<CardsPermissao[]>("/api/cards/permissions", { token }).catch(() => [] as CardsPermissao[]),
+    ]).then(([modulesData, cardsPerms]) => {
+      setSelected(modulesData.allowed_modules);
+      const mine = cardsPerms.find((p) => p.user_id === userId);
+      if (mine && mine.ativo) {
+        setCardsPerfil(mine.perfil);
+        setCardsPermId(mine.id);
+      } else {
+        setCardsPerfil("sem_acesso");
+        setCardsPermId(mine?.id ?? null);
+      }
+    }).catch(() => showToast("Erro ao carregar módulos."))
       .finally(() => setLoading(false));
-  }, [username, token]);
+  }, [username, userId, token]);
 
   useEffect(() => {
     setPerfRole(PERF_ROLES.has(role) ? role : "administrativo_operacional");
   }, [role]);
+
+  async function saveCardsPerfil(perfil: string) {
+    setSavingCards(true);
+    try {
+      if (perfil === "sem_acesso") {
+        if (cardsPermId) {
+          await apiFetch(`/api/cards/permissions/${cardsPermId}`, {
+            method: "PUT", token, json: { ativo: false },
+          });
+        }
+        setCardsPerfil("sem_acesso");
+      } else {
+        const res = await apiFetch<CardsPermissao>("/api/cards/permissions", {
+          method: "POST", token,
+          json: { user_id: userId, user_login: username, user_nome: userNome, perfil },
+        });
+        setCardsPerfil(perfil);
+        setCardsPermId(res.id);
+      }
+      showToast("Perfil do cofre atualizado.");
+    } catch {
+      showToast("Erro ao salvar perfil do cofre.");
+    } finally {
+      setSavingCards(false);
+    }
+  }
 
   function toggle(id: string) {
     setSelected((prev) => prev.includes(id) ? prev.filter((m) => m !== id) : [...prev, id]);
@@ -122,6 +168,22 @@ function ModulesPanel({
                   <p className="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
                     administrativo_operacional → coordenador_supervisor → gerente → rh → admin
                   </p>
+                </div>
+              )}
+              {mod.id === "cartoes" && selected.includes("cartoes") && (
+                <div className="ml-6 mt-1.5 flex items-center gap-2">
+                  <label className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap">Perfil no cofre</label>
+                  <select
+                    value={cardsPerfil}
+                    disabled={savingCards}
+                    onChange={(e) => saveCardsPerfil(e.target.value)}
+                    className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-2 py-1 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-voetur-500 disabled:opacity-50"
+                  >
+                    <option value="sem_acesso">Sem acesso ao cofre</option>
+                    <option value="colaborador">Colaborador — revela dados</option>
+                    <option value="supervisor">Supervisor — aprova + gerencia</option>
+                  </select>
+                  {savingCards && <span className="text-[10px] text-gray-400">salvando…</span>}
                 </div>
               )}
             </div>
@@ -515,6 +577,8 @@ export default function AccessManagementPage() {
           <ModulesPanel
             token={token}
             username={selectedUsername}
+            userId={selectedProfile.id}
+            userNome={selectedProfile.display_name}
             role={selectedProfile.role}
           />
           <ResetPasswordPanel

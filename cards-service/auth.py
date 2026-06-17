@@ -26,7 +26,11 @@ def get_current_user(
 def get_cards_perfil(
     user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Enriquece o user dict com 'cards_perfil' a partir de cards_permissoes."""
+    """Enriquece o user dict com 'cards_perfil' a partir de cards_permissoes.
+    Admins do Jarvis têm acesso total sem precisar de entrada em cards_permissoes."""
+    if user.get("role") == "admin":
+        user["cards_perfil"] = "supervisor"
+        return user
     sb = get_supabase()
     user_id = user.get("user_id") or user.get("id") or user.get("sub") or ""
     row = (
