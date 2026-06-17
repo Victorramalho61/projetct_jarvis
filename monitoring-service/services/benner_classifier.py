@@ -107,6 +107,51 @@ def classify(mensagem: str | None, tipo_erro: int | None = None) -> str:
     return "outros"
 
 
+# Padrões de extração de entidade por categoria
+_DETALHE_PATTERNS: dict[str, list[str]] = {
+    "fornecedor_nao_localizado": [
+        r"Fornecedor do tipo \w+ n[aã]o encontrado com: C[oó]digo (.+?)(?:,|\.|$)",
+        r"Fornecedor com o (?:nome/apelido|nome|apelido) (.+?) n[aã]o encontrado",
+        r"localizar o contrato do fornecedor (.+?)$",
+        r"n[aã]o foi poss[ií]vel encontrar um fornecedor.*?codcia: '([^']+)'",
+        r"Parâmetro Fornecedor - TurVendas - .+? fornecedor (.+?)$",
+        r"Fornecedor n[aã]o encontrado com c[oó]digo: (\d+)",
+    ],
+    "crash_dll": [
+        r"access violation at address ([0-9A-Fa-f]+) in module '([^']+)'",
+    ],
+    "cliente_nao_identificado": [
+        r"cliente n[aã]o encontrado com (?:nome|handle e c[oó]digo) (.+?)$",
+        r"c[oó]digo do cliente n[aã]o informado[^(]*\(([^)]+)\)",
+    ],
+    "envision_usuario": [
+        r"ConverterServicoParaPnrs Id: (\d+)",
+    ],
+    "contrato_nao_localizado": [
+        r"localizar o contrato do fornecedor (.+?)$",
+        r"contrato do fornecedor (.+?)(?:\s*$)",
+    ],
+    "null_reference": [
+        r"(Value cannot be null|Object reference not set|Input string was not in a correct format)",
+    ],
+}
+
+_DETALHE_COMPILED: dict[str, list[re.Pattern]] = {
+    cat: [re.compile(p, re.IGNORECASE | re.MULTILINE) for p in pats]
+    for cat, pats in _DETALHE_PATTERNS.items()
+}
+
+
+def extract_detalhe(categoria: str, mensagem: str | None) -> str | None:
+    """Extrai entidade principal da mensagem para exibição no drill-down."""
+    texto = (mensagem or "").strip()
+    for pat in _DETALHE_COMPILED.get(categoria, []):
+        m = pat.search(texto)
+        if m:
+            return " | ".join(g.strip() for g in m.groups() if g).rstrip(".,")[:80]
+    return None
+
+
 # Labels legíveis para o frontend
 CATEGORIA_LABEL: dict[str, str] = {
     "crash_dll":               "Crash TurVendas.dll",

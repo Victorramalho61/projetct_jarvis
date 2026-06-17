@@ -58,6 +58,17 @@ interface RpaErro {
   rpa_resultado: string | null;
   capturado_em: string;
   mensagem?: string;
+  detalhe?: string | null;
+}
+
+interface CategoriaDetalhe {
+  categoria: string;
+  label: string;
+  total: number;
+  items: RpaErro[];
+  agregado: {
+    top_entidades?: { nome: string; count: number }[];
+  };
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -143,6 +154,11 @@ export default function BennerIntegracaoPage() {
   const [rpaError, setRpaError] = useState<string | null>(null);
   const [rpaAction, setRpaAction] = useState<number | null>(null);
 
+  // drill-down por categoria
+  const [expandedCat, setExpandedCat] = useState<string | null>(null);
+  const [catDetalhe, setCatDetalhe] = useState<Record<string, CategoriaDetalhe>>({});
+  const [catLoading, setCatLoading] = useState<string | null>(null);
+
   // ── carregamento ─────────────────────────────────────────────────────────
 
   const loadSnap = useCallback(async (initial = false) => {
@@ -186,6 +202,22 @@ export default function BennerIntegracaoPage() {
   useEffect(() => {
     if (tab === "rpa") loadRpa();
   }, [tab, loadRpa]);
+
+  // ── drill-down ───────────────────────────────────────────────────────────
+
+  async function toggleCategoria(cat: string) {
+    if (expandedCat === cat) { setExpandedCat(null); return; }
+    setExpandedCat(cat);
+    if (catDetalhe[cat]) return;
+    setCatLoading(cat);
+    try {
+      const d = await apiFetch<CategoriaDetalhe>(
+        `/api/monitoring/benner/rpa/categoria/${cat}?limit=200`, { token }
+      );
+      setCatDetalhe(prev => ({ ...prev, [cat]: d }));
+    } catch { /* silently ignore */ }
+    finally { setCatLoading(null); }
+  }
 
   // ── ações RPA ────────────────────────────────────────────────────────────
 
@@ -509,16 +541,20 @@ export default function BennerIntegracaoPage() {
                 ))}
               </div>
 
-              {/* Por categoria */}
+              {/* Por categoria — com drill-down */}
               {rpaSummary.por_categoria.length > 0 && (
                 <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
-                    <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Distribuição por categoria</h2>
+                    <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      Distribuição por categoria
+                      <span className="ml-1.5 text-xs font-normal text-gray-400">— clique para detalhar</span>
+                    </h2>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="bg-gray-50 dark:bg-gray-700/50 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                          <th className="px-4 py-2.5 font-medium w-4"></th>
                           <th className="px-4 py-2.5 font-medium">Categoria</th>
                           <th className="px-4 py-2.5 font-medium text-right">Total</th>
                           <th className="px-4 py-2.5 font-medium text-right">Pendentes</th>
@@ -527,24 +563,126 @@ export default function BennerIntegracaoPage() {
                           <th className="px-4 py-2.5 font-medium">Taxa auto</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                        {rpaSummary.por_categoria.map(c => (
-                          <tr key={c.categoria} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                            <td className="px-4 py-2.5 font-medium text-gray-700 dark:text-gray-300">{c.label}</td>
-                            <td className="px-4 py-2.5 text-right text-gray-500 tabular-nums">{c.total}</td>
-                            <td className="px-4 py-2.5 text-right text-yellow-600 dark:text-yellow-400 tabular-nums">{c.pendente}</td>
-                            <td className="px-4 py-2.5 text-right text-green-600 dark:text-green-400 tabular-nums">{c.resolvidos}</td>
-                            <td className="px-4 py-2.5 text-right text-orange-600 dark:text-orange-400 tabular-nums">{c.aguardando_input}</td>
-                            <td className="px-4 py-2.5">
-                              <div className="flex items-center gap-2">
-                                <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
-                                  <div className="h-full bg-green-500" style={{ width: `${c.taxa_resolucao_pct}%` }} />
-                                </div>
-                                <span className="text-[11px] text-gray-500 tabular-nums w-8 text-right">{c.taxa_resolucao_pct}%</span>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                      <tbody>
+                        {rpaSummary.por_categoria.map(c => {
+                          const isOpen = expandedCat === c.categoria;
+                          const detalhe = catDetalhe[c.categoria];
+                          const isLoading = catLoading === c.categoria;
+                          return (
+                            <>
+                              <tr
+                                key={c.categoria}
+                                onClick={() => toggleCategoria(c.categoria)}
+                                className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 transition-colors"
+                              >
+                                <td className="px-3 py-2.5 text-gray-400">
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                                    className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>
+                                    <polyline points="9 18 15 12 9 6"/>
+                                  </svg>
+                                </td>
+                                <td className="px-4 py-2.5 font-medium text-gray-700 dark:text-gray-300">{c.label}</td>
+                                <td className="px-4 py-2.5 text-right text-gray-500 tabular-nums">{c.total}</td>
+                                <td className="px-4 py-2.5 text-right text-yellow-600 dark:text-yellow-400 tabular-nums">{c.pendente}</td>
+                                <td className="px-4 py-2.5 text-right text-green-600 dark:text-green-400 tabular-nums">{c.resolvidos}</td>
+                                <td className="px-4 py-2.5 text-right text-orange-600 dark:text-orange-400 tabular-nums">{c.aguardando_input}</td>
+                                <td className="px-4 py-2.5">
+                                  <div className="flex items-center gap-2">
+                                    <div className="flex-1 h-1.5 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                                      <div className="h-full bg-green-500" style={{ width: `${c.taxa_resolucao_pct}%` }} />
+                                    </div>
+                                    <span className="text-[11px] text-gray-500 tabular-nums w-8 text-right">{c.taxa_resolucao_pct}%</span>
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {isOpen && (
+                                <tr key={`${c.categoria}-detail`}>
+                                  <td colSpan={7} className="p-0 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                                    {isLoading && (
+                                      <div className="flex items-center justify-center py-8 gap-2 text-xs text-gray-400">
+                                        <div className="w-4 h-4 border-2 border-brand-green border-t-transparent rounded-full animate-spin" />
+                                        Carregando erros...
+                                      </div>
+                                    )}
+
+                                    {!isLoading && detalhe && (
+                                      <div className="p-4 space-y-3">
+
+                                        {/* Top entidades (fornecedores, endereços, etc.) */}
+                                        {detalhe.agregado.top_entidades && detalhe.agregado.top_entidades.length > 0 && (
+                                          <div>
+                                            <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                                              {c.categoria === "fornecedor_nao_localizado" ? "Fornecedores ausentes no cadastro" :
+                                               c.categoria === "crash_dll" ? "Endereços de crash" :
+                                               c.categoria === "cliente_nao_identificado" ? "Clientes não identificados" :
+                                               c.categoria === "envision_usuario" ? "Serviços afetados" :
+                                               "Ocorrências"}
+                                            </p>
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {detalhe.agregado.top_entidades.map(e => (
+                                                <span key={e.nome} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 shadow-sm">
+                                                  {e.nome}
+                                                  <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-[9px] font-bold">{e.count}</span>
+                                                </span>
+                                              ))}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        {/* Tabela de erros */}
+                                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                          <div className="px-3 py-2 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 text-[11px] text-gray-500">
+                                            {detalhe.total} erros acumulados
+                                            {detalhe.items.length < detalhe.total && ` (exibindo ${detalhe.items.length})`}
+                                          </div>
+                                          <div className="overflow-x-auto max-h-72">
+                                            <table className="w-full text-xs">
+                                              <thead className="sticky top-0">
+                                                <tr className="bg-gray-100 dark:bg-gray-700 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                                  <th className="px-3 py-2 font-medium whitespace-nowrap">Data</th>
+                                                  <th className="px-3 py-2 font-medium">Produto</th>
+                                                  <th className="px-3 py-2 font-medium">Sistema</th>
+                                                  <th className="px-3 py-2 font-medium">Reserva</th>
+                                                  <th className="px-3 py-2 font-medium">
+                                                    {c.categoria === "fornecedor_nao_localizado" ? "Fornecedor" :
+                                                     c.categoria === "crash_dll" ? "Endereço DLL" :
+                                                     c.categoria === "cliente_nao_identificado" ? "Cliente" :
+                                                     c.categoria === "envision_usuario" ? "Serviço ID" :
+                                                     "Detalhe"}
+                                                  </th>
+                                                  <th className="px-3 py-2 font-medium">Mensagem</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                                {detalhe.items.map(e => (
+                                                  <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                                                    <td className="px-3 py-2 whitespace-nowrap text-gray-400 tabular-nums">{fmt(e.capturado_em)}</td>
+                                                    <td className="px-3 py-2 whitespace-nowrap">
+                                                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{e.produto || "—"}</span>
+                                                    </td>
+                                                    <td className="px-3 py-2 text-gray-400 whitespace-nowrap">{e.sistema_origem || "—"}</td>
+                                                    <td className="px-3 py-2 font-mono text-gray-600 dark:text-gray-300 whitespace-nowrap">{e.codigo_reserva || "—"}</td>
+                                                    <td className="px-3 py-2 text-gray-700 dark:text-gray-200 font-medium max-w-[180px] truncate" title={e.detalhe || ""}>
+                                                      {e.detalhe || <span className="text-gray-400 italic">—</span>}
+                                                    </td>
+                                                    <td className="px-3 py-2 text-gray-500 dark:text-gray-400 max-w-[260px] truncate" title={e.mensagem || ""}>
+                                                      {e.mensagem ? e.mensagem.slice(0, 120) : "—"}
+                                                    </td>
+                                                  </tr>
+                                                ))}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>

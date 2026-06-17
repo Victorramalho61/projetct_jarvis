@@ -1,5 +1,6 @@
 """Endpoints RPA Benner — dashboard de monitoramento das automações."""
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -7,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from auth import get_current_user, require_role
 from db import get_supabase
 from limiter import limiter
-from services.benner_classifier import CATEGORIA_LABEL
+from services.benner_classifier import CATEGORIA_LABEL, extract_detalhe
 
 router = APIRouter(prefix="/monitoring/benner/rpa", tags=["benner-rpa"])
 logger = logging.getLogger(__name__)
@@ -74,6 +75,89 @@ async def rpa_summary(
         "resolvidos_hoje": resolvidos_hoje,
         "por_categoria": categorias,
         "rpa_ativo": False,  # flag explícito — executor não está agendado ainda
+    }
+
+
+# ── drill-down por categoria ────────────────────────────────────────────────
+
+@router.get("/categoria/{categoria}")
+@limiter.limit("60/minute")
+async def rpa_categoria_detail(
+    categoria: str,
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(100, ge=1, le=500),
+    _=Depends(get_current_user),
+):
+    """Retorna erros de uma categoria com detalhe extraído + agregações."""
+    sb = get_supabase()
+    try:
+        resp = (
+            sb.table("benner_erros")
+            .select("id,benner_handle,produto,sistema_origem,codigo_reserva,mensagem,rpa_status,rpa_tentativas,rpa_ultima_acao,capturado_em")
+            .eq("rpa_categoria", categoria)
+            .order("capturado_em", desc=True)
+            .range((page - 1) * limit, page * limit - 1)
+            .execute()
+        )
+        # total
+        total_resp = (
+            sb.table("benner_erros")
+            .select("id", count="exact")
+            .eq("rpa_categoria", categoria)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"Falha ao consultar categoria: {exc}") from exc
+
+    items = resp.data or []
+    total = total_resp.count or 0
+
+    # Extrai detalhe de cada item
+    detalhe_counter: Counter = Counter()
+    for item in items:
+        d = extract_detalhe(categoria, item.get("mensagem"))
+        item["detalhe"] = d
+        if d:
+            detalhe_counter[d] += 1
+
+    # Agrega entidades mais frequentes (top 50)
+    agregado: dict = {}
+    if detalhe_counter:
+        agregado["top_entidades"] = [
+            {"nome": nome, "count": count}
+            for nome, count in detalhe_counter.most_common(50)
+        ]
+
+    # Para fornecedor: busca total acumulado em TODAS as páginas
+    if categoria == "fornecedor_nao_localizado":
+        try:
+            all_resp = (
+                sb.table("benner_erros")
+                .select("mensagem")
+                .eq("rpa_categoria", categoria)
+                .execute()
+            )
+            all_counter: Counter = Counter()
+            for row in (all_resp.data or []):
+                d = extract_detalhe(categoria, row.get("mensagem"))
+                if d:
+                    all_counter[d] += 1
+            agregado["top_entidades"] = [
+                {"nome": nome, "count": count}
+                for nome, count in all_counter.most_common(50)
+            ]
+        except Exception:
+            pass
+
+    return {
+        "categoria": categoria,
+        "label": CATEGORIA_LABEL.get(categoria, categoria),
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "items": items,
+        "agregado": agregado,
     }
 
 
