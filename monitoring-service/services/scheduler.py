@@ -34,12 +34,20 @@ async def _ensure_waha_session() -> None:
 
 
 async def _sync_benner() -> None:
-    """Captura snapshot comprimido do Benner e salva no Supabase; alerta se houver erros novos."""
+    """Captura snapshot comprimido + coleta erros individuais no Benner."""
     from db import get_settings
     from benner_db import query_new_errors
     from services.benner_monitor import sync_benner_snapshot
+    from services.benner_collector import collect_benner_erros
 
     await sync_benner_snapshot()
+
+    try:
+        inserted = await collect_benner_erros(horas=48)
+        if inserted:
+            logger.info("benner_collector: %d novos erros acumulados em benner_erros", inserted)
+    except Exception as exc:
+        logger.warning("benner_collector: falha na coleta acumulada: %s", exc)
 
     try:
         errors = await asyncio.to_thread(query_new_errors, 15)

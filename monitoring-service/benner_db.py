@@ -6,6 +6,32 @@ import pyodbc
 
 from db import get_settings
 
+# ── mapeamento produto → nome amigável ────────────────────────────────────────
+_PRODUTO_MAP: dict[str, str] = {
+    "flight":        "Aéreo",
+    "hotel":         "Hotelaria",
+    "pnr":           "PNR",
+    "rodoviario":    "Rodoviário",
+    "ordem serviço": "Ordem de Serviço",
+    "ordem servico": "Ordem de Serviço",
+    "pedido":        "Pedido",
+    "solicitação":   "Solicitação",
+    "solicitacao":   "Solicitação",
+    "airticket":     "Air Ticket",
+    "outros":        "Outros",
+}
+
+
+def _map_sistema_origem(produto: str | None, origem: int | None) -> str:
+    """Deriva nome amigável do sistema a partir de PRODUTO + ORIGEMFORNECEDOR.
+    ORIGEMFORNECEDOR=3 indica integração GDS/OTA externa (sufixo ' GDS').
+    """
+    key = (produto or "").lower().strip()
+    nome = _PRODUTO_MAP.get(key) or (produto or "Benner").strip()
+    if origem == 3:
+        return f"{nome} GDS"
+    return nome
+
 logger = logging.getLogger(__name__)
 
 _DRIVER_WIN = "{SQL Server}"
@@ -74,10 +100,9 @@ def query_summary(hours: int = 24) -> dict:
         """
         SELECT TOP 50
             l.HANDLE, l.SITUACAO, l.PRODUTO, l.CODIGORESERVA, l.DATAREENVIO, l.MENSAGEM,
-            COALESCE(i.SISRES, 'Benner') AS SISTEMA,
+            l.ORIGEMFORNECEDOR,
             COALESCE(e.NOMEFANTASIA, CAST(l.EMPRESA AS VARCHAR(20))) AS CLIENTE
         FROM BB_LOGINTEGRACOES l
-        LEFT JOIN BB_INTEGRACAO i ON i.HANDLE = l.CONFIGURACAOINTEGRACAO
         LEFT JOIN EMPRESAS e ON e.HANDLE = l.EMPRESA
         WHERE l.SITUACAO != 1
           AND l.DATAREENVIO >= DATEADD(HOUR, ?, GETDATE())
@@ -93,7 +118,7 @@ def query_summary(hours: int = 24) -> dict:
             "reserva": r[3],
             "data": r[4].isoformat() if r[4] else None,
             "mensagem": r[5],
-            "sistema": r[6],
+            "sistema": _map_sistema_origem(r[2], r[6]),
             "cliente": r[7],
         }
         for r in cur.fetchall()

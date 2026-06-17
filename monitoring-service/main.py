@@ -22,6 +22,7 @@ from limiter import limiter
 from routes.health import router as health_router
 from routes.monitoring import router as monitoring_router
 from routes.benner_logs import router as benner_router
+from routes.benner_rpa import router as benner_rpa_router
 from services.scheduler import start_scheduler, stop_scheduler
 
 
@@ -67,3 +68,4 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 app.include_router(health_router)
 app.include_router(monitoring_router, prefix="/api")
 app.include_router(benner_router, prefix="/api")
+app.include_router(benner_rpa_router, prefix="/api")
