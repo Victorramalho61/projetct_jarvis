@@ -602,16 +602,21 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   const [modalBranches, setModalBranches] = useState<any[]>([]);
   const [modalManagers, setModalManagers] = useState<any[]>([]);
 
-  // Carrega filiais e gestores quando empresa do form muda
+  // Carrega filiais quando empresa do form muda; gestores de TODAS as empresas (gestor pode ser de outra empresa)
   useEffect(() => {
     const cid = (modal.item as any)?.company_id;
-    if (!cid) { setModalBranches([]); setModalManagers([]); return; }
+    if (!cid) { setModalBranches([]); return; }
     apiFetch<any[]>(`/api/performance/admin/branches?company_id=${cid}`, { token })
       .then(b => setModalBranches(b || [])).catch(() => setModalBranches([]));
-    apiFetch<any[]>(`/api/performance/admin/employees?company_id=${cid}`, { token })
+  }, [(modal.item as any)?.company_id, token]);
+
+  // Gestores de todas as empresas — carrega uma vez quando o modal abre
+  useEffect(() => {
+    if (!modal.open) return;
+    apiFetch<any[]>(`/api/performance/admin/employees`, { token })
       .then(emps => setModalManagers((emps || []).filter((e: any) => e.level === "gerente" || e.level === "coordenador_supervisor")))
       .catch(() => setModalManagers([]));
-  }, [(modal.item as any)?.company_id, token]);
+  }, [modal.open, token]);
 
   useEffect(() => {
     if (!selCompany) { setBranches([]); setSelBranch(""); return; }
