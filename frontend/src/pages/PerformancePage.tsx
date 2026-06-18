@@ -392,9 +392,18 @@ function TabIndicadores() {
   const [list, setList] = useState<Indicator[]>([]);
   const [loading, setLoading] = useState(true);
   const [levelFilter, setLevelFilter] = useState<string>("");
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ open: boolean; item: Partial<Indicator> | null }>({ open: false, item: null });
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState("");
+
+  function toggleExpand(id: string) {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   function load() {
     setLoading(true);
@@ -462,8 +471,8 @@ function TabIndicadores() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700">
-                {["Nível/Perfil", "Nome", "Descrição", "Status", "Ações"].map(h => (
-                  <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 ${h === "Descrição" ? "hidden md:table-cell" : ""}`}>{h}</th>
+                {["Nível/Perfil", "Nome (clique para descrição)", "Status", "Ações"].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -479,8 +488,22 @@ function TabIndicadores() {
                       {perfLabel && <span className="text-xs text-gray-400">{perfLabel}</span>}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{it.name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell max-w-xs truncate">{it.description || "—"}</td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => it.description && toggleExpand(it.id!)}
+                      className={`text-left group ${it.description ? "cursor-pointer" : ""}`}
+                      title={it.description ? "Clique para ver a descrição" : ""}>
+                      <span className="text-sm font-medium text-gray-900 dark:text-gray-100 group-hover:text-[#00694E] dark:group-hover:text-emerald-400 transition-colors">
+                        {it.name}
+                        {it.description && (
+                          <span className="ml-1.5 text-xs text-gray-400">{expanded.has(it.id!) ? "▲" : "▼"}</span>
+                        )}
+                      </span>
+                      {expanded.has(it.id!) && it.description && (
+                        <p className="mt-1.5 text-xs text-gray-600 dark:text-gray-400 leading-relaxed max-w-sm whitespace-normal">{it.description}</p>
+                      )}
+                    </button>
+                  </td>
+                  <td className="hidden" />
                   <td className="px-4 py-3"><Badge color={it.active ? "green" : "gray"}>{it.active ? "Ativo" : "Inativo"}</Badge></td>
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center justify-end gap-2">
@@ -1112,32 +1135,33 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   return (
     <div className="space-y-4">
 
-      {/* ── Acesso rápido: Ciência Presencial ── */}
-      <div className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 dark:border-[#00694E]/30 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-[#00694E]/10 dark:bg-[#00694E]/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-lg">📋</span>
+      {/* ── Links para páginas presenciais (para distribuir aos colaboradores) ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {[
+          { icon: "📋", title: "Ciência Presencial", desc: "Colaboradores consultam e registram ciência da avaliação via CPF.", href: "/ciencia-presencial" },
+          { icon: "✏️", title: "Auto-Avaliação Presencial", desc: "Colaboradores preenchem a auto-avaliação via CPF (sem precisar de e-mail).", href: "/auto-avaliacao-presencial" },
+        ].map(link => (
+          <div key={link.href} className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 dark:border-[#00694E]/30 rounded-xl p-4 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-lg bg-[#00694E]/10 dark:bg-[#00694E]/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <span className="text-lg">{link.icon}</span>
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-[#00694E] dark:text-emerald-300">{link.title}</p>
+                <p className="text-xs text-[#00694E]/70 dark:text-emerald-400/70 mt-0.5">{link.desc}</p>
+                <p className="text-xs text-gray-400 mt-1 font-mono">jarvis.voetur.com.br{link.href}</p>
+              </div>
+            </div>
+            <a href={link.href} target="_blank" rel="noopener noreferrer"
+              className="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 bg-[#00694E] hover:bg-[#004F3A] text-white text-xs font-semibold rounded-lg transition-all">
+              Abrir
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+              </svg>
+            </a>
           </div>
-          <div>
-            <p className="text-sm font-semibold text-[#00694E] dark:text-emerald-300">Ciência Presencial</p>
-            <p className="text-xs text-[#00694E]/80 dark:text-emerald-400/80 mt-0.5">
-              Colaboradores sem e-mail acessam aqui para consultar e registrar ciência da avaliação.
-            </p>
-          </div>
-        </div>
-        <a
-          href="/ciencia-presencial"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all"
-        >
-          Abrir página
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
-            <polyline points="15 3 21 3 21 9"/>
-            <line x1="10" y1="14" x2="21" y2="3"/>
-          </svg>
-        </a>
+        ))}
       </div>
 
       <Card className="p-4 flex flex-wrap gap-3 items-end">
