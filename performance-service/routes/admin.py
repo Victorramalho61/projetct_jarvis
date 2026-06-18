@@ -48,27 +48,24 @@ def _cache_invalidate_prefix(prefix: str) -> None:
 _LEVEL_MAP = {
     "gerente": 1,
     "coordenador_supervisor": 2,
-    "administrativo_operacional": 3,
     "administrativo": 3,
-    "operacional": 4,           # nível próprio: indicadores diferentes do administrativo
+    "operacional": 3,
 }
-_LEVEL_RMAP = {1: "gerente", 2: "coordenador_supervisor", 3: "administrativo", 4: "operacional"}
-# Mantém legado: hierarchy_level=3 sem perfil → "administrativo_operacional"
-_LEVEL_RMAP_LEGACY = {3: "administrativo_operacional"}
-
-# Todos os perfis válidos para armazenar na coluna `perfil`
-_PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"}
+_PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo", "operacional"}
 
 
 def _emp_out(e: dict) -> dict:
     out = dict(e)
+    hl = e.get("hierarchy_level") or 3
     perfil = e.get("perfil") or ""
-    if perfil in _PERFIS_VALIDOS:
+    if hl == 1:
+        out["level"] = "gerente"
+    elif hl == 2:
+        out["level"] = "coordenador_supervisor"
+    elif perfil in ("administrativo", "operacional"):
         out["level"] = perfil
     else:
-        # Legado: hierarchy_level sem perfil → rótulo genérico
-        hl = e.get("hierarchy_level")
-        out["level"] = _LEVEL_RMAP.get(hl, "administrativo_operacional") if hl in (1, 2, 4) else "administrativo_operacional"
+        out["level"] = "administrativo_operacional"  # legado — sem perfil definido
     out["cpf"] = e.get("cpf") or ""
     return out
 
@@ -234,7 +231,7 @@ def dashboard_pending_evaluators(
     emp_q = (
         db.table("performance_employees")
         .select("id,name,cargo,manager_id")
-        .in_("hierarchy_level", [2, 3, 4])
+        .in_("hierarchy_level", [2, 3])
         .eq("active", True)
     )
     if company_id:
@@ -323,7 +320,7 @@ def dashboard_pending_self_eval(
     _PERFIL_LABEL = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                      "administrativo": "Administrativo", "operacional": "Operacional",
                      "administrativo_operacional": "Adm./Operacional"}
-    _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional", 4: "Operacional"}
+    _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
     def _level_str(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL.get(p) or _HLEVEL_LABEL.get(emp_data.get("hierarchy_level"), "")
@@ -457,7 +454,7 @@ def dashboard_export(
     _PERFIL_LABEL_XLS = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                          "administrativo": "Administrativo", "operacional": "Operacional",
                          "administrativo_operacional": "Adm./Operacional"}
-    _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional", 4: "Operacional"}
+    _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
     def _emp_level_label(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL_XLS.get(p) or _HLEVEL_LABEL_XLS.get(emp_data.get("hierarchy_level"), "")
@@ -901,7 +898,7 @@ class EmployeeBody(BaseModel):
 
     @property
     def perfil(self) -> str:
-        return self.level if self.level in _PERFIS_VALIDOS else "administrativo_operacional"
+        return self.level if self.level in _PERFIS_VALIDOS else ""
 
 
 _PREPS = {"da", "de", "di", "do", "dos", "das", "e"}
@@ -1090,16 +1087,12 @@ async def import_employees(
     NIVEL_MAP = {
         "gerente": 1,
         "coordenador-supervisor": 2,
-        "operacional-administrativo": 3,   # legado
-        "administrativo-operacional": 3,   # legado alternativo
         "administrativo": 3,
-        "operacional": 4,                  # nível próprio com indicadores distintos
+        "operacional": 3,
     }
     NIVEL_PERFIL = {
         "gerente": "gerente",
         "coordenador-supervisor": "coordenador_supervisor",
-        "operacional-administrativo": "administrativo_operacional",
-        "administrativo-operacional": "administrativo_operacional",
         "administrativo": "administrativo",
         "operacional": "operacional",
     }
@@ -1407,7 +1400,7 @@ def send_tokens_current_cycle(
     employees_to_eval = (
         db.table("performance_employees")
         .select("id,name,cargo,email,has_corporate_email,hierarchy_level,manager_id,branch_id,company_id")
-        .in_("hierarchy_level", [2, 3, 4])
+        .in_("hierarchy_level", [2, 3])
         .eq("active", True)
         .execute()
         .data
@@ -1941,42 +1934,91 @@ def export_evaluations(
     status_filter: str | None = None,
     company_id: str | None = None,
 ):
+    import openpyxl
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+
     db = get_supabase()
     cycle = _get_current_cycle(db)
-    if not cycle:
-        return StreamingResponse(iter([""]), media_type="text/csv")
 
-    q = db.table("performance_reviews").select("*").eq("cycle_id", cycle["id"])
-    reviews = q.execute().data
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Avaliações"
 
-    all_ids = set()
-    for r in reviews:
-        if r.get("employee_id"):
-            all_ids.add(r["employee_id"])
-        if r.get("evaluator_id"):
-            all_ids.add(r["evaluator_id"])
-    emp_map: dict[str, dict] = {}
-    if all_ids:
-        emps = db.table("performance_employees").select("id,name,cargo,company_id").in_("id", list(all_ids)).execute().data
-        emp_map = {e["id"]: e for e in emps}
+    header_fill = PatternFill("solid", fgColor="00694E")
+    header_font = Font(bold=True, color="FFFFFF", size=11)
+    thin = Side(style="thin", color="CCCCCC")
+    thin_border = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    out = io.StringIO()
-    w = csv.writer(out)
-    w.writerow(["Colaborador", "Cargo", "Avaliador", "Nota Final", "Status", "Enviado em"])
-    for r in reviews:
-        emp = emp_map.get(r.get("employee_id", ""), {})
-        if company_id and emp.get("company_id") != company_id:
-            continue
-        if status_filter and r.get("status") != status_filter:
-            continue
-        evaluator = emp_map.get(r.get("evaluator_id", ""), {})
-        w.writerow([emp.get("name", ""), emp.get("cargo", ""), evaluator.get("name", ""),
-                    r.get("final_score", ""), r.get("status", ""), r.get("submitted_at", "")])
-    out.seek(0)
+    headers = ["Colaborador", "Cargo", "Nível", "Avaliador", "Nota Final", "Status", "Auto-Aval.", "Enviado em"]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = thin_border
+
+    STATUS_LABEL = {"pending": "Pendente", "completed": "Avaliado", "calibrated": "Calibrado",
+                    "acknowledged": "Ciência Dada"}
+
+    if cycle:
+        # Usa list_evaluations para ter dados completos (inclui todos L2+L3)
+        from routes.admin import list_evaluations as _le  # noqa — import circular evitado com alias
+        # Chama diretamente a lógica de list_evaluations
+        reviews_raw = (
+            db.table("performance_reviews").select("*")
+            .eq("cycle_id", cycle["id"]).eq("is_self_evaluation", False).execute().data
+        )
+        base_emps = (
+            db.table("performance_employees")
+            .select("id,name,cargo,company_id,has_corporate_email,hierarchy_level,perfil")
+            .in_("hierarchy_level", [2, 3]).eq("active", True).execute().data
+        )
+        emp_map2 = {e["id"]: e for e in base_emps}
+        rev_by_emp = {r["employee_id"]: r for r in reviews_raw if r.get("employee_id")}
+        ev_ids = {r.get("evaluator_id") for r in reviews_raw if r.get("evaluator_id")}
+        if ev_ids:
+            mgrs = db.table("performance_employees").select("id,name").in_("id", list(ev_ids)).execute().data
+            for m in mgrs: emp_map2[m["id"]] = emp_map2.get(m["id"]) or m
+
+        self_done = {
+            se["employee_id"] for se in db.table("performance_reviews").select("employee_id")
+            .eq("cycle_id", cycle["id"]).eq("is_self_evaluation", True).eq("status", "completed").execute().data
+        }
+
+        for emp in sorted(base_emps, key=lambda x: x.get("name", "")):
+            if company_id and emp.get("company_id") != company_id:
+                continue
+            r = rev_by_emp.get(emp["id"])
+            if status_filter and (r.get("status") if r else "pending") != status_filter:
+                continue
+            ev = emp_map2.get((r.get("evaluator_id") if r else None) or "", {})
+            perfil = emp.get("perfil") or ""
+            lvl = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
+                   "administrativo": "Administrativo", "operacional": "Operacional"}.get(perfil, "")
+            ws.append([
+                emp.get("name", ""),
+                emp.get("cargo", ""),
+                lvl,
+                ev.get("name", ""),
+                float(r["final_score"]) if r and r.get("final_score") is not None else "",
+                STATUS_LABEL.get(r.get("status", "pending") if r else "pending", "Pendente"),
+                "Concluída" if emp["id"] in self_done else "Pendente",
+                (r.get("submitted_at") or "")[:19].replace("T", " ") if r else "",
+            ])
+            for cell in ws[ws.max_row]:
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+
+    for i, col in enumerate(headers, 1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(i)].width = max(14, len(col) + 6)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
     return StreamingResponse(
-        iter([out.getvalue()]),
-        media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=avaliacoes.csv"},
+        iter([buf.getvalue()]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=avaliacoes.xlsx"},
     )
 
 
@@ -1996,7 +2038,7 @@ def list_evaluations(
     base_emps_raw = (
         db.table("performance_employees")
         .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
-        .in_("hierarchy_level", [2, 3, 4])
+        .in_("hierarchy_level", [2, 3])
         .eq("active", True)
         .execute()
         .data

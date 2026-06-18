@@ -57,13 +57,16 @@ def get_evaluation_form(token: str, request: Request) -> dict:
     employee_id = t.get("employee_id")
     if not employee_id:
         raise HTTPException(400, detail="Token sem colaborador vinculado. Gere novos tokens.")
-    employee = db.table("performance_employees").select("id,name,matricula,cargo,hierarchy_level").eq("id", employee_id).execute()
+    employee = db.table("performance_employees").select("id,name,matricula,cargo,hierarchy_level,perfil").eq("id", employee_id).execute()
     if not employee.data:
         raise HTTPException(404, detail="Colaborador não encontrado.")
     emp = employee.data[0]
 
     emp_level = emp.get("hierarchy_level") or 3
+    emp_perfil = emp.get("perfil") or ""
     ind_q = db.table("performance_indicators").select("id,name,description").eq("active", True).eq("hierarchy_level", emp_level)
+    if emp_level == 3 and emp_perfil in ("administrativo", "operacional"):
+        ind_q = ind_q.eq("perfil", emp_perfil)
     indicators = ind_q.order("created_at").execute().data
 
     branch_name = (ev.get("performance_branches") or {}).get("name", "") if isinstance(ev.get("performance_branches"), dict) else ""
@@ -364,9 +367,7 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
 
     employee = employees[0]
 
-    if employee.get("has_corporate_email"):
-        _log_attempt()
-        raise HTTPException(400, detail="Este colaborador possui e-mail corporativo. Use o link enviado por e-mail para dar sua ciência.")
+    # Acesso presencial disponível para todos (com ou sem e-mail corporativo)
 
     nome_digitado = _normalize_name(body.nome)
     nome_cadastrado = _normalize_name(employee["name"])
@@ -507,9 +508,7 @@ def buscar_auto_avaliacao_presencial(body: AutoAvaliacaoPresencialBusca, request
 
     employee = employees[0]
 
-    if employee.get("has_corporate_email"):
-        _log_attempt()
-        raise HTTPException(400, detail="Este colaborador possui e-mail corporativo. Use o link enviado por e-mail para realizar a auto-avaliação.")
+    # Acesso presencial disponível para todos (com ou sem e-mail corporativo)
 
     nome_digitado = _normalize_name(body.nome)
     nome_cadastrado = _normalize_name(employee["name"])
@@ -564,17 +563,13 @@ def buscar_auto_avaliacao_presencial(body: AutoAvaliacaoPresencialBusca, request
     else:
         token_value = tok_res[0]["token"]
 
-    # Buscar indicadores pelo nível hierárquico do colaborador
+    # Buscar indicadores pelo nível hierárquico + perfil do colaborador
     emp_level = employee.get("hierarchy_level") or 3
-    indicators = (
-        db.table("performance_indicators")
-        .select("id,name,description")
-        .eq("active", True)
-        .eq("hierarchy_level", emp_level)
-        .order("created_at")
-        .execute()
-        .data
-    )
+    emp_perfil = employee.get("perfil") or ""
+    ind_q = db.table("performance_indicators").select("id,name,description").eq("active", True).eq("hierarchy_level", emp_level)
+    if emp_level == 3 and emp_perfil in ("administrativo", "operacional"):
+        ind_q = ind_q.eq("perfil", emp_perfil)
+    indicators = ind_q.order("created_at").execute().data
 
     company_name = ""
     if employee.get("company_id"):
@@ -618,22 +613,18 @@ def get_self_evaluation_form(token: str, request: Request) -> dict:
         raise HTTPException(400, detail="O ciclo de avaliação está encerrado.")
 
     employee = db.table("performance_employees").select(
-        "id,name,matricula,cargo,hierarchy_level,company_id, performance_companies(name)"
+        "id,name,matricula,cargo,hierarchy_level,perfil,company_id, performance_companies(name)"
     ).eq("id", t["employee_id"]).execute()
     if not employee.data:
         raise HTTPException(404, detail="Colaborador não encontrado.")
     emp = employee.data[0]
 
     emp_level = emp.get("hierarchy_level") or 3
-    indicators = (
-        db.table("performance_indicators")
-        .select("id,name,description")
-        .eq("active", True)
-        .eq("hierarchy_level", emp_level)
-        .order("created_at")
-        .execute()
-        .data
-    )
+    emp_perfil = emp.get("perfil") or ""
+    ind_q = db.table("performance_indicators").select("id,name,description").eq("active", True).eq("hierarchy_level", emp_level)
+    if emp_level == 3 and emp_perfil in ("administrativo", "operacional"):
+        ind_q = ind_q.eq("perfil", emp_perfil)
+    indicators = ind_q.order("created_at").execute().data
 
     company_name = (emp.get("performance_companies") or {}).get("name", "") if isinstance(emp.get("performance_companies"), dict) else ""
 

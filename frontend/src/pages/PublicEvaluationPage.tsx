@@ -5,11 +5,11 @@ type Indicator = { id: string; name: string; description?: string };
 type Employee  = { id: string; name: string; matricula: string; cargo: string; hierarchy_level?: number };
 
 const SCORE_OPTIONS = [
-  { value: 5, label: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
-  { value: 4, label: "SE",  desc: "Supera as Expectativas",              color: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
-  { value: 3, label: "AE",  desc: "Atende as Expectativas",              color: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
-  { value: 2, label: "APE", desc: "Atende Parcialmente as Expectativas", color: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
-  { value: 1, label: "NAE", desc: "Não Atende às Expectativas",          color: "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+  { value: 5, label: "5", sublabel: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
+  { value: 4, label: "4", sublabel: "SE",  desc: "Supera as Expectativas",              color: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  { value: 3, label: "3", sublabel: "AE",  desc: "Atende as Expectativas",              color: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  { value: 2, label: "2", sublabel: "APE", desc: "Atende Parcialmente as Expectativas", color: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+  { value: 1, label: "1", sublabel: "NAE", desc: "Não Atende às Expectativas",          color: "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
 ];
 
 const SOCIALS = [
@@ -496,8 +496,9 @@ export default function PublicEvaluationPage() {
                 {SCORE_OPTIONS.map(opt => (
                   <div key={opt.value}
                     className={`flex flex-col items-center py-2 px-2 rounded-xl border ${opt.color} text-center`}>
-                    <span className="text-xs font-black mb-0.5">{opt.label}</span>
-                    <span className="text-[10px] leading-tight">{opt.desc}</span>
+                    <span className="text-lg font-black leading-none">{opt.label}</span>
+                    <span className="text-xs font-bold">{opt.sublabel}</span>
+                    <span className="text-[10px] leading-tight mt-0.5">{opt.desc}</span>
                   </div>
                 ))}
               </div>
@@ -569,8 +570,9 @@ export default function PublicEvaluationPage() {
                                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-300 bg-white dark:bg-gray-800"
                               }`}
                             >
-                              <span className="text-sm font-bold mb-0.5">{opt.label}</span>
-                              <span className="text-center leading-tight text-[10px]">{opt.desc}</span>
+                              <span className="text-lg font-black leading-none">{opt.label}</span>
+                              <span className="text-xs font-bold">{opt.sublabel}</span>
+                              <span className="text-center leading-tight text-[10px] mt-0.5">{opt.desc}</span>
                               {isExtreme && (
                                 <span className="mt-1 text-[9px] font-medium opacity-70">
                                   {opt.value === 5 ? "★ justif." : "⚠ justif."}

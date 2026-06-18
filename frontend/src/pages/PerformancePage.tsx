@@ -17,7 +17,7 @@ type TabDef = { id: string; label: string; icon: string; roles: AppRole[] };
 
 const TABS: TabDef[] = [
   { id: "dashboard",          label: "Dashboard",          icon: "📊", roles: ["admin", "rh", "gerente"] },
-  { id: "indicadores",        label: "Indicadores",        icon: "📋", roles: ["admin", "rh"] },
+  { id: "indicadores",        label: "Competências",       icon: "🎯", roles: ["admin", "rh"] },
   { id: "hierarquia",         label: "Hierarquia",         icon: "🏢", roles: ["admin", "rh"] },
   { id: "gestao-rh",          label: "Gestão RH",          icon: "⚙️", roles: ["admin", "rh"] },
   { id: "ciclo",              label: "Ciclo",              icon: "🔄", roles: ["admin", "rh"] },
@@ -96,7 +96,7 @@ function ModalWrapper({ open, onClose, title, children }: { open: boolean; onClo
 
 // ─── Tab Dashboard ────────────────────────────────────────────────────────────
 
-type DrilldownModal = "pending-evaluators" | "pending-ciencia" | "pending-self-eval" | null;
+type DrilldownModal = "pending-evaluators" | "pending-ciencia" | "pending-self-eval" | "calibrated" | null;
 
 function TabDashboard({ companies }: { companies: any[] }) {
   const { token } = useAuth();
@@ -152,9 +152,17 @@ function TabDashboard({ companies }: { companies: any[] }) {
     if (filters.empresa) params.set("company_id", filters.empresa);
     if (filters.filial)  params.set("branch_id",  filters.filial);
     if (filters.ciclo)   params.set("cycle_id",   filters.ciclo);
-    apiFetch<any[]>(`/api/performance/admin/dashboard/${type}?${params}`, { token })
-      .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
-      .finally(() => setDrilldownLoading(false));
+    // "calibrated" usa list_evaluations com filtro de status
+    if (type === "calibrated") {
+      params.set("status", "calibrated");
+      apiFetch<any[]>(`/api/performance/admin/evaluations?${params}`, { token })
+        .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
+        .finally(() => setDrilldownLoading(false));
+    } else {
+      apiFetch<any[]>(`/api/performance/admin/dashboard/${type}?${params}`, { token })
+        .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
+        .finally(() => setDrilldownLoading(false));
+    }
   }
 
   async function handleExport() {
@@ -228,7 +236,8 @@ function TabDashboard({ companies }: { companies: any[] }) {
                   onClick={() => openDrilldown("pending-self-eval")} />
               );
             })()}
-            <StatCard label="Calibrações" value={`${stats.calibrations_count ?? 0}`} color="blue" />
+            <StatCard label="Calibrações" value={`${stats.calibrations_count ?? 0}`} color="blue"
+              onClick={() => openDrilldown("calibrated")} />
           </div>
           {stats.indicator_averages?.length > 0 && (
             <Card className="p-5">
@@ -342,16 +351,41 @@ function TabDashboard({ companies }: { companies: any[] }) {
           </div>
         )}
       </ModalWrapper>
+
+      {/* Drilldown: Calibrações */}
+      <ModalWrapper open={drilldown === "calibrated"} onClose={() => setDrilldown(null)} title="Avaliações em Calibração">
+        {drilldownLoading ? (
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+        ) : drilldownData.length === 0 ? (
+          <p className="text-sm text-gray-500 text-center py-4">Nenhuma avaliação em fase de calibração.</p>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} avaliação{drilldownData.length !== 1 ? "ões" : ""} calibrada{drilldownData.length !== 1 ? "s" : ""}</p>
+            {drilldownData.map((ev: any, i: number) => (
+              <div key={i} className="flex items-center justify-between border border-blue-100 dark:border-blue-900/30 rounded-lg px-4 py-3 bg-blue-50/30 dark:bg-blue-900/10">
+                <div>
+                  <p className="font-semibold text-gray-900 dark:text-white text-sm">{ev.employee_name}</p>
+                  <p className="text-xs text-gray-400">Avaliado por: {ev.evaluator_name}</p>
+                </div>
+                <div className="text-right">
+                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{ev.final_score != null ? Number(ev.final_score).toFixed(2) : "—"}</span>
+                  <p className="text-xs text-gray-400">Nota calibrada</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </ModalWrapper>
     </div>
   );
 }
 
 // ─── Tab Indicadores ──────────────────────────────────────────────────────────
 
-type Indicator = { id: string; name: string; description?: string; active: boolean; hierarchy_level?: number | null };
+type Indicator = { id: string; name: string; description?: string; active: boolean; hierarchy_level?: number | null; perfil?: string };
 
-const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3 — Administrativo", 4: "N4 — Operacional" };
-const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "green", 4: "amber" };
+const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3" };
+const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "green" };
 
 function TabIndicadores() {
   const { token } = useAuth();
@@ -365,7 +399,13 @@ function TabIndicadores() {
   function load() {
     setLoading(true);
     const params = new URLSearchParams({ active_only: "false" });
-    if (levelFilter) params.set("hierarchy_level", levelFilter);
+    if (levelFilter === "3-operacional") {
+      params.set("hierarchy_level", "3"); params.set("perfil", "operacional");
+    } else if (levelFilter === "3") {
+      params.set("hierarchy_level", "3"); params.set("perfil", "administrativo");
+    } else if (levelFilter) {
+      params.set("hierarchy_level", levelFilter);
+    }
     apiFetch<Indicator[]>(`/api/performance/indicators?${params}`, { token })
       .then(setList).catch(() => setList([]))
       .finally(() => setLoading(false));
@@ -402,17 +442,18 @@ function TabIndicadores() {
   return (
     <div>
       <div className="flex flex-wrap justify-between items-center mb-4 gap-3">
-        <div className="flex items-center gap-3">
-          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Indicadores de Avaliação</h2>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h2 className="text-base font-semibold text-gray-700 dark:text-gray-300">Competências de Avaliação</h2>
           <select value={levelFilter} onChange={e => setLevelFilter(e.target.value)}
             className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-2 py-1.5 text-xs text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
             <option value="">Todos os níveis</option>
-            <option value="1">N1 — Gerente</option>
-            <option value="2">N2 — Coord./Supervisor</option>
-            <option value="3">N3 — Oper./Admin.</option>
+            <option value="1">N1 — Gerente (Estratégico)</option>
+            <option value="2">N2 — Coord./Supervisor (Tático)</option>
+            <option value="3">N3 — Administrativo</option>
+            <option value="3-operacional">N3 — Operacional</option>
           </select>
         </div>
-        <button onClick={openCreate} className="px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all">+ Novo Indicador</button>
+        <button onClick={openCreate} className="px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all">+ Nova Competência</button>
       </div>
       <Card>
         {loading ? (
@@ -421,17 +462,22 @@ function TabIndicadores() {
           <table className="w-full">
             <thead>
               <tr className="border-b border-gray-100 dark:border-gray-700">
-                {["Nível", "Nome", "Descrição", "Status", "Ações"].map(h => (
+                {["Nível/Perfil", "Nome", "Descrição", "Status", "Ações"].map(h => (
                   <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 ${h === "Descrição" ? "hidden md:table-cell" : ""}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {list.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum indicador cadastrado.</td></tr>}
-              {list.map(it => (
+              {list.length === 0 && <tr><td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma competência cadastrada.</td></tr>}
+              {list.map(it => {
+                const perfLabel = it.perfil === "operacional" ? "Operacional" : it.perfil === "administrativo" ? "Administrativo" : "";
+                return (
                 <tr key={it.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
                   <td className="px-4 py-3">
-                    {it.hierarchy_level ? <Badge color={IND_LEVEL_COLORS[it.hierarchy_level] ?? "gray"}>{IND_LEVEL_LABELS[it.hierarchy_level] ?? `N${it.hierarchy_level}`}</Badge> : <Badge color="gray">—</Badge>}
+                    <div className="flex flex-col gap-0.5">
+                      {it.hierarchy_level ? <Badge color={IND_LEVEL_COLORS[it.hierarchy_level] ?? "gray"}>{IND_LEVEL_LABELS[it.hierarchy_level] ?? `N${it.hierarchy_level}`}</Badge> : <Badge color="gray">—</Badge>}
+                      {perfLabel && <span className="text-xs text-gray-400">{perfLabel}</span>}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{it.name}</td>
                   <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 hidden md:table-cell max-w-xs truncate">{it.description || "—"}</td>
@@ -443,13 +489,14 @@ function TabIndicadores() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         )}
       </Card>
 
-      <ModalWrapper open={modal.open} onClose={closeModal} title={modal.item?.id ? "Editar Indicador" : "Novo Indicador"}>
+      <ModalWrapper open={modal.open} onClose={closeModal} title={modal.item?.id ? "Editar Competência" : "Nova Competência"}>
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nível Hierárquico *</label>
@@ -459,9 +506,23 @@ function TabIndicadores() {
               <option value="">Selecione o nível</option>
               <option value="1">N1 — Gerente (Estratégico)</option>
               <option value="2">N2 — Coordenador/Supervisor (Tático)</option>
-              <option value="3">N3 — Operacional/Administrativo</option>
+              <option value="3">N3 — Administrativo</option>
+              <option value="3-op">N3 — Operacional</option>
             </select>
           </div>
+          {/* Perfil: aparece apenas quando N3 */}
+          {(modal.item?.hierarchy_level === 3) && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Perfil N3 *</label>
+              <select value={(modal.item as any)?.perfil ?? ""}
+                onChange={e => setModal(m => ({ ...m, item: { ...m.item!, perfil: e.target.value } }))}
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
+                <option value="">Selecione</option>
+                <option value="administrativo">Administrativo</option>
+                <option value="operacional">Operacional</option>
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nome *</label>
             <input type="text" value={modal.item?.name ?? ""}
@@ -505,9 +566,9 @@ type Employee = {
 const LEVEL_LABELS: Record<string, string> = {
   gerente: "Gerente",
   coordenador_supervisor: "Coord./Supervisor",
-  administrativo_operacional: "Adm./Operacional",
   administrativo: "Administrativo",
   operacional: "Operacional",
+  administrativo_operacional: "Adm./Operacional", // legado
 };
 
 function LevelBadge({ level }: { level: string }) {
@@ -1003,12 +1064,12 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   async function handleExportCSV() {
     try {
       const params = new URLSearchParams();
-      if (filters.status) params.set("status", filters.status);
+      if (filters.status) params.set("status_filter", filters.status);
       if (filters.company_id) params.set("company_id", filters.company_id);
       const res = await fetch(`/api/performance/admin/evaluations/export?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url; a.download = "avaliacoes.csv"; a.click();
+      const a = document.createElement("a"); a.href = url; a.download = "avaliacoes.xlsx"; a.click();
       URL.revokeObjectURL(url);
     } catch {}
   }
@@ -1069,7 +1130,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <div className="flex-1" />
-        <button onClick={handleExportCSV} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all">⬇ Exportar CSV</button>
+        <button onClick={handleExportCSV} className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all">⬇ Exportar XLSX</button>
       </Card>
 
       <Card>
@@ -1114,12 +1175,28 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                             👁️ Ver
                           </button>
                         )}
-                        {/* Calibrar */}
-                        <button onClick={() => openCalib(ev)} disabled={!cycleOpen || ev.status === "pending"}
-                          title={!cycleOpen ? "Ciclo fechado" : ev.status === "pending" ? "Aguardando avaliação do gestor" : "Calibrar nota"}
-                          className={`text-xs font-semibold px-2.5 py-1 rounded transition-all ${cycleOpen && ev.status !== "pending" ? "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400" : "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800"}`}>
-                          Calibrar
-                        </button>
+                        {/* Calibrar — requer avaliação E auto-avaliação concluídas */}
+                        {(() => {
+                          const evalOk = ev.status !== "pending";
+                          const selfOk = ev.self_eval_status === "completed";
+                          const canCalib = cycleOpen && evalOk && selfOk;
+                          const title = !cycleOpen ? "Ciclo fechado"
+                            : !evalOk ? "Aguardando avaliação do gestor"
+                            : !selfOk ? "Aguardando auto-avaliação do colaborador"
+                            : "Calibrar nota";
+                          function handleCalibClick() {
+                            if (!evalOk) return alert("Aguardando avaliação do gestor ser preenchida.");
+                            if (!selfOk) return alert("Aguardando auto-avaliação do colaborador ser preenchida.");
+                            openCalib(ev);
+                          }
+                          return (
+                            <button onClick={handleCalibClick} disabled={!cycleOpen}
+                              title={title}
+                              className={`text-xs font-semibold px-2.5 py-1 rounded transition-all ${canCalib ? "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400" : cycleOpen ? "bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200 cursor-pointer dark:bg-amber-900/20 dark:text-amber-400" : "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800"}`}>
+                              Calibrar
+                            </button>
+                          );
+                        })()}
                         {/* Ciência Presencial — apenas para colaboradores sem e-mail */}
                         {!ev.has_email && (
                           <a href="/ciencia-presencial" target="_blank" rel="noopener noreferrer"
@@ -1350,94 +1427,131 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : calibDetail ? (
           <div className="space-y-5">
-            {/* Cabeçalho */}
-            <div className="flex flex-wrap gap-4 text-sm">
-              <div><span className="text-gray-400">Avaliador:</span> <strong className="text-gray-800 dark:text-gray-100">{calibDetail.evaluator?.name ?? "—"}</strong></div>
-              <div><span className="text-gray-400">Nota Gestor:</span> <strong className="text-violet-700 dark:text-violet-400">{calibModal.item?.final_score != null ? Number(calibModal.item.final_score).toFixed(2) : "—"}</strong></div>
-              {calibDetail.self_eval?.final_score != null && (
-                <div><span className="text-gray-400">Auto-Aval.:</span> <strong className="text-violet-500 dark:text-violet-300">{Number(calibDetail.self_eval.final_score).toFixed(2)}</strong></div>
-              )}
-              {calibDetail.overall_adherence_index != null && (() => {
-                const adh = calibDetail.overall_adherence_index as number;
+            {/* ── Cabeçalho: mini-cards de métricas ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3 text-center">
+                <p className="text-xs text-gray-400 mb-0.5">Avaliador</p>
+                <p className="text-xs font-semibold text-gray-700 dark:text-gray-200 leading-tight">{calibDetail.evaluator?.name ?? "—"}</p>
+              </div>
+              <div className="bg-[#E6F4F0] dark:bg-emerald-900/20 rounded-xl p-3 text-center">
+                <p className="text-xs text-[#00694E] dark:text-emerald-400 mb-0.5">Nota Gestor</p>
+                <p className="text-xl font-black text-[#00694E] dark:text-emerald-300">{calibModal.item?.final_score != null ? Number(calibModal.item.final_score).toFixed(2) : "—"}</p>
+              </div>
+              <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 text-center">
+                <p className="text-xs text-violet-500 dark:text-violet-400 mb-0.5">Auto-Aval.</p>
+                <p className="text-xl font-black text-violet-700 dark:text-violet-300">{calibDetail.self_eval?.final_score != null ? Number(calibDetail.self_eval.final_score).toFixed(2) : "—"}</p>
+              </div>
+              {(() => {
+                const adh = calibDetail.overall_adherence_index as number | null;
                 const label = calibDetail.overall_adherence_label as string;
-                const cls = label === "alinhado" ? "text-emerald-600 dark:text-emerald-400" : label === "atencao" ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400";
-                const badge = label === "alinhado" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300" : label === "atencao" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300" : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300";
-                return (
-                  <div className="flex items-center gap-2">
-                    <span className="text-gray-400">Aderência:</span>
-                    <strong className={cls}>{adh}%</strong>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${badge}`}>
-                      {label === "alinhado" ? "Alinhado" : label === "atencao" ? "Atenção" : "Desalinhado"}
-                    </span>
+                const cfg = adh == null ? null
+                  : label === "alinhado" ? { bg: "bg-emerald-50 dark:bg-emerald-900/20", text: "text-emerald-700 dark:text-emerald-300", tag: "Alinhado" }
+                  : label === "atencao" ? { bg: "bg-amber-50 dark:bg-amber-900/20", text: "text-amber-700 dark:text-amber-300", tag: "Atenção" }
+                  : { bg: "bg-red-50 dark:bg-red-900/20", text: "text-red-700 dark:text-red-300", tag: "Desalinhado" };
+                return cfg ? (
+                  <div className={`${cfg.bg} rounded-xl p-3 text-center`}>
+                    <p className={`text-xs ${cfg.text} mb-0.5`}>Aderência</p>
+                    <p className={`text-xl font-black ${cfg.text}`}>{adh}%</p>
+                    <p className={`text-[10px] font-semibold ${cfg.text}`}>{cfg.tag}</p>
                   </div>
-                );
+                ) : <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl p-3 text-center"><p className="text-xs text-gray-400">Aderência</p><p className="text-xl font-black text-gray-300">—</p></div>;
               })()}
             </div>
 
-            {/* Observações */}
+            {/* ── Observações ── */}
             {(calibDetail.observations || calibDetail.self_observations) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {calibDetail.observations && (
-                  <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg border border-gray-200 dark:border-gray-600 p-3">
+                  <div className="bg-gray-50 dark:bg-gray-700/40 rounded-xl border border-gray-200 dark:border-gray-600 p-3">
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">📝 Obs. Gestor</p>
-                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">{calibDetail.observations}</p>
+                    <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{calibDetail.observations}</p>
                   </div>
                 )}
                 {calibDetail.self_observations && (
-                  <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg border border-violet-200 dark:border-violet-800 p-3">
+                  <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl border border-violet-200 dark:border-violet-800 p-3">
                     <p className="text-xs font-semibold text-violet-600 uppercase tracking-wide mb-1">🔄 Obs. Colaborador</p>
-                    <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed whitespace-pre-wrap">{calibDetail.self_observations}</p>
+                    <p className="text-xs text-violet-700 dark:text-violet-300 leading-relaxed">{calibDetail.self_observations}</p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* Tabela de indicadores */}
-            <div className="space-y-3">
-              <div className="grid grid-cols-12 gap-1 px-2 text-xs font-semibold text-gray-400 uppercase tracking-wide">
-                <span className="col-span-4">Indicador</span>
-                <span className="col-span-2 text-center">Gestor</span>
-                <span className="col-span-2 text-center">Auto-Aval.</span>
-                <span className="col-span-4 text-center">Nova Nota RH</span>
-              </div>
+            {/* ── Cards de competências ── */}
+            <div className="space-y-4">
               {calibDetail.indicators?.map((ind: any) => {
                 const edit = calibEdits[ind.id];
                 const isChanged = edit?.new_score !== "" && edit?.new_score !== undefined;
+                const CALIB_SCORES = [
+                  { v: 5, lbl: "5", sub: "EE",  cls: "border-purple-400 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
+                  { v: 4, lbl: "4", sub: "SE",  cls: "border-emerald-400 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+                  { v: 3, lbl: "3", sub: "AE",  cls: "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+                  { v: 2, lbl: "2", sub: "APE", cls: "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+                  { v: 1, lbl: "1", sub: "NAE", cls: "border-red-400 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+                ];
                 return (
-                  <div key={ind.id} className={`rounded-xl border p-3 transition-all ${isChanged ? "border-violet-300 dark:border-violet-700 bg-violet-50/50 dark:bg-violet-900/10" : "border-gray-200 dark:border-gray-700"}`}>
-                    <div className="grid grid-cols-12 gap-2 items-start">
-                      <div className="col-span-4">
-                        <p className="text-xs font-semibold text-gray-800 dark:text-gray-100 leading-tight">{ind.name}</p>
-                        {ind.manager_justification && (
-                          <p className="text-xs text-gray-400 mt-0.5 italic leading-tight line-clamp-2" title={ind.manager_justification}>"{ind.manager_justification}"</p>
-                        )}
+                  <div key={ind.id} className={`rounded-2xl border-2 transition-all ${isChanged ? "border-violet-300 dark:border-violet-700 bg-violet-50/30 dark:bg-violet-900/10" : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"}`}>
+                    {/* Nome + descrição */}
+                    <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700">
+                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{ind.name}</p>
+                      {ind.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{ind.description}</p>}
+                    </div>
+                    {/* Scores atuais */}
+                    <div className="px-4 py-3 flex flex-wrap gap-4 text-sm border-b border-gray-100 dark:border-gray-700">
+                      <div>
+                        <span className="text-xs text-gray-400 block mb-0.5">Gestor</span>
+                        <span className="text-base font-bold text-[#00694E] dark:text-emerald-400">{ind.manager_score ?? "—"}</span>
+                        {ind.manager_justification && <p className="text-xs text-gray-400 italic mt-0.5">"{ind.manager_justification}"</p>}
                       </div>
-                      <div className="col-span-2 text-center">
-                        <span className="text-sm font-bold text-[#00694E] dark:text-emerald-400">{ind.manager_score}</span>
+                      <div>
+                        <span className="text-xs text-gray-400 block mb-0.5">Auto-Aval.</span>
+                        <span className="text-base font-bold text-violet-600 dark:text-violet-400">{ind.self_score ?? "—"}</span>
                       </div>
-                      <div className="col-span-2 text-center">
-                        {ind.self_score != null
-                          ? <span className="text-sm font-bold text-violet-600 dark:text-violet-400">{ind.self_score}</span>
-                          : <span className="text-xs text-gray-300">—</span>}
-                      </div>
-                      <div className="col-span-4">
-                        <select
-                          value={edit?.new_score ?? ""}
-                          onChange={e => setCalibScore(ind.id, e.target.value)}
-                          className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100">
-                          <option value="">Manter ({ind.current_score})</option>
-                          {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
-                        </select>
+                      {ind.current_score !== ind.manager_score && (
+                        <div>
+                          <span className="text-xs text-gray-400 block mb-0.5">Calibrado</span>
+                          <span className="text-base font-bold text-violet-700">{ind.current_score}</span>
+                        </div>
+                      )}
+                      {ind.adherence_index != null && (
+                        <div>
+                          <span className="text-xs text-gray-400 block mb-0.5">Aderência</span>
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-full ${ind.adherence_label === "alinhado" ? "bg-emerald-100 text-emerald-700" : ind.adherence_label === "atencao" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-600"}`}>{ind.adherence_index}%</span>
+                        </div>
+                      )}
+                    </div>
+                    {/* Seletor de nova nota */}
+                    <div className="px-4 py-3">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Nova nota RH <span className="text-gray-400 font-normal normal-case">(atual: {ind.current_score} — clique para alterar)</span></p>
+                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                        {/* Opção "Manter" */}
+                        <button
+                          type="button"
+                          onClick={() => setCalibScore(ind.id, "")}
+                          className={`col-span-3 sm:col-span-5 py-1.5 rounded-lg border-2 text-xs font-semibold transition-all ${!isChanged ? "border-gray-400 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200" : "border-gray-200 text-gray-400 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
+                          ✓ Manter nota {ind.current_score}
+                        </button>
+                        {CALIB_SCORES.map(cs => {
+                          const sel = edit?.new_score !== undefined && edit?.new_score !== "" && Number(edit?.new_score) === cs.v;
+                          return (
+                            <button key={cs.v} type="button"
+                              onClick={() => setCalibScore(ind.id, String(cs.v))}
+                              className={`flex flex-col items-center py-2 px-1 rounded-xl border-2 transition-all text-xs font-semibold ${sel ? cs.cls + " shadow-sm scale-[1.03]" : "border-gray-200 dark:border-gray-600 text-gray-500 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
+                              <span className="text-base font-black leading-none">{cs.lbl}</span>
+                              <span className="text-[11px] font-bold">{cs.sub}</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
+                    {/* Justificativa quando há mudança */}
                     {isChanged && (
-                      <div className="mt-2">
+                      <div className="px-4 pb-4">
                         <textarea
                           value={edit?.justification ?? ""}
                           onChange={e => setCalibJust(ind.id, e.target.value)}
                           rows={2}
                           placeholder="Justificativa obrigatória para esta alteração *"
-                          className="w-full rounded-lg border border-violet-200 dark:border-violet-700 bg-white dark:bg-gray-800 px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                          className="w-full rounded-xl border border-violet-300 dark:border-violet-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100 placeholder-gray-400"
                         />
                       </div>
                     )}
@@ -1446,30 +1560,30 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               })}
             </div>
 
-            {/* Notas gerais da calibração */}
+            {/* Notas gerais */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Notas gerais da calibração (opcional)</label>
+              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Observações gerais da calibração (opcional)</label>
               <textarea value={calibNotes} onChange={e => setCalibNotes(e.target.value)} rows={2}
-                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100" />
+                className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100" />
             </div>
 
-            {/* Histórico de calibrações anteriores */}
+            {/* Histórico */}
             {calibDetail.calibration_history?.length > 0 && (
               <div>
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Calibrações</p>
                 {calibDetail.calibration_history.map((c: any, i: number) => (
-                  <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-2 text-xs">
+                  <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 mb-2 text-xs bg-gray-50/50 dark:bg-gray-700/20">
                     <div className="flex items-center gap-2 mb-1.5">
-                      <span className="font-semibold text-gray-700 dark:text-gray-300">{c.calibrated_by}</span>
+                      <span className="font-semibold text-gray-700 dark:text-gray-300">🎯 {c.calibrated_by}</span>
                       <span className="text-gray-400">{new Date(c.calibrated_at).toLocaleString("pt-BR")}</span>
                     </div>
                     {c.items?.map((it: any, j: number) => (
-                      <div key={j} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 mb-0.5">
+                      <div key={j} className="flex items-center gap-2 text-gray-600 dark:text-gray-400 mb-0.5 flex-wrap">
                         <span className="font-medium">{it.indicator_name}</span>
-                        <span className="text-red-500">{it.old_score}</span>
+                        <span className="text-red-400 line-through">{it.old_score}</span>
                         <span>→</span>
-                        <span className="text-green-600">{it.new_score}</span>
-                        {it.justification && <span className="italic">"{it.justification}"</span>}
+                        <span className="text-emerald-600 font-bold">{it.new_score}</span>
+                        {it.justification && <span className="italic text-gray-400">"{it.justification}"</span>}
                       </div>
                     ))}
                     {c.notes && <p className="text-gray-400 mt-1 italic">{c.notes}</p>}
@@ -1808,6 +1922,17 @@ function TabCiclo({ companies }: { companies: any[] }) {
                 : <Badge color="gray">Fechado</Badge>
           )}
         </div>
+
+        {/* Aviso: ciclo aberto com período encerrado */}
+        {cycleStatus?.status === "open" && cycleStatus?.period_end && new Date(cycleStatus.period_end) < new Date() && (
+          <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl px-4 py-3 flex items-center gap-3">
+            <span className="text-amber-600 text-lg">⚠️</span>
+            <p className="text-sm text-amber-800 dark:text-amber-300">
+              O período deste ciclo encerrou em <strong>{new Date(cycleStatus.period_end + "T12:00:00").toLocaleDateString("pt-BR")}</strong>.
+              Considere fechar o ciclo para impedir novas avaliações.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-3 mt-5">
           {!cycleStatus && (
