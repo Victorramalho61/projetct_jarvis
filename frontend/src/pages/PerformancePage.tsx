@@ -739,9 +739,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <option value="">Todos os níveis</option>
             <option value="gerente">Gerente</option>
             <option value="coordenador_supervisor">Coordenador / Supervisor</option>
-            <option value="administrativo">Administrativo (N3)</option>
-            <option value="operacional">Operacional (N4)</option>
-            <option value="administrativo_operacional">Adm./Operacional (legado)</option>
+            <option value="administrativo">Administrativo</option>
+            <option value="operacional">Operacional</option>
           </select>
         )}
         {managers.length > 0 && (
@@ -870,9 +869,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="gerente">Gerente</option>
               <option value="coordenador_supervisor">Coordenador / Supervisor</option>
-              <option value="administrativo">Administrativo (N3)</option>
-              <option value="operacional">Operacional (N4)</option>
-              <option value="administrativo_operacional">Adm./Operacional (legado)</option>
+              <option value="administrativo">Administrativo</option>
+              <option value="operacional">Operacional</option>
             </select>
           </div>
           <div>

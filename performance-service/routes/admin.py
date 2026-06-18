@@ -52,6 +52,7 @@ _LEVEL_MAP = {
     "operacional": 3,
 }
 _PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo", "operacional"}
+# Sem legado "administrativo_operacional" — todos os colaboradores já foram migrados
 
 
 def _emp_out(e: dict) -> dict:
@@ -65,7 +66,7 @@ def _emp_out(e: dict) -> dict:
     elif perfil in ("administrativo", "operacional"):
         out["level"] = perfil
     else:
-        out["level"] = "administrativo_operacional"  # legado — sem perfil definido
+        out["level"] = "administrativo"  # fallback: sem perfil → administrativo
     out["cpf"] = e.get("cpf") or ""
     return out
 
@@ -319,7 +320,7 @@ def dashboard_pending_self_eval(
 
     _PERFIL_LABEL = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                      "administrativo": "Administrativo", "operacional": "Operacional",
-                     "administrativo_operacional": "Adm./Operacional"}
+                     }
     _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
     def _level_str(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
@@ -453,7 +454,7 @@ def dashboard_export(
 
     _PERFIL_LABEL_XLS = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                          "administrativo": "Administrativo", "operacional": "Operacional",
-                         "administrativo_operacional": "Adm./Operacional"}
+                         }
     _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
     def _emp_level_label(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
