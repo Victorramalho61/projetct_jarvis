@@ -774,7 +774,6 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             { label: "Cargo", key: "cargo", type: "text" },
             { label: "E-mail corporativo", key: "email", type: "email", hint: "Obrigatório para envio do link de ciência." },
             { label: "CPF *", key: "cpf", type: "text", hint: "Obrigatório para todos. 11 dígitos numéricos (validado)." },
-            { label: "WhatsApp (sem e-mail corporativo)", key: "whatsapp_phone", type: "text", hint: "Usado para enviar auto-avaliação a colaboradores sem e-mail. Ex: 11999998888" },
           ].map(f => (
             <div key={f.key}>
               <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">{f.label}</label>
@@ -787,6 +786,22 @@ function TabHierarquia({ companies }: { companies: any[] }) {
               {f.hint && <p className="text-xs text-gray-400 mt-0.5">{f.hint}</p>}
             </div>
           ))}
+          {/* WhatsApp: só aparece quando não há e-mail corporativo */}
+          {!(modal.item as any)?.email?.trim() && (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                WhatsApp <span className="text-xs font-normal text-gray-400">(apenas para quem não tem e-mail)</span>
+              </label>
+              <input
+                type="text" inputMode="numeric"
+                value={(modal.item as any)?.whatsapp_phone ?? ""}
+                onChange={e => setModal(m => ({ ...m, item: { ...m.item!, whatsapp_phone: e.target.value.replace(/\D/g, "") } }))}
+                placeholder="11999998888"
+                className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100 font-mono"
+              />
+              <p className="text-xs text-gray-400 mt-0.5">Somente dígitos — o sistema adiciona o +55 automaticamente. Ex: 11999998888</p>
+            </div>
+          )}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Nível *</label>
             <select value={modal.item?.level ?? "administrativo"}

@@ -8,12 +8,15 @@ _logger = logging.getLogger(__name__)
 
 
 def _to_chat_id(phone: str) -> str:
-    digits = "".join(c for c in phone if c.isdigit())
     if "@" in phone:
         num, suffix = phone.split("@", 1)
         if suffix in ("lid", "g.us"):
             return phone
         return f"{num}@c.us"
+    digits = "".join(c for c in phone if c.isdigit())
+    # Números brasileiros sem DDI (10-11 dígitos): prepend 55
+    if len(digits) in (10, 11):
+        digits = "55" + digits
     return f"{digits}@c.us"
 
 
