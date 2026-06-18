@@ -1039,6 +1039,10 @@ def update_employee(
         updates["hierarchy_level"] = _LEVEL_MAP.get(body.level, 3)
     if body.manager_id is not None:
         updates["manager_id"] = body.manager_id or None
+    if body.company_id:
+        updates["company_id"] = body.company_id
+    if body.branch_id:
+        updates["branch_id"] = body.branch_id
     if body.active is not None:
         updates["active"] = body.active
     if body.jarvis_username is not None:
