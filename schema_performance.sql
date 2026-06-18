@@ -148,7 +148,7 @@ CREATE TABLE performance_employees (
   has_corporate_email boolean not null default true,
   whatsapp_phone      text default '',
   perfil              text default 'administrativo_operacional',
-  hierarchy_level     int not null check (hierarchy_level in (1, 2, 3)),
+  hierarchy_level     int not null check (hierarchy_level in (1, 2, 3, 4)),
   manager_id          uuid references performance_employees(id),
   management_id       uuid references performance_managements(id),
   branch_id           uuid not null references performance_branches(id),

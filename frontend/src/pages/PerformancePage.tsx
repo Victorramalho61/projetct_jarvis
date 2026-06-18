@@ -350,8 +350,8 @@ function TabDashboard({ companies }: { companies: any[] }) {
 
 type Indicator = { id: string; name: string; description?: string; active: boolean; hierarchy_level?: number | null };
 
-const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3 — Adm./Operacional" };
-const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "gray" };
+const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3 — Administrativo", 4: "N4 — Operacional" };
+const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "green", 4: "amber" };
 
 function TabIndicadores() {
   const { token } = useAuth();
@@ -678,8 +678,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <option value="">Todos os níveis</option>
             <option value="gerente">Gerente</option>
             <option value="coordenador_supervisor">Coordenador / Supervisor</option>
-            <option value="administrativo">Administrativo</option>
-            <option value="operacional">Operacional</option>
+            <option value="administrativo">Administrativo (N3)</option>
+            <option value="operacional">Operacional (N4)</option>
             <option value="administrativo_operacional">Adm./Operacional (legado)</option>
           </select>
         )}
@@ -809,8 +809,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="gerente">Gerente</option>
               <option value="coordenador_supervisor">Coordenador / Supervisor</option>
-              <option value="administrativo">Administrativo</option>
-              <option value="operacional">Operacional</option>
+              <option value="administrativo">Administrativo (N3)</option>
+              <option value="operacional">Operacional (N4)</option>
               <option value="administrativo_operacional">Adm./Operacional (legado)</option>
             </select>
           </div>

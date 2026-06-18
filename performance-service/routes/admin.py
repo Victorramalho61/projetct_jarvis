@@ -50,9 +50,11 @@ _LEVEL_MAP = {
     "coordenador_supervisor": 2,
     "administrativo_operacional": 3,
     "administrativo": 3,
-    "operacional": 3,
+    "operacional": 4,           # nível próprio: indicadores diferentes do administrativo
 }
-_LEVEL_RMAP = {1: "gerente", 2: "coordenador_supervisor", 3: "administrativo_operacional"}
+_LEVEL_RMAP = {1: "gerente", 2: "coordenador_supervisor", 3: "administrativo", 4: "operacional"}
+# Mantém legado: hierarchy_level=3 sem perfil → "administrativo_operacional"
+_LEVEL_RMAP_LEGACY = {3: "administrativo_operacional"}
 
 # Todos os perfis válidos para armazenar na coluna `perfil`
 _PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"}
@@ -61,8 +63,12 @@ _PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo_operacio
 def _emp_out(e: dict) -> dict:
     out = dict(e)
     perfil = e.get("perfil") or ""
-    # Usa `perfil` quando preenchido; legado usa _LEVEL_RMAP pelo hierarchy_level
-    out["level"] = perfil if perfil in _PERFIS_VALIDOS else _LEVEL_RMAP.get(e.get("hierarchy_level"), "administrativo_operacional")
+    if perfil in _PERFIS_VALIDOS:
+        out["level"] = perfil
+    else:
+        # Legado: hierarchy_level sem perfil → rótulo genérico
+        hl = e.get("hierarchy_level")
+        out["level"] = _LEVEL_RMAP.get(hl, "administrativo_operacional") if hl in (1, 2, 4) else "administrativo_operacional"
     out["cpf"] = e.get("cpf") or ""
     return out
 
@@ -228,7 +234,7 @@ def dashboard_pending_evaluators(
     emp_q = (
         db.table("performance_employees")
         .select("id,name,cargo,manager_id")
-        .in_("hierarchy_level", [2, 3])
+        .in_("hierarchy_level", [2, 3, 4])
         .eq("active", True)
     )
     if company_id:
@@ -317,7 +323,7 @@ def dashboard_pending_self_eval(
     _PERFIL_LABEL = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                      "administrativo": "Administrativo", "operacional": "Operacional",
                      "administrativo_operacional": "Adm./Operacional"}
-    _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional", 4: "Operacional"}
     def _level_str(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL.get(p) or _HLEVEL_LABEL.get(emp_data.get("hierarchy_level"), "")
@@ -451,7 +457,7 @@ def dashboard_export(
     _PERFIL_LABEL_XLS = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                          "administrativo": "Administrativo", "operacional": "Operacional",
                          "administrativo_operacional": "Adm./Operacional"}
-    _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional", 4: "Operacional"}
     def _emp_level_label(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL_XLS.get(p) or _HLEVEL_LABEL_XLS.get(emp_data.get("hierarchy_level"), "")
@@ -1087,7 +1093,7 @@ async def import_employees(
         "operacional-administrativo": 3,   # legado
         "administrativo-operacional": 3,   # legado alternativo
         "administrativo": 3,
-        "operacional": 3,
+        "operacional": 4,                  # nível próprio com indicadores distintos
     }
     NIVEL_PERFIL = {
         "gerente": "gerente",
@@ -1401,7 +1407,7 @@ def send_tokens_current_cycle(
     employees_to_eval = (
         db.table("performance_employees")
         .select("id,name,cargo,email,has_corporate_email,hierarchy_level,manager_id,branch_id,company_id")
-        .in_("hierarchy_level", [2, 3])
+        .in_("hierarchy_level", [2, 3, 4])
         .eq("active", True)
         .execute()
         .data
@@ -1990,7 +1996,7 @@ def list_evaluations(
     base_emps_raw = (
         db.table("performance_employees")
         .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
-        .in_("hierarchy_level", [2, 3])
+        .in_("hierarchy_level", [2, 3, 4])
         .eq("active", True)
         .execute()
         .data
