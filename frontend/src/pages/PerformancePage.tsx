@@ -1536,8 +1536,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                             <button key={cs.v} type="button"
                               onClick={() => setCalibScore(ind.id, String(cs.v))}
                               className={`flex flex-col items-center py-2 px-1 rounded-xl border-2 transition-all text-xs font-semibold ${sel ? cs.cls + " shadow-sm scale-[1.03]" : "border-gray-200 dark:border-gray-600 text-gray-500 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
-                              <span className="text-base font-black leading-none">{cs.lbl}</span>
-                              <span className="text-[11px] font-bold">{cs.sub}</span>
+                              <span className="text-sm font-bold">{cs.sub} <span className="text-[10px] font-normal opacity-60">({cs.lbl})</span></span>
                             </button>
                           );
                         })}

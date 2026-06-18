@@ -496,9 +496,8 @@ export default function PublicEvaluationPage() {
                 {SCORE_OPTIONS.map(opt => (
                   <div key={opt.value}
                     className={`flex flex-col items-center py-2 px-2 rounded-xl border ${opt.color} text-center`}>
-                    <span className="text-lg font-black leading-none">{opt.label}</span>
-                    <span className="text-xs font-bold">{opt.sublabel}</span>
-                    <span className="text-[10px] leading-tight mt-0.5">{opt.desc}</span>
+                    <span className="text-sm font-bold">{opt.sublabel} <span className="text-[10px] font-normal opacity-60">({opt.label})</span></span>
+                    <span className="text-[10px] leading-tight">{opt.desc}</span>
                   </div>
                 ))}
               </div>
@@ -570,9 +569,8 @@ export default function PublicEvaluationPage() {
                                   : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-300 bg-white dark:bg-gray-800"
                               }`}
                             >
-                              <span className="text-lg font-black leading-none">{opt.label}</span>
-                              <span className="text-xs font-bold">{opt.sublabel}</span>
-                              <span className="text-center leading-tight text-[10px] mt-0.5">{opt.desc}</span>
+                              <span className="text-sm font-bold mb-0.5">{opt.sublabel} <span className="text-[10px] font-normal opacity-60">({opt.label})</span></span>
+                              <span className="text-center leading-tight text-[10px]">{opt.desc}</span>
                               {isExtreme && (
                                 <span className="mt-1 text-[9px] font-medium opacity-70">
                                   {opt.value === 5 ? "★ justif." : "⚠ justif."}

@@ -425,9 +425,8 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
                         return (
                           <button key={opt.value} type="button" onClick={() => handleScoreChange(ind.id, opt.value)}
                             className={`flex flex-col items-center py-3 px-2 rounded-xl border-2 text-xs font-semibold transition-all ${isSelected ? opt.color + " shadow-sm scale-[1.03]" : "border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
-                            <span className="text-lg font-black leading-none">{opt.label}</span>
-                            <span className="text-xs font-bold">{opt.sublabel}</span>
-                            <span className="text-center leading-tight text-[10px] mt-0.5">{opt.desc}</span>
+                            <span className="text-sm font-bold mb-0.5">{opt.sublabel} <span className="text-[10px] font-normal opacity-60">({opt.label})</span></span>
+                            <span className="text-center leading-tight text-[10px]">{opt.desc}</span>
                           </button>
                         );
                       })}
