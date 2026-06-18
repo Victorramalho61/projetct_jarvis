@@ -2021,9 +2021,16 @@ function TabCiclo({ companies }: { companies: any[] }) {
               Fechar Ciclo
             </button>
           )}
-          {cycleStatus?.status === "closed" && (
-            <button onClick={() => { setReopenModal(true); setSaveErr(""); }}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-700 hover:bg-green-800 text-white text-sm font-semibold rounded-xl transition-all shadow-sm">
+          {cycleStatus && (
+            <button
+              onClick={() => cycleStatus.status === "closed" ? (setReopenModal(true), setSaveErr("")) : undefined}
+              disabled={cycleStatus.status !== "closed"}
+              title={cycleStatus.status !== "closed" ? "Feche o ciclo primeiro para poder reabri-lo" : "Reabrir ciclo fechado"}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 text-sm font-semibold rounded-xl transition-all shadow-sm ${
+                cycleStatus.status === "closed"
+                  ? "bg-green-700 hover:bg-green-800 text-white"
+                  : "bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed"
+              }`}>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582M20 20v-5h-.581M4.582 9A8 8 0 0120 15m-15.418 0A8 8 0 014 9"/></svg>
               Reabrir Ciclo
             </button>
