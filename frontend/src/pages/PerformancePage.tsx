@@ -16,14 +16,14 @@ type AppRole = "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | 
 type TabDef = { id: string; label: string; icon: string; roles: AppRole[] };
 
 const TABS: TabDef[] = [
-  { id: "dashboard",          label: "Dashboard",          icon: "📊", roles: ["admin", "rh", "gerente"] },
-  { id: "indicadores",        label: "Competências",       icon: "🎯", roles: ["admin", "rh"] },
-  { id: "hierarquia",         label: "Hierarquia",         icon: "🏢", roles: ["admin", "rh"] },
-  { id: "gestao-rh",          label: "Gestão RH",          icon: "⚙️", roles: ["admin", "rh"] },
-  { id: "ciclo",              label: "Ciclo",              icon: "🔄", roles: ["admin", "rh"] },
-  { id: "avaliacoes",         label: "Avaliações",         icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
-  { id: "ciencia-presencial",       label: "Ciência Presencial",  icon: "📋", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"] },
-  { id: "auto-avaliacao-presencial", label: "Auto-Aval. Presencial", icon: "✏️", roles: ["admin", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional", "administrativo", "operacional"] },
+  { id: "dashboard",  label: "Dashboard",   icon: "📊", roles: ["admin", "rh", "gerente"] },
+  { id: "indicadores", label: "Competências", icon: "🎯", roles: ["admin", "rh"] },
+  { id: "hierarquia", label: "Hierarquia",  icon: "🏢", roles: ["admin", "rh"] },
+  { id: "gestao-rh",  label: "Gestão RH",   icon: "⚙️", roles: ["admin", "rh"] },
+  { id: "ciclo",      label: "Ciclo",       icon: "🔄", roles: ["admin", "rh"] },
+  { id: "avaliacoes", label: "Avaliações",  icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
+  // Ciência Presencial e Auto-Aval. Presencial removidas do menu —
+  // links disponíveis apenas no banner do Gestão RH para controle de distribuição
 ];
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -2570,8 +2570,6 @@ export default function PerformancePage() {
       {activeTab === "gestao-rh"          && <TabGestaoRH   companies={companies} />}
       {activeTab === "ciclo"              && <TabCiclo       companies={companies} />}
       {activeTab === "avaliacoes"         && <TabAvaliacoes />}
-      {activeTab === "ciencia-presencial"       && <TabCienciaPresencial />}
-      {activeTab === "auto-avaliacao-presencial" && <TabAutoAvaliacaoPresencial />}
     </div>
   );
 }
