@@ -598,6 +598,21 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  // Branches e managers para o form modal (baseados na empresa selecionada no FORM, não no filtro)
+  const [modalBranches, setModalBranches] = useState<any[]>([]);
+  const [modalManagers, setModalManagers] = useState<any[]>([]);
+
+  // Carrega filiais e gestores quando empresa do form muda
+  useEffect(() => {
+    const cid = (modal.item as any)?.company_id;
+    if (!cid) { setModalBranches([]); setModalManagers([]); return; }
+    apiFetch<any[]>(`/api/performance/admin/branches?company_id=${cid}`, { token })
+      .then(b => setModalBranches(b || [])).catch(() => setModalBranches([]));
+    apiFetch<any[]>(`/api/performance/admin/employees?company_id=${cid}`, { token })
+      .then(emps => setModalManagers((emps || []).filter((e: any) => e.level === "gerente" || e.level === "coordenador_supervisor")))
+      .catch(() => setModalManagers([]));
+  }, [(modal.item as any)?.company_id, token]);
+
   useEffect(() => {
     if (!selCompany) { setBranches([]); setSelBranch(""); return; }
     apiFetch<any[]>(`/api/performance/admin/branches?company_id=${selCompany}`, { token }).then(setBranches).catch(() => {});
@@ -716,7 +731,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     finally { setImporting(false); if (fileRef.current) fileRef.current.value = ""; }
   }
 
-  const managersForModal = employees.filter(e => e.level === "gerente" || e.level === "coordenador_supervisor");
+  // managersForModal agora é o estado modalManagers (carregado pela empresa do form)
 
   return (
     <div>
@@ -819,14 +834,24 @@ function TabHierarquia({ companies }: { companies: any[] }) {
 
       <ModalWrapper open={modal.open} onClose={closeModal} title={modal.item?.id ? "Editar Colaborador" : "Novo Colaborador"}>
         <div className="space-y-4">
-          {/* Filial — obrigatório */}
+          {/* Empresa */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Empresa *</label>
+            <select value={(modal.item as any)?.company_id ?? ""}
+              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, company_id: e.target.value, branch_id: "", manager_id: undefined } }))}
+              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
+              <option value="">Selecione a empresa</option>
+              {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </div>
+          {/* Filial — filtrada pela empresa do form */}
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Filial *</label>
             <select value={(modal.item as any)?.branch_id ?? ""}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, branch_id: e.target.value } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Selecione a filial</option>
-              {branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              {modalBranches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
             </select>
           </div>
           {[
@@ -879,7 +904,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, manager_id: e.target.value || undefined } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Sem gestor direto</option>
-              {managersForModal.filter(m => m.id !== modal.item?.id).map(m => (
+              {modalManagers.filter((m: any) => m.id !== modal.item?.id).map((m: any) => (
                 <option key={m.id} value={m.id}>{m.name} ({LEVEL_LABELS[m.level] ?? m.level})</option>
               ))}
             </select>
