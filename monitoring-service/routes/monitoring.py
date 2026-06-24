@@ -67,31 +67,28 @@ def _enrich(system: dict, db) -> dict:
 def _bulk_enrich(systems: list[dict], db) -> list[dict]:
     if not systems:
         return systems
-    ids = [s["id"] for s in systems]
     since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
 
-    recent = (
-        db.table("system_checks").select("*")
-        .in_("system_id", ids)
-        .order("checked_at", desc=True)
-        .limit(max(50, len(ids) * 5))
-        .execute().data
-    )
-    hourly = (
-        db.table("system_checks").select("system_id,status")
-        .in_("system_id", ids)
-        .gte("checked_at", since_24h)
-        .limit(min(len(ids) * 300, 5000))  # cap: evita full scan com N grande
-        .execute().data
-    )
-
+    # Uma query por sistema usando o índice (system_id, checked_at DESC),
+    # evitando seq scan causado por IN+ORDER BY / IN+gte sem suporte a index merge eficiente.
     last_check_map: dict[str, dict] = {}
-    for r in recent:
-        last_check_map.setdefault(r["system_id"], r)
-
     uptime_data: dict[str, list[str]] = {}
-    for r in hourly:
-        uptime_data.setdefault(r["system_id"], []).append(r["status"])
+
+    for s in systems:
+        sid = s["id"]
+
+        row = db.table("system_checks").select("*") \
+            .eq("system_id", sid) \
+            .order("checked_at", desc=True) \
+            .limit(1).execute().data
+        if row:
+            last_check_map[sid] = row[0]
+
+        hourly = db.table("system_checks").select("status") \
+            .eq("system_id", sid) \
+            .gte("checked_at", since_24h).execute().data
+        if hourly:
+            uptime_data[sid] = [r["status"] for r in hourly]
 
     for s in systems:
         sid = s["id"]

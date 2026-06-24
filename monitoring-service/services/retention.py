@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 _RETENTION_DAYS: dict[str, int] = {
     "app_logs":       90,
-    "system_checks":  30,
+    "system_checks":  7,   # era 30 — tabela crescia para ~165M rows lidas/scan; 7d é suficiente para dashboard
     "quality_metrics": 60,
     "security_alerts": 90,
     "agent_runs":     30,

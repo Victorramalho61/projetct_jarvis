@@ -16,8 +16,8 @@ services:
     image: supabase/postgres:15.1.1.78
     restart: unless-stopped
     logging: *logging
-    mem_limit: 1500m   # shared_buffers=256MB + overhead → ~600 MB; limite atual é seguro
-    memswap_limit: 2000m  # 500 MB extra de swap como válvula de segurança contra OOM
+    mem_limit: 2000m   # shared_buffers=512MB + overhead → ~900 MB; limite aumentado em 2026-06-24
+    memswap_limit: 2500m  # 500 MB extra de swap como válvula de segurança contra OOM
     cpus: "1.5"        # era 1.0 — queries de agregação fiscal beneficiam do CPU extra
     healthcheck:
       test: pg_isready -U postgres -h localhost
@@ -27,6 +27,7 @@ services:
     # Parâmetros PostgreSQL passados no startup (evita necessidade de ALTER SYSTEM com superuser)
     # Tuning aplicado em 2026-05-25 para Jarvis com 10 GB RAM host / 468 MB banco
     # Hardening 2026-05-28: max_connections 100→200, work_mem ajustado
+    # Tuning I/O 2026-06-24: shared_buffers 256→512MB, checkpoint_timeout 5→10min, mem_limit 1.5→2GB
     command:
       - postgres
       - -c
@@ -34,7 +35,7 @@ services:
       - -c
       - max_connections=200           # era 100 — suporta pico de carga simultânea
       - -c
-      - shared_buffers=256MB          # era 128 MB — 25% da RAM alocada ao container
+      - shared_buffers=512MB          # era 256 MB — banco 1.3 GB, host 10 GB RAM (2026-06-24)
       - -c
       - effective_cache_size=4GB      # hint ao planner: SO+PG cache estimado (não aloca RAM)
       - -c
@@ -49,6 +50,8 @@ services:
       - effective_io_concurrency=200  # era 1 — I/O paralelo para SSD
       - -c
       - checkpoint_completion_target=0.9  # era 0.5 — checkpoints mais suaves
+      - -c
+      - checkpoint_timeout=10min          # era 5min padrão — reduz frequência de flush WAL
       - -c
       - default_statistics_target=200    # era 100 — planos mais precisos para fiscal_documents
       - -c

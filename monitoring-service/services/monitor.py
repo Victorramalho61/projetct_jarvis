@@ -276,21 +276,20 @@ async def run_all_checks() -> None:
         return
 
     now = datetime.now(timezone.utc)
-    system_ids = [s["id"] for s in systems]
 
-    recent = db.table("system_checks") \
-        .select("system_id,checked_at") \
-        .in_("system_id", system_ids) \
-        .order("checked_at", desc=True) \
-        .limit(len(system_ids) * 3) \
-        .execute().data
-
+    # Uma query por sistema usando o índice (system_id, checked_at DESC),
+    # evitando seq scan causado por IN+ORDER BY global na tabela inteira.
     last_check: dict[str, datetime] = {}
-    for chk in recent:
-        sid = chk["system_id"]
-        if sid not in last_check:
-            last_check[sid] = datetime.fromisoformat(
-                chk["checked_at"].replace("Z", "+00:00"))
+    for s in systems:
+        row = db.table("system_checks") \
+            .select("checked_at") \
+            .eq("system_id", s["id"]) \
+            .order("checked_at", desc=True) \
+            .limit(1) \
+            .execute().data
+        if row:
+            last_check[s["id"]] = datetime.fromisoformat(
+                row[0]["checked_at"].replace("Z", "+00:00"))
 
     to_check = [
         s for s in systems
