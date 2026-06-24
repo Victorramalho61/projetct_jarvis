@@ -74,6 +74,63 @@ async def benner_latest(
     }
 
 
+@router.get("/snapshot/{snap_id}")
+@limiter.limit("60/minute")
+async def benner_snapshot_detail(
+    snap_id: int,
+    request: Request,
+    _=Depends(get_current_user),
+):
+    """Retorna snapshot completo por ID (drill-down do histórico)."""
+    try:
+        resp = (
+            get_supabase()
+            .table("benner_snapshots")
+            .select("*")
+            .eq("id", snap_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"Falha ao consultar banco: {exc}") from exc
+
+    if not resp.data:
+        raise HTTPException(404, "Snapshot não encontrado")
+
+    snap = resp.data[0]
+
+    por_produto = {
+        prod: {"ok": v[0], "erros": v[1]}
+        for prod, v in (snap.get("por_produto") or {}).items()
+    }
+
+    erros = [
+        {
+            "id":             e.get("i"),
+            "produto":        e.get("p"),
+            "reserva":        e.get("r"),
+            "situacao":       e.get("s"),
+            "situacao_label": _SITUACAO_LABEL.get(e.get("s"), str(e.get("s"))),
+            "mensagem":       e.get("m"),
+            "data":           e.get("t"),
+            "sistema":        e.get("o") or "—",
+            "cliente":        e.get("c") or "—",
+        }
+        for e in (snap.get("erros_recentes") or [])
+    ]
+
+    return {
+        "id":             snap["id"],
+        "capturado_em":   snap["capturado_em"],
+        "total":          snap["total"],
+        "ok":             snap["ok"],
+        "erros":          snap["erros"],
+        "taxa_erro_pct":  snap["taxa_erro_pct"],
+        "por_produto":    por_produto,
+        "erros_recentes": erros,
+    }
+
+
 @router.get("/history")
 @limiter.limit("60/minute")
 async def benner_history(

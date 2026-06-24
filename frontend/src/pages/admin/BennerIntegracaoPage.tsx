@@ -17,6 +17,7 @@ interface ErroItem {
 }
 
 interface Snapshot {
+  id: number;
   capturado_em: string;
   total: number;
   ok: number;
@@ -24,6 +25,15 @@ interface Snapshot {
   taxa_erro_pct: number;
   por_produto: Record<string, { ok: number; erros: number }>;
   erros_recentes: ErroItem[];
+}
+
+interface SnapHistoryItem {
+  id: number;
+  capturado_em: string;
+  total: number;
+  ok: number;
+  erros: number;
+  taxa_erro_pct: number;
 }
 
 interface RpaCategoria {
@@ -140,9 +150,12 @@ export default function BennerIntegracaoPage() {
   const [tab, setTab] = useState<Tab>("monitoramento");
 
   // ── estado monitoramento ─────────────────────────────────────────────────
-  const [snap, setSnap] = useState<Snapshot | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [snapHistory, setSnapHistory] = useState<SnapHistoryItem[]>([]);
+  const [snapDetail, setSnapDetail] = useState<Record<number, Snapshot>>({});
+  const [histLoading, setHistLoading] = useState(true);
+  const [histError, setHistError] = useState<string | null>(null);
+  const [expandedSnap, setExpandedSnap] = useState<number | null>(null);
+  const [snapLoadingId, setSnapLoadingId] = useState<number | null>(null);
   const [filtProduto, setFiltProduto] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
@@ -161,17 +174,19 @@ export default function BennerIntegracaoPage() {
 
   // ── carregamento ─────────────────────────────────────────────────────────
 
-  const loadSnap = useCallback(async (initial = false) => {
+  const loadHistory = useCallback(async () => {
     if (!token) return;
-    if (initial) setLoading(true);
-    setError(null);
+    setHistLoading(true);
+    setHistError(null);
     try {
-      const d = await apiFetch<Snapshot>("/api/monitoring/benner/latest", { token });
-      setSnap(d);
+      const d = await apiFetch<{ items: SnapHistoryItem[] }>(
+        "/api/monitoring/benner/history?limit=30", { token }
+      );
+      setSnapHistory([...(d.items || [])].reverse()); // mais recente primeiro
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Erro ao carregar dados.");
+      setHistError(e instanceof ApiError ? e.message : "Erro ao carregar histórico.");
     } finally {
-      if (initial) setLoading(false);
+      setHistLoading(false);
     }
   }, [token]);
 
@@ -196,14 +211,37 @@ export default function BennerIntegracaoPage() {
   }, [token]);
 
   useEffect(() => {
-    loadSnap(true);
-  }, [loadSnap]);
+    loadHistory();
+  }, [loadHistory]);
 
   useEffect(() => {
     if (tab === "rpa") loadRpa();
   }, [tab, loadRpa]);
 
-  // ── drill-down ───────────────────────────────────────────────────────────
+  // ── drill-down snapshot ──────────────────────────────────────────────────
+
+  async function toggleSnap(s: SnapHistoryItem) {
+    if (expandedSnap === s.id) {
+      setExpandedSnap(null);
+      setFiltProduto("");
+      setSearch("");
+      setExpanded(new Set());
+      return;
+    }
+    setExpandedSnap(s.id);
+    setFiltProduto("");
+    setSearch("");
+    setExpanded(new Set());
+    if (snapDetail[s.id]) return;
+    setSnapLoadingId(s.id);
+    try {
+      const d = await apiFetch<Snapshot>(`/api/monitoring/benner/snapshot/${s.id}`, { token });
+      setSnapDetail(prev => ({ ...prev, [s.id]: d }));
+    } catch { /* silently ignore */ }
+    finally { setSnapLoadingId(null); }
+  }
+
+  // ── drill-down categoria RPA ─────────────────────────────────────────────
 
   async function toggleCategoria(cat: string) {
     if (expandedCat === cat) { setExpandedCat(null); return; }
@@ -243,31 +281,35 @@ export default function BennerIntegracaoPage() {
 
   // ── dados derivados ──────────────────────────────────────────────────────
 
-  const produtos = snap
-    ? Object.entries(snap.por_produto).sort((a, b) => (b[1].erros + b[1].ok) - (a[1].erros + a[1].ok))
-    : [];
+  const histTotals = snapHistory.reduce(
+    (acc, s) => ({ total: acc.total + s.total, ok: acc.ok + s.ok, erros: acc.erros + s.erros }),
+    { total: 0, ok: 0, erros: 0 }
+  );
+  const histTaxaMedia = histTotals.total ? (histTotals.erros / histTotals.total * 100) : 0;
 
-  const errosFiltrados = (snap?.erros_recentes ?? []).filter(e => {
-    if (filtProduto && e.produto !== filtProduto) return false;
-    if (search) {
-      const q = search.toLowerCase();
-      if (!e.mensagem?.toLowerCase().includes(q) &&
-          !e.reserva?.toLowerCase().includes(q) &&
-          !e.sistema?.toLowerCase().includes(q) &&
-          !e.cliente?.toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  function errosFiltrados(erros: ErroItem[]) {
+    return erros.filter(e => {
+      if (filtProduto && e.produto !== filtProduto) return false;
+      if (search) {
+        const q = search.toLowerCase();
+        if (!e.mensagem?.toLowerCase().includes(q) &&
+            !e.reserva?.toLowerCase().includes(q) &&
+            !e.sistema?.toLowerCase().includes(q) &&
+            !e.cliente?.toLowerCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }
 
-  const taxaCor =
-    !snap ? "text-gray-400"
-    : snap.taxa_erro_pct < 10 ? "text-green-600 dark:text-green-400"
-    : snap.taxa_erro_pct < 25 ? "text-orange-500 dark:text-orange-400"
-    : "text-red-600 dark:text-red-400";
+  function snapTaxaCor(pct: number) {
+    return pct < 10 ? "text-green-600 dark:text-green-400"
+      : pct < 25 ? "text-orange-500 dark:text-orange-400"
+      : "text-red-600 dark:text-red-400";
+  }
 
   // ── render ────────────────────────────────────────────────────────────────
 
-  if (loading && tab === "monitoramento") {
+  if (histLoading && tab === "monitoramento") {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-8 h-8 border-4 border-brand-green border-t-transparent rounded-full animate-spin" />
@@ -316,27 +358,27 @@ export default function BennerIntegracaoPage() {
       {/* ── TAB: MONITORAMENTO ─────────────────────────────────────────────── */}
       {tab === "monitoramento" && (
         <>
-          {error && (
+          {histError && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">
-              {error}
+              {histError}
             </div>
           )}
 
-          {!snap && !error && (
+          {!histLoading && snapHistory.length === 0 && !histError && (
             <div className="text-center py-16 text-sm text-gray-400">
               Nenhum snapshot disponível. O scheduler coleta dados diariamente às 07h BRT.
             </div>
           )}
 
-          {snap && (
+          {snapHistory.length > 0 && (
             <>
-              {/* KPI cards */}
+              {/* KPI cards — acumulativo dos últimos 30 snapshots */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 {[
-                  { label: "Total", value: snap.total.toLocaleString("pt-BR"), color: "text-gray-800 dark:text-gray-100" },
-                  { label: "OK", value: snap.ok.toLocaleString("pt-BR"), color: "text-green-600 dark:text-green-400" },
-                  { label: "Erros", value: snap.erros.toLocaleString("pt-BR"), color: "text-red-600 dark:text-red-400" },
-                  { label: "Taxa de erro", value: `${snap.taxa_erro_pct}%`, color: taxaCor },
+                  { label: "Total de reservas", value: histTotals.total.toLocaleString("pt-BR"), color: "text-gray-800 dark:text-gray-100" },
+                  { label: "Integradas OK", value: histTotals.ok.toLocaleString("pt-BR"), color: "text-green-600 dark:text-green-400" },
+                  { label: "Com erro", value: histTotals.erros.toLocaleString("pt-BR"), color: "text-red-600 dark:text-red-400" },
+                  { label: "Taxa de erro", value: `${histTaxaMedia.toFixed(1)}%`, color: snapTaxaCor(histTaxaMedia) },
                 ].map(({ label, value, color }) => (
                   <div key={label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
                     <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
@@ -345,148 +387,229 @@ export default function BennerIntegracaoPage() {
                 ))}
               </div>
 
-              {/* Barra ok/erro global */}
-              {snap.total > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-medium text-gray-600 dark:text-gray-400">Proporção geral</span>
-                    <span className="text-xs text-gray-400">{snap.ok} OK · {snap.erros} erros</span>
-                  </div>
-                  <div className="flex h-2.5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
-                    <div className="bg-green-500 transition-all duration-500" style={{ width: `${(snap.ok / snap.total) * 100}%` }} />
-                    <div className="bg-red-500 transition-all duration-500" style={{ width: `${(snap.erros / snap.total) * 100}%` }} />
-                  </div>
-                </div>
-              )}
-
-              {/* Por produto */}
-              {produtos.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
-                  <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Por produto</h2>
-                  <div className="space-y-2.5">
-                    {produtos.map(([prod, v]) => {
-                      const total = v.ok + v.erros;
-                      const pctErro = total ? (v.erros / total) * 100 : 0;
-                      return (
-                        <div key={prod}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[120px]">{prod}</span>
-                            <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-gray-400">
-                              <span className="text-green-600 dark:text-green-400">✓{v.ok}</span>
-                              {v.erros > 0 && <span className="text-red-600 dark:text-red-400">✗{v.erros}</span>}
-                            </div>
-                          </div>
-                          <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
-                            {total > 0 && (
-                              <>
-                                <div className="bg-green-500" style={{ width: `${100 - pctErro}%` }} />
-                                <div className="bg-red-500" style={{ width: `${pctErro}%` }} />
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Tabela de erros */}
+              {/* Tabela de snapshots com drill-down */}
               <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
                   <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                    Erros recentes
-                    <span className="ml-1.5 text-xs font-normal text-gray-400">({errosFiltrados.length})</span>
+                    Histórico de snapshots
+                    <span className="ml-1.5 text-xs font-normal text-gray-400">— clique para ver erros do dia</span>
                   </h2>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <input
-                      value={search}
-                      onChange={e => setSearch(e.target.value)}
-                      placeholder="Buscar mensagem, reserva, sistema…"
-                      className="h-7 text-xs px-2.5 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-green w-52"
-                    />
-                    <select
-                      value={filtProduto}
-                      onChange={e => setFiltProduto(e.target.value)}
-                      className="h-7 text-xs px-2 rounded-md border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-green"
-                    >
-                      <option value="">Todos os produtos</option>
-                      {[...new Set((snap.erros_recentes ?? []).map(e => e.produto).filter(Boolean))].sort().map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                  </div>
                 </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-700/50 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        <th className="px-4 py-2.5 font-medium w-4"></th>
+                        <th className="px-4 py-2.5 font-medium whitespace-nowrap">Data coleta</th>
+                        <th className="px-4 py-2.5 font-medium text-right">Total</th>
+                        <th className="px-4 py-2.5 font-medium text-right">OK</th>
+                        <th className="px-4 py-2.5 font-medium text-right">Erros</th>
+                        <th className="px-4 py-2.5 font-medium text-right">Taxa</th>
+                        <th className="px-4 py-2.5 font-medium min-w-[120px]">Proporção</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {snapHistory.map(s => {
+                        const isOpen = expandedSnap === s.id;
+                        const detalhe = snapDetail[s.id];
+                        const isLoadingSnap = snapLoadingId === s.id;
+                        const filtrados = detalhe ? errosFiltrados(detalhe.erros_recentes) : [];
+                        const produtos = detalhe
+                          ? Object.entries(detalhe.por_produto).sort((a, b) => (b[1].erros + b[1].ok) - (a[1].erros + a[1].ok))
+                          : [];
 
-                {errosFiltrados.length === 0 ? (
-                  <div className="px-4 py-10 text-center text-sm text-gray-400 dark:text-gray-500">
-                    {snap.erros === 0 ? "Nenhum erro nas últimas 24 h" : "Nenhum erro corresponde ao filtro"}
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className="bg-gray-50 dark:bg-gray-700/50 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                          <th className="px-3 py-2.5 font-medium w-[1px]"></th>
-                          <th className="px-3 py-2.5 font-medium whitespace-nowrap">Data/Hora</th>
-                          <th className="px-3 py-2.5 font-medium">Produto</th>
-                          <th className="px-3 py-2.5 font-medium">Reserva</th>
-                          <th className="px-3 py-2.5 font-medium">Status</th>
-                          <th className="px-3 py-2.5 font-medium">Sistema</th>
-                          <th className="px-3 py-2.5 font-medium">Cliente</th>
-                          <th className="px-3 py-2.5 font-medium">Erro</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                        {errosFiltrados.map((e, idx) => {
-                          const isOpen = expanded.has(e.id);
-                          const short = shortMsg(e.mensagem);
-                          const hasMore = e.mensagem && e.mensagem.length > short.length + 5;
-                          return (
-                            <>
-                              <tr
-                                key={`${e.id}-${idx}`}
-                                onClick={() => hasMore && toggleRow(e.id)}
-                                className={`transition-colors ${hasMore ? "cursor-pointer" : ""} hover:bg-gray-50 dark:hover:bg-gray-700/30`}
-                              >
-                                <td className="px-2 py-2.5 text-gray-400">
-                                  {hasMore ? (
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>
-                                      <polyline points="9 18 15 12 9 6"/>
-                                    </svg>
-                                  ) : null}
+                        return (
+                          <>
+                            <tr
+                              key={s.id}
+                              onClick={() => toggleSnap(s)}
+                              className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/30 border-b border-gray-100 dark:border-gray-700 transition-colors"
+                            >
+                              <td className="px-3 py-2.5 text-gray-400">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                                  className={`transition-transform ${isOpen ? "rotate-90" : ""}`}>
+                                  <polyline points="9 18 15 12 9 6"/>
+                                </svg>
+                              </td>
+                              <td className="px-4 py-2.5 font-medium text-gray-700 dark:text-gray-300 whitespace-nowrap">{fmt(s.capturado_em)}</td>
+                              <td className="px-4 py-2.5 text-right text-gray-500 tabular-nums">{s.total.toLocaleString("pt-BR")}</td>
+                              <td className="px-4 py-2.5 text-right text-green-600 dark:text-green-400 tabular-nums">{s.ok.toLocaleString("pt-BR")}</td>
+                              <td className="px-4 py-2.5 text-right tabular-nums">
+                                <span className={s.erros > 0 ? "text-red-600 dark:text-red-400" : "text-gray-400"}>{s.erros.toLocaleString("pt-BR")}</span>
+                              </td>
+                              <td className={`px-4 py-2.5 text-right tabular-nums font-medium ${snapTaxaCor(s.taxa_erro_pct)}`}>{s.taxa_erro_pct}%</td>
+                              <td className="px-4 py-2.5">
+                                <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                                  {s.total > 0 && (
+                                    <>
+                                      <div className="bg-green-500" style={{ width: `${(s.ok / s.total) * 100}%` }} />
+                                      <div className="bg-red-500" style={{ width: `${(s.erros / s.total) * 100}%` }} />
+                                    </>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+
+                            {isOpen && (
+                              <tr key={`${s.id}-detail`}>
+                                <td colSpan={7} className="p-0 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                                  {isLoadingSnap && (
+                                    <div className="flex items-center justify-center py-8 gap-2 text-xs text-gray-400">
+                                      <div className="w-4 h-4 border-2 border-brand-green border-t-transparent rounded-full animate-spin" />
+                                      Carregando dados do dia…
+                                    </div>
+                                  )}
+
+                                  {!isLoadingSnap && detalhe && (
+                                    <div className="p-4 space-y-3">
+
+                                      {/* Por produto */}
+                                      {produtos.length > 0 && (
+                                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+                                          <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2.5">Por produto</p>
+                                          <div className="space-y-2">
+                                            {produtos.map(([prod, v]) => {
+                                              const tot = v.ok + v.erros;
+                                              const pctErro = tot ? (v.erros / tot) * 100 : 0;
+                                              return (
+                                                <div key={prod}>
+                                                  <div className="flex items-center justify-between mb-1">
+                                                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate max-w-[160px]">{prod}</span>
+                                                    <div className="flex items-center gap-2 text-[11px]">
+                                                      <span className="text-green-600 dark:text-green-400">✓{v.ok}</span>
+                                                      {v.erros > 0 && <span className="text-red-600 dark:text-red-400">✗{v.erros}</span>}
+                                                    </div>
+                                                  </div>
+                                                  <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                                                    {tot > 0 && (
+                                                      <>
+                                                        <div className="bg-green-500" style={{ width: `${100 - pctErro}%` }} />
+                                                        <div className="bg-red-500" style={{ width: `${pctErro}%` }} />
+                                                      </>
+                                                    )}
+                                                  </div>
+                                                </div>
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      )}
+
+                                      {/* Tabela de erros */}
+                                      {detalhe.erros > 0 ? (
+                                        <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+                                          <div className="px-3 py-2 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex items-center justify-between flex-wrap gap-2">
+                                            <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-400">
+                                              Erros do dia
+                                              <span className="ml-1 font-normal text-gray-400">({filtrados.length})</span>
+                                            </span>
+                                            <div className="flex items-center gap-2">
+                                              <input
+                                                value={search}
+                                                onChange={e => setSearch(e.target.value)}
+                                                onClick={e => e.stopPropagation()}
+                                                placeholder="Buscar…"
+                                                className="h-6 text-[11px] px-2 rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-brand-green w-36"
+                                              />
+                                              <select
+                                                value={filtProduto}
+                                                onChange={e => setFiltProduto(e.target.value)}
+                                                onClick={e => e.stopPropagation()}
+                                                className="h-6 text-[11px] px-1.5 rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-brand-green"
+                                              >
+                                                <option value="">Todos</option>
+                                                {[...new Set(detalhe.erros_recentes.map(e => e.produto).filter(Boolean))].sort().map(p => (
+                                                  <option key={p} value={p}>{p}</option>
+                                                ))}
+                                              </select>
+                                            </div>
+                                          </div>
+                                          <div className="overflow-x-auto max-h-72">
+                                            <table className="w-full text-xs">
+                                              <thead className="sticky top-0">
+                                                <tr className="bg-gray-100 dark:bg-gray-700 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                                  <th className="px-3 py-2 font-medium w-[1px]"></th>
+                                                  <th className="px-3 py-2 font-medium whitespace-nowrap">Data/Hora</th>
+                                                  <th className="px-3 py-2 font-medium">Produto</th>
+                                                  <th className="px-3 py-2 font-medium">Reserva</th>
+                                                  <th className="px-3 py-2 font-medium">Status</th>
+                                                  <th className="px-3 py-2 font-medium">Sistema</th>
+                                                  <th className="px-3 py-2 font-medium">Cliente</th>
+                                                  <th className="px-3 py-2 font-medium">Erro</th>
+                                                </tr>
+                                              </thead>
+                                              <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                                                {filtrados.map((e, idx) => {
+                                                  const isRowOpen = expanded.has(e.id);
+                                                  const short = shortMsg(e.mensagem);
+                                                  const hasMore = e.mensagem && e.mensagem.length > short.length + 5;
+                                                  return (
+                                                    <>
+                                                      <tr
+                                                        key={`${e.id}-${idx}`}
+                                                        onClick={ev => { ev.stopPropagation(); if (hasMore) toggleRow(e.id); }}
+                                                        className={`transition-colors ${hasMore ? "cursor-pointer" : ""} hover:bg-gray-50 dark:hover:bg-gray-700/30`}
+                                                      >
+                                                        <td className="px-2 py-2 text-gray-400">
+                                                          {hasMore && (
+                                                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                                                              className={`transition-transform ${isRowOpen ? "rotate-90" : ""}`}>
+                                                              <polyline points="9 18 15 12 9 6"/>
+                                                            </svg>
+                                                          )}
+                                                        </td>
+                                                        <td className="px-3 py-2 whitespace-nowrap text-gray-400 tabular-nums">{fmt(e.data)}</td>
+                                                        <td className="px-3 py-2 whitespace-nowrap">
+                                                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{e.produto || "—"}</span>
+                                                        </td>
+                                                        <td className="px-3 py-2 font-mono text-gray-700 dark:text-gray-300 whitespace-nowrap">{e.reserva || "—"}</td>
+                                                        <td className="px-3 py-2 whitespace-nowrap"><SituacaoBadge label={e.situacao_label} s={e.situacao} /></td>
+                                                        <td className="px-3 py-2 whitespace-nowrap text-gray-400">{e.sistema || "—"}</td>
+                                                        <td className="px-3 py-2 text-gray-400 max-w-[140px] truncate" title={e.cliente}>{e.cliente || "—"}</td>
+                                                        <td className="px-3 py-2 text-gray-600 dark:text-gray-400 max-w-[220px] truncate" title={e.mensagem || ""}>{short}</td>
+                                                      </tr>
+                                                      {isRowOpen && (
+                                                        <tr key={`${e.id}-${idx}-exp`} className="bg-gray-50 dark:bg-gray-700/20">
+                                                          <td colSpan={8} className="px-6 py-3">
+                                                            <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Mensagem completa</p>
+                                                            <p className="text-xs text-gray-700 dark:text-gray-300 font-mono leading-relaxed whitespace-pre-wrap break-all">{e.mensagem}</p>
+                                                          </td>
+                                                        </tr>
+                                                      )}
+                                                    </>
+                                                  );
+                                                })}
+                                                {filtrados.length === 0 && (
+                                                  <tr>
+                                                    <td colSpan={8} className="px-4 py-6 text-center text-gray-400">
+                                                      Nenhum erro corresponde ao filtro
+                                                    </td>
+                                                  </tr>
+                                                )}
+                                              </tbody>
+                                            </table>
+                                          </div>
+                                        </div>
+                                      ) : (
+                                        <p className="text-center text-xs text-gray-400 dark:text-gray-500 py-3">
+                                          Nenhum erro neste snapshot ✓
+                                        </p>
+                                      )}
+                                    </div>
+                                  )}
                                 </td>
-                                <td className="px-3 py-2.5 whitespace-nowrap text-gray-500 dark:text-gray-400 tabular-nums">{fmt(e.data)}</td>
-                                <td className="px-3 py-2.5 whitespace-nowrap">
-                                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                                    {e.produto || "—"}
-                                  </span>
-                                </td>
-                                <td className="px-3 py-2.5 font-mono whitespace-nowrap text-gray-700 dark:text-gray-300">{e.reserva || "—"}</td>
-                                <td className="px-3 py-2.5 whitespace-nowrap"><SituacaoBadge label={e.situacao_label} s={e.situacao} /></td>
-                                <td className="px-3 py-2.5 whitespace-nowrap text-gray-500 dark:text-gray-400">{e.sistema || "—"}</td>
-                                <td className="px-3 py-2.5 text-gray-500 dark:text-gray-400 max-w-[140px] truncate" title={e.cliente}>{e.cliente || "—"}</td>
-                                <td className="px-3 py-2.5 text-gray-600 dark:text-gray-400 max-w-[220px] truncate" title={e.mensagem}>{short}</td>
                               </tr>
-                              {isOpen && (
-                                <tr key={`${e.id}-${idx}-detail`} className="bg-gray-50 dark:bg-gray-700/20">
-                                  <td colSpan={8} className="px-6 py-3">
-                                    <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 mb-1">Mensagem completa</p>
-                                    <p className="text-xs text-gray-700 dark:text-gray-300 font-mono leading-relaxed whitespace-pre-wrap break-all">{e.mensagem}</p>
-                                  </td>
-                                </tr>
-                              )}
-                            </>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                            )}
+                          </>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
-                Snapshot de {fmt(snap.capturado_em)} · coleta automática diária (07h BRT) · banco D-1
+                Coleta automática diária (07h BRT) · exibindo últimos {snapHistory.length} snapshots · banco D-1
               </p>
             </>
           )}
