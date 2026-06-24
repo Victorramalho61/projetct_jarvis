@@ -1,7 +1,7 @@
 """Endpoints RPA Benner — dashboard de monitoramento das automações."""
 import logging
-from collections import Counter
-from datetime import datetime, timezone
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -223,6 +223,99 @@ async def rpa_history(
     for item in items:
         item["categoria_label"] = CATEGORIA_LABEL.get(item.get("rpa_categoria") or "", "")
     return {"items": items}
+
+
+# ── evolução temporal ────────────────────────────────────────────────────────
+
+@router.get("/evolucao")
+@limiter.limit("60/minute")
+async def rpa_evolucao(
+    request: Request,
+    periodo: str = Query("dia", pattern="^(dia|mes)$"),
+    dias: int = Query(30, ge=1, le=365),
+    produto: str | None = Query(None),
+    sistema: str | None = Query(None),
+    categoria: str | None = Query(None),
+    _=Depends(get_current_user),
+):
+    """Evolução temporal dos erros RPA — dia a dia ou mês a mês."""
+    sb = get_supabase()
+    cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=dias)).isoformat()
+
+    try:
+        resp = (
+            sb.table("benner_erros")
+            .select("capturado_em,produto,sistema_origem,rpa_categoria,rpa_status")
+            .gte("capturado_em", cutoff)
+            .execute()
+        )
+    except Exception as exc:
+        raise HTTPException(502, f"Falha ao consultar evolução: {exc}") from exc
+
+    all_rows = resp.data or []
+
+    # Coleta filtros disponíveis do dataset completo (antes de filtrar por dimensão)
+    all_produtos: set[str] = set()
+    all_sistemas: set[str] = set()
+    all_categorias: set[str] = set()
+    for r in all_rows:
+        if r.get("produto"):
+            all_produtos.add(r["produto"])
+        if r.get("sistema_origem"):
+            all_sistemas.add(r["sistema_origem"])
+        if r.get("rpa_categoria"):
+            all_categorias.add(r["rpa_categoria"])
+
+    # Aplica filtros de dimensão
+    rows = all_rows
+    if produto:
+        rows = [r for r in rows if r.get("produto") == produto]
+    if sistema:
+        rows = [r for r in rows if r.get("sistema_origem") == sistema]
+    if categoria:
+        rows = [r for r in rows if r.get("rpa_categoria") == categoria]
+
+    # Agrega por período + dimensões
+    groups: dict = defaultdict(
+        lambda: {"total": 0, "resolvidos": 0, "aguardando": 0, "ignorado": 0, "pendente": 0}
+    )
+    for r in rows:
+        ts = r.get("capturado_em") or ""
+        p = ts[:10] if periodo == "dia" else ts[:7]
+        key = (p, r.get("produto") or "", r.get("sistema_origem") or "", r.get("rpa_categoria") or "outros")
+        status = r.get("rpa_status") or "pendente"
+        groups[key]["total"] += 1
+        if status == "resolvido":
+            groups[key]["resolvidos"] += 1
+        elif status == "aguardando_input":
+            groups[key]["aguardando"] += 1
+        elif status == "ignorado":
+            groups[key]["ignorado"] += 1
+        else:
+            groups[key]["pendente"] += 1
+
+    series = [
+        {
+            "periodo": k[0],
+            "produto": k[1],
+            "sistema_origem": k[2],
+            "rpa_categoria": k[3],
+            **counts,
+        }
+        for k, counts in sorted(groups.items(), key=lambda x: x[0][0], reverse=True)
+    ]
+
+    return {
+        "series": series,
+        "filtros_disponiveis": {
+            "produtos": sorted(all_produtos),
+            "sistemas": sorted(all_sistemas),
+            "categorias": [
+                {"key": cat, "label": CATEGORIA_LABEL.get(cat, cat)}
+                for cat in sorted(all_categorias)
+            ],
+        },
+    }
 
 
 # ── ações manuais ────────────────────────────────────────────────────────────

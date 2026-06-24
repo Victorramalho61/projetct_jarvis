@@ -1249,22 +1249,18 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                             </button>
                           );
                         })()}
-                        {/* Ciência Presencial — apenas para colaboradores sem e-mail */}
-                        {!ev.has_email && (
-                          <a href="/ciencia-presencial" target="_blank" rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 transition-all">
-                            📋 Ciência
-                          </a>
-                        )}
-                        {/* Nova Avaliação — apenas RH/admin, quando avaliação já foi submetida */}
-                        {ev.status !== "pending" && (
-                          <button
-                            onClick={() => { setNewEvalModal({ open: true, item: ev }); setNewEvalJust(""); setNewEvalErr(""); }}
-                            title="Criar nova avaliação (substitui a anterior — requer justificativa)"
-                            className="text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all">
-                            🔄 Nova Aval.
-                          </button>
-                        )}
+                        {/* Ciência Presencial */}
+                        <a href="/ciencia-presencial" target="_blank" rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 transition-all">
+                          📋 Ciência
+                        </a>
+                        {/* Nova Avaliação — RH/admin */}
+                        <button
+                          onClick={() => { setNewEvalModal({ open: true, item: ev }); setNewEvalJust(""); setNewEvalErr(""); }}
+                          title="Criar nova avaliação (requer justificativa)"
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all">
+                          🔄 Nova Aval.
+                        </button>
                         {/* Nova Auto-Avaliação — override RH com justificativa e auditoria */}
                         <button
                           onClick={() => { setNewSelfEvalModal({ open: true, item: ev }); setNewSelfEvalJust(""); setNewSelfEvalErr(""); }}
@@ -1272,15 +1268,13 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                           className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
                           ✏️ Nova Auto-Aval.
                         </button>
-                        {/* Link presencial (apenas sem e-mail) */}
-                        {!ev.has_email && (
-                          <button
-                            onClick={handleCopyPresentialLink}
-                            title="Copiar link presencial de auto-avaliação para enviar via WhatsApp"
-                            className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 transition-all">
-                            {copiedLink ? "✓ Copiado!" : "🔗 Link Presencial"}
-                          </button>
-                        )}
+                        {/* Link presencial */}
+                        <button
+                          onClick={handleCopyPresentialLink}
+                          title="Copiar link presencial de auto-avaliação para enviar via WhatsApp"
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 transition-all">
+                          {copiedLink ? "✓ Copiado!" : "🔗 Link Presencial"}
+                        </button>
                       </div>
                     </td>
                   </tr>

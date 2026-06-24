@@ -29,6 +29,7 @@ const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const FiscalPage = lazy(() => import("./pages/admin/FiscalPage"));
 const BennerIntegracaoPage = lazy(() => import("./pages/admin/BennerIntegracaoPage"));
+const BennerEvolucaoPage = lazy(() => import("./pages/admin/BennerEvolucaoPage"));
 const HermesPage = lazy(() => import("./pages/admin/HermesPage"));
 const PublicEvaluationPage = lazy(() => import("./pages/PublicEvaluationPage"));
 const PublicCienciaPage = lazy(() => import("./pages/PublicCienciaPage"));
@@ -81,6 +82,7 @@ export default function App() {
             <Route path="/admin/gastos" element={<ExpensesPage />} />
             <Route path="/admin/fiscal" element={<FiscalPage />} />
             <Route path="/admin/benner" element={<BennerIntegracaoPage />} />
+            <Route path="/admin/benner-evolucao" element={<BennerEvolucaoPage />} />
             <Route path="/admin/governanca" element={<GovernancePage />} />
             <Route path="/admin/payfly" element={<PayFlyPage />} />
             <Route path="/admin/proposals" element={<ProposalsPage />} />

@@ -121,6 +121,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "logs",       label: "Logs",              path: "/admin/logs",           icon: "file",      roles: ["admin"] },
   { id: "monitoring",   label: "Monitoramento",   path: "/admin/monitoramento",  icon: "chart",     roles: ["admin"] },
   { id: "benner",     label: "Integrações Benner",  path: "/admin/benner",         icon: "zap",       roles: ["admin"], sub: true },
+  { id: "benner-evolucao", label: "Acompanhamento RPA", path: "/admin/benner-evolucao", icon: "chart",     roles: ["admin"], sub: true },
   { id: "freshservice", label: "Freshservice",    path: "/freshservice",         icon: "briefcase", roles: ["admin"] },
   { id: "agents",     label: "Agentes (desligado)", path: "/admin/agentes",      icon: "cpu",       roles: ["admin"] },
   { id: "expenses",   label: "Gastos TI",         path: "/admin/gastos",         icon: "wallet",    roles: ["admin"] },
