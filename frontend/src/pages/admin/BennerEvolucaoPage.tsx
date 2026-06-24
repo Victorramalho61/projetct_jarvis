@@ -374,7 +374,7 @@ export default function BennerEvolucaoPage() {
                           {r.sistema_origem || "—"}
                         </td>
                         <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap">
-                          {filtros?.categorias.find(c => c.key === r.rpa_categoria)?.label ?? r.rpa_categoria || "—"}
+                          {(filtros?.categorias.find(c => c.key === r.rpa_categoria)?.label ?? r.rpa_categoria) || "—"}
                         </td>
                         <td className="px-3 py-2 text-xs font-semibold tabular-nums text-gray-900 dark:text-gray-100">
                           {r.total}
