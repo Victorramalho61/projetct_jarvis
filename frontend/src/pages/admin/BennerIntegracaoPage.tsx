@@ -325,9 +325,9 @@ export default function BennerIntegracaoPage() {
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">Integrações Benner</h1>
         <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
           Log de reservas integradas — coleta diária (07h BRT)
-          {snap && (
+          {snapHistory.length > 0 && (
             <span className="ml-2 text-gray-400">
-              · Snapshot de {fmt(snap.capturado_em)}
+              · Snapshot mais recente: {fmt(snapHistory[0]?.capturado_em)}
             </span>
           )}
         </p>
