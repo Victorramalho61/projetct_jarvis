@@ -4,7 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from auth import get_current_user
-from benner_db import query_logs, query_summary
+from benner_db import query_categorias_erro, query_logs, query_summary
 from db import get_supabase
 from limiter import limiter
 
@@ -153,6 +153,22 @@ async def benner_history(
         raise HTTPException(502, f"Falha ao consultar banco: {exc}") from exc
 
     return {"items": list(reversed(resp.data or []))}
+
+
+@router.get("/erros-por-tipo")
+@limiter.limit("20/minute")
+async def benner_erros_por_tipo(
+    request: Request,
+    dias: int = Query(7, ge=1, le=30),
+    _=Depends(get_current_user),
+):
+    """Agrega erros dos últimos N dias por tipo de erro (consulta SQL Server direto)."""
+    try:
+        data = await asyncio.to_thread(query_categorias_erro, dias)
+    except Exception as exc:
+        logger.exception("Erro ao consultar categorias de erro Benner")
+        raise HTTPException(502, f"Falha ao consultar Benner: {exc}") from exc
+    return {"dias": dias, "por_tipo": data}
 
 
 # ── Consulta ao vivo no SQL Server (fallback / admin) ───────────────────────

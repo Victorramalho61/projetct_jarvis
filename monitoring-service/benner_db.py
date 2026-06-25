@@ -11,15 +11,52 @@ _PRODUTO_MAP: dict[str, str] = {
     "flight":        "Aéreo",
     "hotel":         "Hotelaria",
     "pnr":           "PNR",
+    "airticket":     "Air Ticket",
     "rodoviario":    "Rodoviário",
+    "bus":           "Rodoviário",
+    "insurance":     "Seguro",
+    "emd":           "EMD",
     "ordem serviço": "Ordem de Serviço",
     "ordem servico": "Ordem de Serviço",
     "pedido":        "Pedido",
     "solicitação":   "Solicitação",
     "solicitacao":   "Solicitação",
-    "airticket":     "Air Ticket",
     "outros":        "Outros",
 }
+
+# Categorias de erro derivadas do campo MENSAGEM
+_TIPO_ERRO_LABELS: dict[str, str] = {
+    "cliente_nao_identificado":  "Cliente não identificado",
+    "fornecedor_nao_localizado": "Fornecedor não localizado",
+    "erro_pagamento":            "Erro de pagamento",
+    "contrato_nao_localizado":   "Contrato não localizado",
+    "erro_formato":              "Formato / dado inválido",
+    "outros":                    "Outros",
+}
+
+
+def _classificar_erro(mensagem: str | None) -> str:
+    if not mensagem:
+        return "outros"
+    m = mensagem.lower()
+    if ("código do cliente não informado" in m or "getclient" in m
+            or "cliente não informado" in m or "obtercliente" in m):
+        return "cliente_nao_identificado"
+    if "fornecedor" in m and (
+        "não foi possível encontrar" in m or "não encontr" in m or "não localiz" in m
+    ):
+        return "fornecedor_nao_localizado"
+    if ("pagament" in m or "obterp" in m) and (
+        "null" in m or "não informado" in m
+    ):
+        return "erro_pagamento"
+    if "contrato" in m and (
+        "não foi possível localizar" in m or "não localiz" in m
+    ):
+        return "contrato_nao_localizado"
+    if "same key" in m or "input string was not in a correct format" in m:
+        return "erro_formato"
+    return "outros"
 
 
 def _map_sistema_origem(produto: str | None, origem: int | None) -> str:
@@ -128,7 +165,8 @@ def query_summary(hours: int = 24) -> dict:
 
     produtos: dict[str, dict] = {}
     for row in by_product_raw:
-        produto = row[0] or "Desconhecido"
+        raw_prod = (row[0] or "Desconhecido").strip()
+        produto = _PRODUTO_MAP.get(raw_prod.lower(), raw_prod)
         if produto not in produtos:
             produtos[produto] = {"ok": 0, "erros": 0}
         if row[1] == 1:
@@ -231,3 +269,78 @@ def query_new_errors(minutes: int = 15) -> list[dict]:
     ]
     conn.close()
     return rows
+
+
+def query_categorias_erro(days: int = 7, exemplos_por_cat: int = 30) -> list[dict]:
+    """Agrupa erros dos últimos N dias por categoria (conta tudo, amosta exemplos)."""
+    conn = get_benner_conn()
+    cur = conn.cursor()
+
+    # Contagem real de TODOS os erros por mensagem (sem limite)
+    cur.execute(
+        """
+        SELECT MENSAGEM, COUNT(*) AS QTD
+        FROM BB_LOGINTEGRACOES
+        WHERE SITUACAO != 1
+          AND DATAREENVIO >= DATEADD(DAY, ?, GETDATE())
+        GROUP BY MENSAGEM
+        ORDER BY QTD DESC
+        """,
+        (-days,),
+    )
+    count_rows = cur.fetchall()
+
+    # Exemplos detalhados (até 500 linhas)
+    cur.execute(
+        """
+        SELECT TOP 500
+            l.HANDLE, l.SITUACAO, l.PRODUTO, l.CODIGORESERVA,
+            l.DATAREENVIO, l.MENSAGEM, l.ORIGEMFORNECEDOR,
+            COALESCE(e.NOMEFANTASIA, CAST(l.EMPRESA AS VARCHAR(20))) AS CLIENTE
+        FROM BB_LOGINTEGRACOES l
+        LEFT JOIN EMPRESAS e ON e.HANDLE = l.EMPRESA
+        WHERE l.SITUACAO != 1
+          AND l.DATAREENVIO >= DATEADD(DAY, ?, GETDATE())
+        ORDER BY l.DATAREENVIO DESC
+        """,
+        (-days,),
+    )
+    sample_rows = cur.fetchall()
+    conn.close()
+
+    cat_counts: dict[str, int] = {}
+    for row in count_rows:
+        cat = _classificar_erro(row[0])
+        cat_counts[cat] = cat_counts.get(cat, 0) + row[1]
+
+    cat_exemplos: dict[str, list] = {}
+    for row in sample_rows:
+        cat = _classificar_erro(row[5])
+        if cat not in cat_exemplos:
+            cat_exemplos[cat] = []
+        if len(cat_exemplos[cat]) < exemplos_por_cat:
+            cat_exemplos[cat].append({
+                "id":       row[0],
+                "situacao": row[1],
+                "produto":  _PRODUTO_MAP.get((row[2] or "").lower().strip(), row[2] or "—"),
+                "reserva":  row[3],
+                "data":     row[4].isoformat() if row[4] else None,
+                "mensagem": row[5],
+                "sistema":  _map_sistema_origem(row[2], row[6]),
+                "cliente":  row[7] or "—",
+            })
+
+    total_erros = sum(cat_counts.values())
+    return sorted(
+        [
+            {
+                "categoria": cat,
+                "label":     _TIPO_ERRO_LABELS.get(cat, cat),
+                "count":     count,
+                "pct":       round(count / total_erros * 100, 1) if total_erros else 0,
+                "exemplos":  cat_exemplos.get(cat, []),
+            }
+            for cat, count in cat_counts.items()
+        ],
+        key=lambda x: -x["count"],
+    )
