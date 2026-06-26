@@ -993,6 +993,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   // Link presencial (copy)
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
+  // Envio de e-mail de auto-avaliação individual
+  const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
+
   // Ver Avaliação (leitura — gestor + auto-aval)
   const [viewModal, setViewModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
   const [viewDetail, setViewDetail] = useState<any>(null);
@@ -1102,6 +1105,20 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       loadList();
     } catch (e: any) { setNewSelfEvalErr(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
     finally { setNewSelfEvalSaving(false); }
+  }
+
+  async function handleSendSelfEvalEmail(employeeId: string) {
+    setSendingEmailFor(employeeId);
+    try {
+      await apiFetch("/api/performance/admin/cycle/self-evaluation-tokens/send-for-employee", {
+        token, method: "POST", json: { employee_id: employeeId },
+      });
+      loadList();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao enviar auto-avaliação.");
+    } finally {
+      setSendingEmailFor(null);
+    }
   }
 
   function handleCopyPresentialLink() {
@@ -1215,7 +1232,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         ? <Badge color="green">✅ Concluída</Badge>
                         : ev.self_eval_status === "pending"
                         ? <Badge color="amber">⏳ Pendente</Badge>
-                        : <Badge color="gray">—</Badge>}
+                        : <Badge color="red">Não enviada</Badge>}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5 items-center">
@@ -1261,6 +1278,21 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                           className="text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all">
                           🔄 Nova Aval.
                         </button>
+                        {/* Enviar/Reenviar Auto-Avaliação por e-mail individual */}
+                        {cycleOpen && ev.self_eval_status !== "completed" && ev.has_email && (
+                          <button
+                            onClick={() => handleSendSelfEvalEmail(ev.employee_id)}
+                            disabled={sendingEmailFor === ev.employee_id}
+                            title={ev.self_eval_status === "pending"
+                              ? "Reenviar link de auto-avaliação por e-mail"
+                              : "Criar e enviar link de auto-avaliação por e-mail"}
+                            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-60">
+                            {sendingEmailFor === ev.employee_id
+                              ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
+                              : "📧"}
+                            {ev.self_eval_status === "pending" ? "Reenviar" : "Enviar Auto-Aval."}
+                          </button>
+                        )}
                         {/* Nova Auto-Avaliação — override RH com justificativa e auditoria */}
                         <button
                           onClick={() => { setNewSelfEvalModal({ open: true, item: ev }); setNewSelfEvalJust(""); setNewSelfEvalErr(""); }}
