@@ -1236,63 +1236,42 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5 items-center">
-                        {/* Ver Avaliação — leitura gestor + auto-aval */}
-                        {ev.status !== "pending" && (
-                          <button onClick={() => openView(ev)}
-                            title="Ver avaliação do gestor e auto-avaliação"
-                            className="text-xs font-semibold px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 transition-all">
-                            👁️ Ver
-                          </button>
-                        )}
-                        {/* Calibrar — requer avaliação E auto-avaliação concluídas */}
-                        {(() => {
-                          const evalOk = ev.status !== "pending";
-                          const selfOk = ev.self_eval_status === "completed";
-                          const canCalib = cycleOpen && evalOk && selfOk;
-                          const title = !cycleOpen ? "Ciclo fechado"
-                            : !evalOk ? "Aguardando avaliação do gestor"
-                            : !selfOk ? "Aguardando auto-avaliação do colaborador"
-                            : "Calibrar nota";
-                          function handleCalibClick() {
-                            if (!evalOk) return alert("Aguardando avaliação do gestor ser preenchida.");
-                            if (!selfOk) return alert("Aguardando auto-avaliação do colaborador ser preenchida.");
-                            openCalib(ev);
-                          }
-                          return (
-                            <button onClick={handleCalibClick} disabled={!cycleOpen}
-                              title={title}
-                              className={`text-xs font-semibold px-2.5 py-1 rounded transition-all ${canCalib ? "bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400" : cycleOpen ? "bg-amber-50 text-amber-600 hover:bg-amber-100 border border-amber-200 cursor-pointer dark:bg-amber-900/20 dark:text-amber-400" : "bg-gray-100 text-gray-400 cursor-not-allowed dark:bg-gray-800"}`}>
-                              Calibrar
-                            </button>
-                          );
-                        })()}
+                        {/* Ver Avaliação */}
+                        <button onClick={() => openView(ev)}
+                          title="Ver avaliação do gestor e auto-avaliação"
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 transition-all">
+                          👁️ Ver
+                        </button>
+                        {/* Calibrar */}
+                        <button
+                          onClick={() => ev.id ? openCalib(ev) : alert("Avaliação do gestor ainda não foi submetida.")}
+                          title="Calibrar nota"
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-100 text-violet-700 hover:bg-violet-200 border border-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800 transition-all">
+                          Calibrar
+                        </button>
                         {/* Ciência Presencial */}
                         <a href="/ciencia-presencial" target="_blank" rel="noopener noreferrer"
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 transition-all">
                           📋 Ciência
                         </a>
-                        {/* Nova Avaliação — RH/admin */}
+                        {/* Nova Avaliação */}
                         <button
                           onClick={() => { setNewEvalModal({ open: true, item: ev }); setNewEvalJust(""); setNewEvalErr(""); }}
                           title="Criar nova avaliação (requer justificativa)"
                           className="text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all">
                           🔄 Nova Aval.
                         </button>
-                        {/* Enviar/Reenviar Auto-Avaliação por e-mail individual */}
-                        {cycleOpen && ev.self_eval_status !== "completed" && ev.has_email && (
-                          <button
-                            onClick={() => handleSendSelfEvalEmail(ev.employee_id)}
-                            disabled={sendingEmailFor === ev.employee_id}
-                            title={ev.self_eval_status === "pending"
-                              ? "Reenviar link de auto-avaliação por e-mail"
-                              : "Criar e enviar link de auto-avaliação por e-mail"}
-                            className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-60">
-                            {sendingEmailFor === ev.employee_id
-                              ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
-                              : "📧"}
-                            {ev.self_eval_status === "pending" ? "Reenviar" : "Enviar Auto-Aval."}
-                          </button>
-                        )}
+                        {/* Enviar Auto-Avaliação por e-mail — sempre visível */}
+                        <button
+                          onClick={() => handleSendSelfEvalEmail(ev.employee_id)}
+                          disabled={sendingEmailFor === ev.employee_id}
+                          title="Enviar/reenviar link de auto-avaliação por e-mail"
+                          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-60">
+                          {sendingEmailFor === ev.employee_id
+                            ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
+                            : "📧"}
+                          {ev.self_eval_status === "pending" ? "Reenviar Auto-Aval." : ev.self_eval_status === "completed" ? "Reenviar Auto-Aval." : "Enviar Auto-Aval."}
+                        </button>
                         {/* Nova Auto-Avaliação — override RH com justificativa e auditoria */}
                         <button
                           onClick={() => { setNewSelfEvalModal({ open: true, item: ev }); setNewSelfEvalJust(""); setNewSelfEvalErr(""); }}
