@@ -978,17 +978,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [resetConfirm, setResetConfirm] = useState("");
   const [resetting, setResetting] = useState(false);
 
-  // Nova Avaliação (override RH)
-  const [newEvalModal, setNewEvalModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
-  const [newEvalJust, setNewEvalJust] = useState("");
-  const [newEvalErr, setNewEvalErr] = useState("");
-  const [newEvalSaving, setNewEvalSaving] = useState(false);
-
-  // Nova Auto-Avaliação (override RH)
-  const [newSelfEvalModal, setNewSelfEvalModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
-  const [newSelfEvalJust, setNewSelfEvalJust] = useState("");
-  const [newSelfEvalErr, setNewSelfEvalErr] = useState("");
-  const [newSelfEvalSaving, setNewSelfEvalSaving] = useState(false);
+  // Nova Avaliação / Nova Auto-Avaliação — loading por colaborador
+  const [novaAvalFor,     setNovaAvalFor]     = useState<string | null>(null);
+  const [novaSelfAvalFor, setNovaSelfAvalFor] = useState<string | null>(null);
 
   // Link presencial (copy)
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
@@ -1079,32 +1071,30 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
     finally { setCalibSaving(false); }
   }
 
-  async function handleNewEvaluation() {
-    if (!newEvalJust.trim()) { setNewEvalErr("Justificativa é obrigatória."); return; }
-    setNewEvalSaving(true); setNewEvalErr("");
+  async function handleNewEvaluation(employeeId: string) {
+    setNovaAvalFor(employeeId);
     try {
-      await apiFetch(`/api/performance/admin/employees/${newEvalModal.item?.employee_id}/new-evaluation`, {
-        token, method: "POST", json: { justification: newEvalJust }
+      await apiFetch(`/api/performance/admin/employees/${employeeId}/new-evaluation`, {
+        token, method: "POST", json: { justification: "Solicitado pelo RH" }
       });
-      setNewEvalModal({ open: false, item: null });
-      setNewEvalJust("");
       loadList();
-    } catch (e: any) { setNewEvalErr(e instanceof ApiError ? e.message : "Erro ao criar nova avaliação."); }
-    finally { setNewEvalSaving(false); }
+    } catch (e: any) { alert(e instanceof ApiError ? e.message : "Erro ao criar nova avaliação."); }
+    finally { setNovaAvalFor(null); }
   }
 
-  async function handleNewSelfEvaluation() {
-    if (!newSelfEvalJust.trim()) { setNewSelfEvalErr("Justificativa é obrigatória."); return; }
-    setNewSelfEvalSaving(true); setNewSelfEvalErr("");
+  async function handleNewSelfEvaluation(employeeId: string) {
+    setNovaSelfAvalFor(employeeId);
     try {
-      await apiFetch(`/api/performance/admin/employees/${newSelfEvalModal.item?.employee_id}/new-self-evaluation`, {
-        token, method: "POST", json: { justification: newSelfEvalJust }
+      await apiFetch(`/api/performance/admin/employees/${employeeId}/new-self-evaluation`, {
+        token, method: "POST", json: { justification: "Solicitado pelo RH" }
       });
-      setNewSelfEvalModal({ open: false, item: null });
-      setNewSelfEvalJust("");
+      // Envia e-mail após criar o token
+      await apiFetch("/api/performance/admin/cycle/self-evaluation-tokens/send-for-employee", {
+        token, method: "POST", json: { employee_id: employeeId }
+      }).catch(() => {});
       loadList();
-    } catch (e: any) { setNewSelfEvalErr(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
-    finally { setNewSelfEvalSaving(false); }
+    } catch (e: any) { alert(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
+    finally { setNovaSelfAvalFor(null); }
   }
 
   async function handleSendSelfEvalEmail(employeeId: string) {
@@ -1254,30 +1244,38 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 transition-all">
                           📋 Ciência
                         </a>
-                        {/* Nova Avaliação */}
+                        {/* Nova Avaliação — cria token + envia e-mail ao gestor */}
                         <button
-                          onClick={() => { setNewEvalModal({ open: true, item: ev }); setNewEvalJust(""); setNewEvalErr(""); }}
-                          title="Criar nova avaliação (requer justificativa)"
-                          className="text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all">
-                          🔄 Nova Aval.
+                          onClick={() => handleNewEvaluation(ev.employee_id)}
+                          disabled={novaAvalFor === ev.employee_id}
+                          title="Criar nova avaliação e enviar e-mail ao gestor"
+                          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800 transition-all disabled:opacity-60">
+                          {novaAvalFor === ev.employee_id
+                            ? <span className="w-3 h-3 border-2 border-amber-400/30 border-t-amber-600 rounded-full animate-spin inline-block" />
+                            : "🔄"}
+                          Nova Aval.
                         </button>
-                        {/* Enviar Auto-Avaliação por e-mail — sempre visível */}
+                        {/* Nova Auto-Avaliação — cria token + envia e-mail ao colaborador */}
+                        <button
+                          onClick={() => handleNewSelfEvaluation(ev.employee_id)}
+                          disabled={novaSelfAvalFor === ev.employee_id}
+                          title="Criar nova auto-avaliação e enviar e-mail ao colaborador"
+                          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-60">
+                          {novaSelfAvalFor === ev.employee_id
+                            ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
+                            : "✏️"}
+                          Nova Auto-Aval.
+                        </button>
+                        {/* Reenviar Auto-Avaliação — reenvia e-mail sem resetar token */}
                         <button
                           onClick={() => handleSendSelfEvalEmail(ev.employee_id)}
                           disabled={sendingEmailFor === ev.employee_id}
-                          title="Enviar/reenviar link de auto-avaliação por e-mail"
+                          title="Reenviar link de auto-avaliação por e-mail (sem resetar token)"
                           className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-60">
                           {sendingEmailFor === ev.employee_id
                             ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
                             : "📧"}
-                          {ev.self_eval_status === "pending" ? "Reenviar Auto-Aval." : ev.self_eval_status === "completed" ? "Reenviar Auto-Aval." : "Enviar Auto-Aval."}
-                        </button>
-                        {/* Nova Auto-Avaliação — override RH com justificativa e auditoria */}
-                        <button
-                          onClick={() => { setNewSelfEvalModal({ open: true, item: ev }); setNewSelfEvalJust(""); setNewSelfEvalErr(""); }}
-                          title="Criar nova auto-avaliação para este colaborador (requer justificativa)"
-                          className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
-                          ✏️ Nova Auto-Aval.
+                          Reenviar Auto-Aval.
                         </button>
                         {/* Link presencial */}
                         <button
@@ -1665,86 +1663,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         )}
       </ModalWrapper>
 
-      {/* ── Modal Nova Avaliação (override RH) ── */}
-      <ModalWrapper open={newEvalModal.open} onClose={() => setNewEvalModal({ open: false, item: null })} title="Nova Avaliação — Override RH">
-        <div className="space-y-4">
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3">
-            <p className="text-sm text-amber-800 dark:text-amber-300 font-semibold mb-1">⚠️ Ação auditada e irreversível</p>
-            <p className="text-xs text-amber-700 dark:text-amber-400">
-              Um novo token de avaliação será criado para o gestor de <strong>{newEvalModal.item?.employee_name}</strong>.
-              O token anterior será invalidado. A avaliação anterior continuará registrada no histórico de auditoria.
-              Esta ação ficará registrada com seu usuário e justificativa.
-            </p>
-          </div>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Colaborador: <strong>{newEvalModal.item?.employee_name}</strong><br />
-            Nota atual: <strong>{newEvalModal.item?.final_score?.toFixed(2) ?? "—"}</strong> &bull;{" "}
-            Status: <strong>{newEvalModal.item?.status}</strong>
-          </p>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
-              Justificativa obrigatória *
-            </label>
-            <textarea
-              value={newEvalJust}
-              onChange={e => setNewEvalJust(e.target.value)}
-              rows={4}
-              placeholder="Descreva o motivo para criar uma nova avaliação (ex: erro grave na avaliação original, critérios diferentes, decisão da diretoria...)"
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-900 dark:text-gray-100"
-            />
-          </div>
-          {newEvalErr && <p className="text-sm text-red-600 dark:text-red-400">{newEvalErr}</p>}
-          <div className="flex gap-3">
-            <button onClick={handleNewEvaluation} disabled={newEvalSaving || !newEvalJust.trim()}
-              className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-sm disabled:opacity-60 transition-all">
-              {newEvalSaving ? "Criando..." : "Criar Nova Avaliação"}
-            </button>
-            <button onClick={() => setNewEvalModal({ open: false, item: null })}
-              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
-              Cancelar
-            </button>
-          </div>
-        </div>
-      </ModalWrapper>
-
-      {/* ── Modal Nova Auto-Avaliação (override RH) ── */}
-      <ModalWrapper open={newSelfEvalModal.open} onClose={() => setNewSelfEvalModal({ open: false, item: null })} title="Nova Auto-Avaliação — Override RH">
-        <div className="space-y-4">
-          <div className="bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 rounded-lg p-3">
-            <p className="text-sm text-violet-800 dark:text-violet-300 font-semibold mb-1">⚠️ Ação auditada</p>
-            <p className="text-xs text-violet-700 dark:text-violet-400">
-              O token de auto-avaliação anterior de <strong>{newSelfEvalModal.item?.employee_name}</strong> será invalidado e um novo será criado.
-              Esta ação ficará registrada com seu usuário, justificativa e horário.
-            </p>
-          </div>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Colaborador: <strong>{newSelfEvalModal.item?.employee_name}</strong>
-          </p>
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
-              Motivo obrigatório *
-            </label>
-            <textarea
-              value={newSelfEvalJust}
-              onChange={e => setNewSelfEvalJust(e.target.value)}
-              rows={4}
-              placeholder="Descreva o motivo para recriar a auto-avaliação (ex: colaborador não conseguiu acessar o link, preenchimento incorreto, solicitação do RH...)"
-              className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100"
-            />
-          </div>
-          {newSelfEvalErr && <p className="text-sm text-red-600 dark:text-red-400">{newSelfEvalErr}</p>}
-          <div className="flex gap-3">
-            <button onClick={handleNewSelfEvaluation} disabled={newSelfEvalSaving || !newSelfEvalJust.trim()}
-              className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white font-semibold rounded-lg text-sm disabled:opacity-60 transition-all">
-              {newSelfEvalSaving ? "Criando..." : "Criar Nova Auto-Avaliação"}
-            </button>
-            <button onClick={() => setNewSelfEvalModal({ open: false, item: null })}
-              className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">
-              Cancelar
-            </button>
-          </div>
-        </div>
-      </ModalWrapper>
 
       <ModalWrapper open={resetModal} onClose={() => setResetModal(false)} title="Confirmar Reset">
         <div className="space-y-4">
