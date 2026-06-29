@@ -1088,10 +1088,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       await apiFetch(`/api/performance/admin/employees/${employeeId}/new-self-evaluation`, {
         token, method: "POST", json: { justification: "Solicitado pelo RH" }
       });
-      // Envia e-mail após criar o token
-      await apiFetch("/api/performance/admin/cycle/self-evaluation-tokens/send-for-employee", {
-        token, method: "POST", json: { employee_id: employeeId }
-      }).catch(() => {});
       loadList();
     } catch (e: any) { alert(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
     finally { setNovaSelfAvalFor(null); }

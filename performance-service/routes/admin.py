@@ -2607,7 +2607,9 @@ def create_new_self_evaluation(
     if not cycle or cycle["status"] != "open":
         raise HTTPException(400, detail="O ciclo precisa estar aberto para criar nova auto-avaliação")
 
-    emp_res = db.table("performance_employees").select("id,name").eq("id", employee_id).execute()
+    emp_res = db.table("performance_employees").select(
+        "id,name,email,has_corporate_email,company_id,performance_companies(name)"
+    ).eq("id", employee_id).execute()
     if not emp_res.data:
         raise HTTPException(404, detail="Colaborador não encontrado")
 
@@ -2650,10 +2652,37 @@ def create_new_self_evaluation(
     )
 
     _cache_invalidate_prefix("dashboard:")
+
+    # Enviar e-mail ao colaborador com o novo link de auto-avaliação
+    email_sent = False
+    emp_data = emp_res.data[0]
+    try:
+        from services.email import send_self_evaluation_email
+        s = get_settings()
+        frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+        if emp_data.get("has_corporate_email") and emp_data.get("email"):
+            company_name = (emp_data.get("performance_companies") or {}).get("name", "")
+            email_sent = send_self_evaluation_email(
+                employee_name=emp_data["name"],
+                employee_email=emp_data["email"],
+                cycle_name=cycle["name"],
+                token=new_token_value,
+                frontend_url=frontend_url,
+                company_name=company_name,
+            )
+            if email_sent:
+                db.table("performance_self_evaluation_tokens").update({
+                    "resend_count": 1,
+                    "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+                }).eq("id", tok_res.data[0]["id"]).execute()
+    except Exception as exc:
+        _logger.error("create_new_self_evaluation: erro ao enviar e-mail — %s", exc)
+
     return {
         "ok": True,
         "new_token": new_token_value,
-        "employee_name": emp_res.data[0]["name"],
+        "employee_name": emp_data["name"],
+        "email_sent": email_sent,
     }
 
 
