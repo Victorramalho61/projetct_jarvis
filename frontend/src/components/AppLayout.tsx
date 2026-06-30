@@ -1,4 +1,31 @@
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Component, Suspense, useEffect, useRef, useState } from "react";
+import type { ErrorInfo, ReactNode } from "react";
+
+class PageErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error("[PageErrorBoundary]", error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex flex-col items-center justify-center h-64 gap-4 text-center p-8">
+          <div className="text-4xl">⚠️</div>
+          <p className="text-gray-700 dark:text-gray-300 font-medium">Erro ao carregar a página.</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{(this.state.error as Error).message}</p>
+          <button
+            onClick={() => { this.setState({ error: null }); window.location.reload(); }}
+            className="px-4 py-2 bg-voetur-500 text-white rounded-lg text-sm hover:bg-voetur-600"
+          >
+            Recarregar
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, Role } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
@@ -586,13 +613,15 @@ const filteredNav = visible.filter((i) =>
         )}
 
         <main ref={mainRef} className="flex-1 overflow-auto bg-gray-50 dark:bg-gray-950">
-          <Suspense fallback={
-            <div className="flex items-center justify-center h-64">
-              <div className="w-8 h-8 border-4 border-voetur-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          }>
-            <Outlet />
-          </Suspense>
+          <PageErrorBoundary>
+            <Suspense fallback={
+              <div className="flex items-center justify-center h-64">
+                <div className="w-8 h-8 border-4 border-voetur-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            }>
+              <Outlet />
+            </Suspense>
+          </PageErrorBoundary>
         </main>
       </div>
     </div>
