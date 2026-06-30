@@ -30,7 +30,9 @@ async def collect_benner_erros(horas: int = 48) -> int:
     # 2. Quais handles já existem no Supabase?
     sb = get_supabase()
     try:
-        existing_resp = sb.table("benner_erros").select("benner_handle").execute()
+        existing_resp = await asyncio.to_thread(
+            lambda: sb.table("benner_erros").select("benner_handle").execute()
+        )
         existing_handles: set[int] = {r["benner_handle"] for r in (existing_resp.data or [])}
     except Exception as exc:
         logger.error("benner_collector: falha ao buscar handles existentes: %s", exc)
@@ -52,7 +54,9 @@ async def collect_benner_erros(horas: int = 48) -> int:
     for i in range(0, len(new_rows), _BATCH):
         batch = new_rows[i : i + _BATCH]
         try:
-            sb.table("benner_erros").insert(batch).execute()
+            await asyncio.to_thread(
+                lambda b=batch: sb.table("benner_erros").insert(b).execute()
+            )
             inserted += len(batch)
         except Exception as exc:
             logger.error("benner_collector: falha ao inserir lote %d: %s", i // _BATCH, exc)
