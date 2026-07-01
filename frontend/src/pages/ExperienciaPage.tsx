@@ -111,7 +111,7 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
         <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
           <div>
             <p className="font-bold text-gray-900 dark:text-gray-100">{emp?.nome}</p>
-            <p className="text-xs text-gray-500">Avaliação {av.tipo === "45_dias" ? "45 Dias" : "90 Dias"} · {emp?.empresa}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">Avaliação {av.tipo === "45_dias" ? "45 Dias" : "90 Dias"} · {emp?.empresa}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
         </div>
@@ -119,18 +119,18 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
         <div className="px-6 py-5 space-y-6">
           {/* Info geral */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-xs text-gray-500">Matrícula</p><p className="font-medium">{emp.matricula}</p></div>
-            <div><p className="text-xs text-gray-500">Cargo</p><p className="font-medium">{emp.cargo || "—"}</p></div>
-            <div><p className="text-xs text-gray-500">Gestor</p><p className="font-medium">{emp.gestor_nome || "—"}</p></div>
-            <div><p className="text-xs text-gray-500">Status</p><Badge status={av.status} /></div>
+            <div><p className="text-xs text-gray-500 dark:text-gray-400">Matrícula</p><p className="font-medium text-gray-900 dark:text-gray-100">{emp.matricula}</p></div>
+            <div><p className="text-xs text-gray-500 dark:text-gray-400">Cargo</p><p className="font-medium text-gray-900 dark:text-gray-100">{emp.cargo || "—"}</p></div>
+            <div><p className="text-xs text-gray-500 dark:text-gray-400">Gestor</p><p className="font-medium text-gray-900 dark:text-gray-100">{emp.gestor_nome || "—"}</p></div>
+            <div><p className="text-xs text-gray-500 dark:text-gray-400">Status</p><Badge status={av.status} /></div>
           </div>
 
           {/* Assinatura digital */}
           {av.gestor_assinatura_at && (
-            <div className="bg-[#E6F4F0] rounded-xl p-4 border border-[#00694E]/20 text-sm">
-              <p className="font-semibold text-[#00694E] mb-1">Assinatura Digital</p>
-              <p>Assinado em: <strong>{fmt(av.gestor_assinatura_at)}</strong></p>
-              {av.gestor_ip && <p className="text-xs text-gray-500 mt-0.5">IP: {av.gestor_ip}</p>}
+            <div className="bg-[#E6F4F0] dark:bg-[#00694E]/15 rounded-xl p-4 border border-[#00694E]/20 text-sm">
+              <p className="font-semibold text-[#00694E] dark:text-emerald-400 mb-1">Assinatura Digital</p>
+              <p className="text-gray-800 dark:text-gray-200">Assinado em: <strong>{fmt(av.gestor_assinatura_at)}</strong></p>
+              {av.gestor_ip && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">IP: {av.gestor_ip}</p>}
             </div>
           )}
 
@@ -162,7 +162,7 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
           {[["Pontos de destaque", "pontos_destaque"], ["Pontos de melhoria", "pontos_melhoria"], ["Ações planejadas", "acoes_planejadas"]].map(([label, key]) =>
             r[key] ? (
               <div key={key}>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{label}</p>
+                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">{label}</p>
                 <p className="text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap bg-gray-50 dark:bg-gray-800 rounded-lg px-3 py-2">{r[key]}</p>
               </div>
             ) : null
@@ -171,7 +171,7 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
           {/* Parecer */}
           {parecerInfo && (
             <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Parecer do Líder</p>
+              <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider mb-1">Parecer do Líder</p>
               <p className={`font-bold text-base ${parecerInfo.cls}`}>{parecerInfo.label}</p>
             </div>
           )}
@@ -184,7 +184,7 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
                 {detalhe.email_log.map((log) => (
                   <div key={log.id} className="flex items-center justify-between text-xs py-1.5 border-b border-gray-100 dark:border-gray-800">
                     <div>
-                      <span className={`font-semibold mr-2 ${log.sucesso ? "text-green-700" : "text-red-600"}`}>{log.sucesso ? "✓" : "✗"}</span>
+                      <span className={`font-semibold mr-2 ${log.sucesso ? "text-green-700 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>{log.sucesso ? "✓" : "✗"}</span>
                       <span className="text-gray-600 dark:text-gray-400 capitalize">{log.tipo_email.replace(/_/g, " ")}</span>
                       <span className="text-gray-400 ml-2">→ {log.destinatario}</span>
                     </div>
@@ -230,7 +230,7 @@ function EditGestorModal({ avId, empId, gestorEmail, gestorNome, onClose, onSave
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
         <p className="font-bold text-gray-900 dark:text-gray-100 mb-1">Corrigir E-mail do Gestor</p>
-        <p className="text-sm text-gray-500 mb-4">{gestorNome}</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{gestorNome}</p>
         <input
           type="email"
           value={email}
@@ -340,7 +340,7 @@ function TabelaDias({
   return (
     <div>
       {toast && (
-        <div className="mb-4 bg-[#E6F4F0] border border-[#00694E]/20 text-[#00694E] rounded-lg px-4 py-2 text-sm font-medium">{toast}</div>
+        <div className="mb-4 bg-[#E6F4F0] dark:bg-[#00694E]/15 border border-[#00694E]/20 text-[#00694E] dark:text-emerald-400 rounded-lg px-4 py-2 text-sm font-medium">{toast}</div>
       )}
 
       {/* Filtros */}
@@ -374,63 +374,63 @@ function TabelaDias({
 
       {/* Tabela */}
       <div className="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-        <table className="min-w-full text-sm">
+        <table className="min-w-full text-xs">
           <thead className="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             <tr>
-              {["Empresa", "Matrícula", "Colaborador", "Cargo", "Gestor Imediato", "E-mail Gestor", `Data ${tipo} Dias`, "Status", "Envios", "Último envio", "Ações"].map((h) => (
-                <th key={h} className="px-4 py-3 text-left whitespace-nowrap font-semibold">{h}</th>
+              {["Empresa", "Mat.", "Colaborador", "Cargo", "Gestor Imediato", "E-mail Gestor", `Data ${tipo}d`, "Status", "Env.", "Último envio", "Ações"].map((h) => (
+                <th key={h} className="px-2 py-2 text-left whitespace-nowrap font-semibold">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
             {loading ? (
-              <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Carregando...</td></tr>
+              <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">Carregando...</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Nenhum registro encontrado</td></tr>
+              <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">Nenhum registro encontrado</td></tr>
             ) : rows.map((row) => {
               const emp = row.colaborador;
               const semGestor = !emp?.gestor_email;
               return (
                 <tr key={row.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-4 py-3 whitespace-nowrap">{emp?.empresa || "—"}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{emp?.matricula}</td>
-                  <td className="px-4 py-3 font-medium whitespace-nowrap">{emp?.nome}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{emp?.cargo || "—"}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-1.5">
+                  <td className="px-2 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">{emp?.empresa || "—"}</td>
+                  <td className="px-2 py-2 font-mono text-gray-600 dark:text-gray-400">{emp?.matricula}</td>
+                  <td className="px-2 py-2 font-medium text-gray-900 dark:text-gray-100 max-w-[140px] truncate" title={emp?.nome ?? ""}>{emp?.nome}</td>
+                  <td className="px-2 py-2 text-gray-600 dark:text-gray-400 max-w-[120px] truncate" title={emp?.cargo ?? ""}>{emp?.cargo || "—"}</td>
+                  <td className="px-2 py-2 text-gray-700 dark:text-gray-300 max-w-[130px] truncate" title={emp?.gestor_nome ?? ""}>{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
+                  <td className="px-2 py-2">
+                    <div className="flex items-center gap-1">
                       {semGestor
-                        ? <span className="text-red-500 text-xs font-semibold">sem e-mail</span>
-                        : <span className="text-xs text-gray-600 dark:text-gray-400">{emp?.gestor_email}</span>
+                        ? <span className="text-red-500 font-semibold">sem e-mail</span>
+                        : <span className="text-gray-600 dark:text-gray-400 max-w-[130px] truncate block" title={emp?.gestor_email ?? ""}>{emp?.gestor_email}</span>
                       }
                       <button
                         onClick={() => setEditModal({ avId: row.id, empId: emp?.id ?? "", gestorNome: emp?.gestor_nome || "", gestorEmail: emp?.gestor_email || "" })}
-                        className="text-[#00694E] hover:text-[#004F3A] text-xs underline"
+                        className="text-[#00694E] hover:text-[#004F3A] shrink-0"
                         title="Corrigir e-mail">✏️</button>
                     </div>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap font-medium">{fmtDate(row.data_prevista)}</td>
-                  <td className="px-4 py-3"><Badge status={row.status} /></td>
-                  <td className="px-4 py-3 text-center">{row.total_envios}</td>
-                  <td className="px-4 py-3 whitespace-nowrap text-gray-500 text-xs">{fmt(row.ultimo_envio_at)}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className="px-2 py-2 whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">{fmtDate(row.data_prevista)}</td>
+                  <td className="px-2 py-2"><Badge status={row.status} /></td>
+                  <td className="px-2 py-2 text-center text-gray-600 dark:text-gray-400">{row.total_envios}</td>
+                  <td className="px-2 py-2 whitespace-nowrap text-gray-500 dark:text-gray-400">{fmt(row.ultimo_envio_at)}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">
                     <div className="flex gap-1">
                       {row.status === "pendente" && !semGestor && (
                         <button onClick={() => handleEnviar(row.id)}
-                          className="px-2.5 py-1 bg-[#00694E] hover:bg-[#004F3A] text-white rounded text-xs font-semibold transition-colors">
+                          className="px-2 py-1 bg-[#00694E] hover:bg-[#004F3A] text-white rounded text-xs font-semibold transition-colors">
                           Enviar
                         </button>
                       )}
                       {row.status === "enviado" && (
                         <button onClick={() => handleReenviar(row.id)}
-                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold transition-colors">
+                          className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs font-semibold transition-colors">
                           Reenviar
                         </button>
                       )}
                       {row.status === "respondido" && (
                         <button onClick={() => handleVerRespostas(row.id)}
-                          className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition-colors">
-                          Ver respostas
+                          className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition-colors">
+                          Ver resp.
                         </button>
                       )}
                     </div>
@@ -556,18 +556,18 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
                 <tr key={row.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                   <td className="px-4 py-3 whitespace-nowrap">{emp?.empresa || "—"}</td>
                   <td className="px-4 py-3">
-                    <p className="font-medium">{emp?.nome}</p>
-                    <p className="text-xs text-gray-500 font-mono">{emp?.matricula}</p>
+                    <p className="font-medium text-gray-900 dark:text-gray-100">{emp?.nome}</p>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 font-mono">{emp?.matricula}</p>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${row.tipo === "45_dias" ? "bg-purple-100 text-purple-800" : "bg-indigo-100 text-indigo-800"}`}>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${row.tipo === "45_dias" ? "bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300" : "bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-300"}`}>
                       {row.tipo === "45_dias" ? "45 Dias" : "90 Dias"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">{emp?.gestor_nome || "—"}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{fmtDate(row.data_prevista)}</td>
-                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmt(av.gestor_assinatura_at)}</td>
-                  <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmt(av.gestor_assinatura_at)}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-gray-900 dark:text-gray-100">{emp?.gestor_nome || "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap text-gray-900 dark:text-gray-100">{fmtDate(row.data_prevista)}</td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{fmt(av.gestor_assinatura_at)}</td>
+                  <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{fmt(av.gestor_assinatura_at)}</td>
                   <td className="px-4 py-3 text-center">{row.total_envios}</td>
                   <td className="px-4 py-3"><Badge status={row.status} /></td>
                   <td className="px-4 py-3">
@@ -647,12 +647,12 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
 
   return (
     <div className="space-y-6">
-      {toast && <div className="bg-[#E6F4F0] border border-[#00694E]/20 text-[#00694E] rounded-lg px-4 py-2 text-sm font-medium">{toast}</div>}
+      {toast && <div className="bg-[#E6F4F0] dark:bg-[#00694E]/15 border border-[#00694E]/20 text-[#00694E] dark:text-emerald-400 rounded-lg px-4 py-2 text-sm font-medium">{toast}</div>}
 
       {/* Sync manual */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
         <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">Sincronização Benner</h3>
-        <p className="text-sm text-gray-500 mb-4">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           Sync automático às 03h00 · Sincroniza novos admitidos e atualiza gestores
         </p>
         <button onClick={handleSync} disabled={syncing}
@@ -664,7 +664,7 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
       {/* Exportação */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-5">
         <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">Exportar Avaliações</h3>
-        <p className="text-sm text-gray-500 mb-4">Exporta CSV com todos os registros (filtros opcionais)</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Exporta CSV com todos os registros (filtros opcionais)</p>
         <div className="flex flex-wrap gap-3 mb-4">
           <select value={empFilt} onChange={(e) => setEmpFilt(e.target.value)}
             className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 text-sm bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]/40">
@@ -698,10 +698,10 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
         <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Escala de Avaliação</h3>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { val: 1, cls: "bg-red-100 text-red-800",      label: "Não atende"          },
-            { val: 2, cls: "bg-amber-100 text-amber-800",   label: "Atende Parcialmente" },
-            { val: 3, cls: "bg-blue-100 text-blue-800",     label: "Atende"              },
-            { val: 4, cls: "bg-emerald-100 text-emerald-800",label: "Supera"             },
+            { val: 1, cls: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",             label: "Não atende"          },
+            { val: 2, cls: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300", label: "Atende Parcialmente" },
+            { val: 3, cls: "bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300",     label: "Atende"              },
+            { val: 4, cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300", label: "Supera" },
           ].map((s) => (
             <div key={s.val} className={`rounded-lg p-3 text-center ${s.cls}`}>
               <p className="text-2xl font-bold">{s.val}</p>
@@ -734,7 +734,7 @@ export default function ExperienciaPage() {
       {/* Cabeçalho */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100">Avaliação de Experiência</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Gerenciamento das avaliações de 45 e 90 dias — VPA.RH.PGP.09 v04</p>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">Gerenciamento das avaliações de 45 e 90 dias — VPA.RH.PGP.09 v04</p>
       </div>
 
       {/* Tabs */}
