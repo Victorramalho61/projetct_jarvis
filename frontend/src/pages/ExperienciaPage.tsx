@@ -78,12 +78,12 @@ const PARECER_LABEL: Record<string, { cls: string; label: string }> = {
 const ESCALA_LABEL: Record<number, string> = { 1: "Não atende", 2: "Atende Parcialmente", 3: "Atende", 4: "Supera" };
 
 const EMPRESA_ABREV: Record<string, string> = {
-  "Voetur Cargas":                          "V. Cargas",
-  "Voetur Turismo":                         "V. Turismo",
+  "Voetur Cargas":                          "VTCLOG",
+  "Voetur Turismo":                         "V Viagens",
   "BRASILIA EMPREENDIMENTOS IMOBILIARIOS":  "Brasília Imob.",
   "VIP SERVICE":                            "VIP Service",
   "VIP SERVICE AVIATION":                   "VIP Aviation",
-  "VIP CARGAS":                             "VIP Cargas",
+  "VIP CARGAS":                             "VIP CARGAS",
   "VIP CARGAS RIO":                         "VIP C. Rio",
   "ANARAC EMPREENDIMENTOS":                 "Anarac",
   "LOCADORA":                               "Locadora",
