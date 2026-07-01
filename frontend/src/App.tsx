@@ -25,6 +25,7 @@ const ProposalsPage = lazy(() => import("./pages/admin/ProposalsPage"));
 const CTOInboxPage = lazy(() => import("./pages/admin/CTOInboxPage"));
 const OrchestratorPage = lazy(() => import("./pages/admin/OrchestratorPage"));
 const FreshservicePage = lazy(() => import("./pages/FreshservicePage"));
+const FreshserviceProjectsPage = lazy(() => import("./pages/FreshserviceProjectsPage"));
 const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const FiscalPage = lazy(() => import("./pages/admin/FiscalPage"));
@@ -38,6 +39,8 @@ const PublicSelfEvaluationPage = lazy(() => import("./pages/PublicSelfEvaluation
 const PublicAutoAvaliacaoPresencialPage = lazy(() => import("./pages/PublicAutoAvaliacaoPresencialPage"));
 const CartaoPage = lazy(() => import("./pages/CartaoPage"));
 const FinanceiroPage = lazy(() => import("./pages/FinanceiroPage"));
+const ExperienciaPage = lazy(() => import("./pages/ExperienciaPage"));
+const PublicExperienciaPage = lazy(() => import("./pages/PublicExperienciaPage"));
 
 export default function App() {
   return (
@@ -61,6 +64,7 @@ export default function App() {
           <Route path="/desempenho/auto-avaliar/:token" element={<PublicSelfEvaluationPage />} />
           <Route path="/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
           <Route path="/desempenho/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
+          <Route path="/experiencia/avaliar/:token" element={<PublicExperienciaPage />} />
 
           <Route
             element={
@@ -77,6 +81,7 @@ export default function App() {
             <Route path="/admin/monitoramento" element={<MonitoringPage />} />
             <Route path="/admin/monitoramento/:id" element={<SystemDetailPage />} />
             <Route path="/freshservice" element={<FreshservicePage />} />
+            <Route path="/freshservice/projetos" element={<FreshserviceProjectsPage />} />
             {/* Módulo de Agentes consolidado — abas via ?tab= */}
             <Route path="/admin/agentes" element={<AgentsDashboard />} />
             <Route path="/admin/gastos" element={<ExpensesPage />} />
@@ -92,6 +97,7 @@ export default function App() {
             <Route path="/desempenho" element={<PerformancePage />} />
             <Route path="/cartoes" element={<CartaoPage />} />
             <Route path="/financeiro" element={<FinanceiroPage />} />
+            <Route path="/experiencia" element={<ExperienciaPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

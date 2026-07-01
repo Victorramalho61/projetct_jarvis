@@ -793,6 +793,43 @@ services:
       retries: 3
       start_period: 30s
 
+  experiencia-service:
+    build:
+      context: ./experiencia-service
+    restart: unless-stopped
+    logging: *logging
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: "0.5"
+    depends_on:
+      db:
+        condition: service_healthy
+      kong:
+        condition: service_started
+    environment:
+      SUPABASE_URL: http://kong:8000
+      SUPABASE_KEY: ${SERVICE_ROLE_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS}
+      FRONTEND_URL: ${FRONTEND_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SQL_SERVER_HOST: 10.141.0.111
+      SQL_SERVER_USER: usr_bi
+      SQL_SERVER_PASSWORD: ${BENNER_RH_PASSWORD}
+      SQL_SERVER_DB: BennerRh
+      SQL_SERVER_PORT: 1444
+    networks:
+      - app_net
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8013/health', timeout=8)\""]
+      interval: 300s
+      timeout: 12s
+      retries: 3
+      start_period: 30s
+
   support-service:
     build:
       context: ./support-service
