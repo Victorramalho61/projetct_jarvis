@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
-import type { FsProject, FsProjectDetail } from "../types/freshservice";
+import type { FsProject } from "../types/freshservice";
 import KPICard from "../components/freshservice/KPICard";
 
 function fmtDate(iso: string | null) {
@@ -23,50 +24,64 @@ function ProgressBar({ pct }: { pct: number | null }) {
   );
 }
 
-function ProjectDetailPanel({ detail }: { detail: FsProjectDetail }) {
-  if (!detail.tasks.length) {
-    return <p className="text-sm text-gray-400 dark:text-gray-500 py-3">Nenhuma tarefa sincronizada para este projeto.</p>;
-  }
+function ProjectCard({ p, onOpen }: { p: FsProject; onOpen: () => void }) {
   return (
-    <div className="space-y-4 pt-3">
-      {detail.pending_by_assignee.length === 0 ? (
-        <p className="text-sm text-green-600 dark:text-green-400">Todas as tarefas mapeadas como concluídas.</p>
-      ) : (
-        detail.pending_by_assignee.map((group) => (
-          <div key={group.assignee_name}>
-            <h4 className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 mb-1.5">
-              {group.assignee_name} <span className="font-normal text-gray-400">({group.tasks.length} pendente{group.tasks.length > 1 ? "s" : ""})</span>
-            </h4>
-            <ul className="space-y-1">
-              {group.tasks.map((t) => (
-                <li key={t.id} className="flex items-center gap-2 text-[13px] text-gray-700 dark:text-gray-300 pl-2 border-l-2 border-gray-200 dark:border-gray-700">
-                  {t.display_key && <span className="font-mono text-[11px] text-gray-400 shrink-0">{t.display_key}</span>}
-                  <span className="truncate">{t.title}</span>
-                  {t.planned_end_date && (
-                    <span className="ml-auto text-[11px] text-gray-400 shrink-0">{fmtDate(t.planned_end_date)}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+    <button
+      type="button"
+      onClick={onOpen}
+      className="w-full text-left rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4 hover:border-brand-green/60 hover:shadow-sm transition-colors"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {p.key && (
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shrink-0">
+              {p.key}
+            </span>
+          )}
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.name}</h3>
+        </div>
+        <span className="text-[10px] font-medium text-brand-green shrink-0">Ver timeline →</span>
+      </div>
+
+      <div className="mt-3">
+        <ProgressBar pct={p.percent_complete} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 text-[12px]">
+        <div>
+          <div className="text-gray-400 dark:text-gray-500">Prazo estimado</div>
+          <div className="font-medium text-gray-800 dark:text-gray-200 truncate">{fmtDate(p.end_date)}</div>
+        </div>
+        <div>
+          <div className="text-gray-400 dark:text-gray-500">Sponsor</div>
+          <div className="font-medium text-gray-800 dark:text-gray-200 truncate">{p.manager_name ?? "—"}</div>
+        </div>
+        <div className="col-span-2 sm:col-span-1">
+          <div className="text-gray-400 dark:text-gray-500">Atividade atual</div>
+          <div className="font-medium text-gray-800 dark:text-gray-200 truncate">
+            {p.current_task_title ?? (p.total_tasks ? "Todas concluídas" : "—")}
           </div>
-        ))
-      )}
-    </div>
+        </div>
+        <div>
+          <div className="text-gray-400 dark:text-gray-500">Com quem</div>
+          <div className="font-medium text-gray-800 dark:text-gray-200 truncate">
+            {p.current_task_title ? p.current_task_assignee ?? "Sem responsável" : "—"}
+          </div>
+        </div>
+      </div>
+    </button>
   );
 }
 
 export default function FreshserviceProjectsPage() {
   const { token, user } = useAuth();
+  const navigate = useNavigate();
   const isAdmin = user?.role === "admin";
 
   const [projects, setProjects] = useState<FsProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [details, setDetails] = useState<Record<number, FsProjectDetail>>({});
-  const [detailLoading, setDetailLoading] = useState<number | null>(null);
 
   const fetchProjects = useCallback(async () => {
     setLoading(true);
@@ -83,30 +98,11 @@ export default function FreshserviceProjectsPage() {
 
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
 
-  async function toggleExpand(id: number) {
-    if (expandedId === id) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(id);
-    if (details[id]) return;
-    setDetailLoading(id);
-    try {
-      const data = await apiFetch<FsProjectDetail>(`/api/freshservice/projects/${id}`, { token });
-      setDetails((prev) => ({ ...prev, [id]: data }));
-    } catch {
-      // painel de detalhe é opcional — não bloqueia a timeline
-    } finally {
-      setDetailLoading(null);
-    }
-  }
-
   async function triggerSync() {
     setSyncing(true);
     try {
       await apiFetch("/api/freshservice/projects/sync", { method: "POST", token });
       await fetchProjects();
-      setDetails({});
     } catch (e) {
       alert(e instanceof ApiError ? e.message : "Erro ao sincronizar projetos.");
     } finally {
@@ -175,72 +171,10 @@ export default function FreshserviceProjectsPage() {
         </p>
       )}
 
-      <div className="relative pl-6">
-        {active.length > 0 && (
-          <div className="absolute left-[7px] top-2 bottom-2 w-px bg-gray-200 dark:bg-gray-700" />
-        )}
-        {active.map((p) => {
-          const isExpanded = expandedId === p.id;
-          const isComplete = p.percent_complete === 100;
-          return (
-            <div key={p.id} className="relative pb-4">
-              <span
-                className={`absolute -left-6 top-2 w-3 h-3 rounded-full ring-4 ring-gray-50 dark:ring-gray-950 ${
-                  isComplete ? "bg-brand-green" : "bg-gray-300 dark:bg-gray-600"
-                }`}
-              />
-              <div className="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-4">
-                <button
-                  type="button"
-                  onClick={() => toggleExpand(p.id)}
-                  className="w-full text-left"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        {p.key && (
-                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 shrink-0">
-                            {p.key}
-                          </span>
-                        )}
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{p.name}</h3>
-                      </div>
-                      {p.description && (
-                        <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{p.description}</p>
-                      )}
-                    </div>
-                    <span className="text-[11px] text-gray-400 dark:text-gray-500 shrink-0">
-                      {fmtDate(p.start_date)} → {fmtDate(p.end_date)}
-                    </span>
-                  </div>
-
-                  <div className="mt-3 flex flex-wrap items-center gap-4">
-                    <div className="flex-1 min-w-[160px]">
-                      <ProgressBar pct={p.percent_complete} />
-                    </div>
-                    <span className="text-[11px] text-gray-500 dark:text-gray-400">
-                      {p.done_tasks}/{p.total_tasks} tarefas
-                    </span>
-                    {p.manager_name && (
-                      <span className="text-[11px] text-gray-500 dark:text-gray-400">Resp.: {p.manager_name}</span>
-                    )}
-                    <span className="ml-auto text-[10px] font-medium text-brand-green">
-                      {isExpanded ? "Fechar ↑" : "O que falta ↓"}
-                    </span>
-                  </div>
-                </button>
-
-                {isExpanded && (
-                  detailLoading === p.id ? (
-                    <div className="h-16 bg-gray-100 dark:bg-gray-800 rounded-lg animate-pulse mt-3" />
-                  ) : details[p.id] ? (
-                    <ProjectDetailPanel detail={details[p.id]} />
-                  ) : null
-                )}
-              </div>
-            </div>
-          );
-        })}
+      <div className="space-y-3">
+        {active.map((p) => (
+          <ProjectCard key={p.id} p={p} onOpen={() => navigate(`/freshservice/projetos/${p.id}`)} />
+        ))}
       </div>
     </div>
   );

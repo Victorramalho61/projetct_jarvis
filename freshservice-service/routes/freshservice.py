@@ -499,10 +499,16 @@ def _agent_names(db, agent_ids: set[int]) -> dict[int, str]:
 async def list_projects(_: dict = Depends(require_role("admin"))):
     db = get_supabase()
     projects = db.table("freshservice_projects").select("*").order("start_date", desc=True).execute().data or []
-    tasks = db.table("freshservice_project_tasks").select("project_id,status_id").execute().data or []
+    tasks = (
+        db.table("freshservice_project_tasks")
+        .select("id,project_id,title,status_id,assignee_id,planned_start_date")
+        .execute().data or []
+    )
 
     project_statuses, task_statuses = _status_maps(db)
-    agent_names = _agent_names(db, {p["manager_id"] for p in projects if p.get("manager_id")})
+    agent_ids = {p["manager_id"] for p in projects if p.get("manager_id")}
+    agent_ids |= {t["assignee_id"] for t in tasks if t.get("assignee_id")}
+    agent_names = _agent_names(db, agent_ids)
 
     tasks_by_project: dict[int, list[dict]] = {}
     for t in tasks:
@@ -512,16 +518,24 @@ async def list_projects(_: dict = Depends(require_role("admin"))):
     for p in projects:
         proj_tasks = tasks_by_project.get(p["id"], [])
         total = len(proj_tasks)
-        done = sum(1 for t in proj_tasks if task_statuses.get(t["status_id"], {}).get("is_done"))
+        is_done = {t["id"]: bool(task_statuses.get(t["status_id"], {}).get("is_done")) for t in proj_tasks}
+        done = sum(1 for v in is_done.values() if v)
+
+        pending = [t for t in proj_tasks if not is_done[t["id"]]]
+        pending.sort(key=lambda t: (t["planned_start_date"] is None, t["planned_start_date"] or "", t["id"]))
+        current_task = pending[0] if pending else None
+
         status_row = project_statuses.get(p.get("status_id"))
         result.append({
             **p,
-            "status_label":     status_row["label"] if status_row else None,
-            "manager_name":     agent_names.get(p.get("manager_id")),
-            "total_tasks":      total,
-            "done_tasks":       done,
-            "pending_tasks":    total - done,
-            "percent_complete": round(done / total * 100, 1) if total else None,
+            "status_label":          status_row["label"] if status_row else None,
+            "manager_name":          agent_names.get(p.get("manager_id")),
+            "total_tasks":           total,
+            "done_tasks":            done,
+            "pending_tasks":         total - done,
+            "percent_complete":      round(done / total * 100, 1) if total else None,
+            "current_task_title":    current_task["title"] if current_task else None,
+            "current_task_assignee": agent_names.get(current_task["assignee_id"]) if current_task else None,
         })
     return result
 

@@ -26,6 +26,7 @@ const CTOInboxPage = lazy(() => import("./pages/admin/CTOInboxPage"));
 const OrchestratorPage = lazy(() => import("./pages/admin/OrchestratorPage"));
 const FreshservicePage = lazy(() => import("./pages/FreshservicePage"));
 const FreshserviceProjectsPage = lazy(() => import("./pages/FreshserviceProjectsPage"));
+const FreshserviceProjectDetailPage = lazy(() => import("./pages/FreshserviceProjectDetailPage"));
 const MoneypennyPage = lazy(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazy(() => import("./pages/PerformancePage"));
 const FiscalPage = lazy(() => import("./pages/admin/FiscalPage"));
@@ -82,6 +83,7 @@ export default function App() {
             <Route path="/admin/monitoramento/:id" element={<SystemDetailPage />} />
             <Route path="/freshservice" element={<FreshservicePage />} />
             <Route path="/freshservice/projetos" element={<FreshserviceProjectsPage />} />
+            <Route path="/freshservice/projetos/:id" element={<FreshserviceProjectDetailPage />} />
             {/* Módulo de Agentes consolidado — abas via ?tab= */}
             <Route path="/admin/agentes" element={<AgentsDashboard />} />
             <Route path="/admin/gastos" element={<ExpensesPage />} />

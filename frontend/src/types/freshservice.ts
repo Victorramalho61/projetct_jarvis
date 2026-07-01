@@ -185,6 +185,8 @@ export interface FsProject {
   done_tasks: number;
   pending_tasks: number;
   percent_complete: number | null;
+  current_task_title: string | null;
+  current_task_assignee: string | null;
 }
 
 export interface FsProjectTask {
@@ -202,6 +204,7 @@ export interface FsProjectTask {
   parent_id: number | null;
   planned_start_date: string | null;
   planned_end_date: string | null;
+  raw?: { description?: string | null };
 }
 
 export interface FsProjectPendingGroup {

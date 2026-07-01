@@ -350,13 +350,19 @@ def _sync_csat_page(
     return len(ratings)
 
 
+def _agent_full_name(a: dict) -> str:
+    # A API do Freshservice retorna first_name/last_name, não um campo "name" combinado.
+    full = " ".join(p for p in (a.get("first_name"), a.get("last_name")) if p).strip()
+    return full or a.get("email") or ""
+
+
 def _sync_metadata(db, client: FreshserviceClient) -> None:
     page = 1
     while True:
         agents = client.list_agents(page=page)
         if not agents:
             break
-        rows = [{"id": a["id"], "name": a.get("name", ""), "email": a.get("email")} for a in agents]
+        rows = [{"id": a["id"], "name": _agent_full_name(a), "email": a.get("email")} for a in agents]
         db.table("freshservice_agents").upsert(rows).execute()
         if len(agents) < PAGE_SIZE:
             break
