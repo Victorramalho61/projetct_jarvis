@@ -481,6 +481,23 @@ async def payfly_tickets(
 
 # ── Projects ─────────────────────────────────────────────────────────────────
 
+# Ocultos da listagem a pedido — não fazem parte do escopo de acompanhamento atual.
+_HIDDEN_PROJECT_IDS = {
+    1000525626,  # VOESYNC VIP MARINA
+    1000502844,  # VOE+ INTEGRADO COM BENNER RH
+    1000485525,  # Implementação IBM MaaS360 (1100 licenças)
+    1000491516,  # WOLI - INTEGRAÇÃO COM BENNER RH
+    1000485873,  # Implantação de Cabeamento e Infraestrutura – Galpão 37 (Guarulhos)
+    1000485975,  # Revisão dos Equipamentos de Rede Lógica
+    1000485395,  # VOESYNC LOGISTICA
+    1000485980,  # Projeto de Revisão dos Wifi
+    1000484766,  # DIALOG - Plataforma de Comunicação
+    1000485987,  # Implantação Novo Backup
+    1000485984,  # Implantação do Novo Antivírus
+    1000485966,  # Migração Servidores pra Hybrid Cloud
+}
+
+
 def _status_maps(db) -> tuple[dict[int, dict], dict[int, dict]]:
     rows = db.table("freshservice_project_statuses").select("*").execute().data or []
     project_statuses = {r["status_id"]: r for r in rows if r["kind"] == "project"}
@@ -499,6 +516,7 @@ def _agent_names(db, agent_ids: set[int]) -> dict[int, str]:
 async def list_projects(_: dict = Depends(require_role("admin"))):
     db = get_supabase()
     projects = db.table("freshservice_projects").select("*").order("start_date", desc=True).execute().data or []
+    projects = [p for p in projects if p["id"] not in _HIDDEN_PROJECT_IDS]
     tasks = (
         db.table("freshservice_project_tasks")
         .select("id,project_id,title,status_id,assignee_id,planned_start_date")
@@ -569,6 +587,8 @@ async def update_project_status(
 
 @router.get("/projects/{project_id}")
 async def get_project(project_id: int, _: dict = Depends(require_role("admin"))):
+    if project_id in _HIDDEN_PROJECT_IDS:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
     db = get_supabase()
     project_row = db.table("freshservice_projects").select("*").eq("id", project_id).maybe_single().execute()
     if not project_row.data:
