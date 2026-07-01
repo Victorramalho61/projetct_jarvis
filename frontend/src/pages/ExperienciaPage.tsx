@@ -77,6 +77,23 @@ const PARECER_LABEL: Record<string, { cls: string; label: string }> = {
 
 const ESCALA_LABEL: Record<number, string> = { 1: "Não atende", 2: "Atende Parcialmente", 3: "Atende", 4: "Supera" };
 
+const EMPRESA_ABREV: Record<string, string> = {
+  "Voetur Cargas":                          "V. Cargas",
+  "Voetur Turismo":                         "V. Turismo",
+  "BRASILIA EMPREENDIMENTOS IMOBILIARIOS":  "Brasília Imob.",
+  "VIP SERVICE":                            "VIP Service",
+  "VIP SERVICE AVIATION":                   "VIP Aviation",
+  "VIP CARGAS":                             "VIP Cargas",
+  "VIP CARGAS RIO":                         "VIP C. Rio",
+  "ANARAC EMPREENDIMENTOS":                 "Anarac",
+  "LOCADORA":                               "Locadora",
+  "Payfly":                                 "Payfly",
+};
+function abrevEmpresa(nome: string | null | undefined): string {
+  if (!nome) return "—";
+  return EMPRESA_ABREV[nome] ?? nome;
+}
+
 function Badge({ status }: { status: string }) {
   const b = STATUS_BADGE[status] ?? { cls: "bg-gray-100 text-gray-700", label: status };
   return <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${b.cls}`}>{b.label}</span>;
@@ -392,11 +409,11 @@ function TabelaDias({
               const semGestor = !emp?.gestor_email;
               return (
                 <tr key={row.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-2 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">{emp?.empresa || "—"}</td>
-                  <td className="px-2 py-2 font-mono text-gray-600 dark:text-gray-400">{emp?.matricula}</td>
-                  <td className="px-2 py-2 font-medium text-gray-900 dark:text-gray-100 max-w-[140px] truncate" title={emp?.nome ?? ""}>{emp?.nome}</td>
-                  <td className="px-2 py-2 text-gray-600 dark:text-gray-400 max-w-[120px] truncate" title={emp?.cargo ?? ""}>{emp?.cargo || "—"}</td>
-                  <td className="px-2 py-2 text-gray-700 dark:text-gray-300 max-w-[130px] truncate" title={emp?.gestor_nome ?? ""}>{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
+                  <td className="px-2 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300" title={emp?.empresa ?? ""}>{abrevEmpresa(emp?.empresa)}</td>
+                  <td className="px-2 py-2 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{emp?.matricula}</td>
+                  <td className="px-2 py-2 font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">{emp?.nome}</td>
+                  <td className="px-2 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{emp?.cargo || "—"}</td>
+                  <td className="px-2 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-1">
                       {semGestor
