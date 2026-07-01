@@ -19,7 +19,7 @@ const BANDEIRA_COLORS: Record<string, string> = {
   HIPERCARD: "bg-pink-100 text-pink-800 dark:bg-pink-900/30 dark:text-pink-300",
 };
 
-export default function CartoesListaTab({ token, perfil }: Props) {
+export default function CartoesListaTab({ token, perfil: _perfil }: Props) {
   const [cards, setCards] = useState<CartaoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");

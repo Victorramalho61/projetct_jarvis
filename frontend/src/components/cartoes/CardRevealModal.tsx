@@ -63,7 +63,6 @@ export default function CardRevealModal({ card, token, onClose }: Props) {
   const isFormValid =
     form.localizador_os.trim() !== "" &&
     form.nome_cliente.trim() !== "" &&
-    form.produto !== "" &&
     form.data_reserva !== "" &&
     form.nome_pax.trim() !== "" &&
     form.fornecedor.trim() !== "" &&

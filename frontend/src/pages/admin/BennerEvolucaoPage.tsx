@@ -42,7 +42,7 @@ function fmtPeriodo(p: string, tipo: "dia" | "mes"): string {
     const nomes = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
     return `${nomes[parseInt(mes) - 1]}/${ano.slice(2)}`;
   }
-  const [ano, mes, dia] = p.split("-");
+  const [, mes, dia] = p.split("-");
   return `${dia}/${mes}`;
 }
 

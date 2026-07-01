@@ -1,13 +1,10 @@
-import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
-
-const PublicCienciaPresencialInline = lazy(() => import("./PublicCienciaPresencialPage"));
-const PublicAutoAvaliacaoPresencialInline = lazy(() => import("./PublicAutoAvaliacaoPresencialPage"));
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -965,7 +962,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ status: "", company_id: "", search: "" });
-  const [cycleOpen, setCycleOpen] = useState(true);
+  const [, setCycleOpen] = useState(true);
   const [calibModal, setCalibModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
   const [calibDetail, setCalibDetail] = useState<any>(null);
   const [calibDetailLoading, setCalibDetailLoading] = useState(false);
@@ -2407,34 +2404,6 @@ function TabAvaliacoes() {
         </Card>
       )}
     </div>
-  );
-}
-
-// ─── Tab Ciência Presencial (inline) ─────────────────────────────────────────
-
-function TabCienciaPresencial() {
-  return (
-    <Suspense fallback={
-      <div className="flex justify-center py-20">
-        <div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
-      </div>
-    }>
-      <PublicCienciaPresencialInline />
-    </Suspense>
-  );
-}
-
-// ─── Tab Auto-Avaliação Presencial (inline) ───────────────────────────────────
-
-function TabAutoAvaliacaoPresencial() {
-  return (
-    <Suspense fallback={
-      <div className="flex justify-center py-20">
-        <div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
-      </div>
-    }>
-      <PublicAutoAvaliacaoPresencialInline inline={true} />
-    </Suspense>
   );
 }
 

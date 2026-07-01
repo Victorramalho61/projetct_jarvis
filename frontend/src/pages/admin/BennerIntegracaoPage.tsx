@@ -16,17 +16,6 @@ interface ErroItem {
   cliente: string;
 }
 
-interface Snapshot {
-  id: number;
-  capturado_em: string;
-  total: number;
-  ok: number;
-  erros: number;
-  taxa_erro_pct: number;
-  por_produto: Record<string, { ok: number; erros: number }>;
-  erros_recentes: ErroItem[];
-}
-
 interface SnapHistoryItem {
   id: number;
   capturado_em: string;
@@ -104,30 +93,6 @@ function fmt(iso: string | null | undefined) {
   });
 }
 
-function minutesAgo(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "agora";
-  if (mins === 1) return "1 min atrás";
-  if (mins < 60) return `${mins} min atrás`;
-  const hrs = Math.floor(mins / 60);
-  return `${hrs}h atrás`;
-}
-
-function SituacaoBadge({ label, s }: { label: string; s: number }) {
-  const cls =
-    s === 1
-      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
-      : s === 20
-      ? "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400"
-      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${cls}`}>
-      {label}
-    </span>
-  );
-}
-
 function RpaStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     pendente:        "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
@@ -164,12 +129,8 @@ export default function BennerIntegracaoPage() {
 
   // ── estado monitoramento ─────────────────────────────────────────────────
   const [snapHistory, setSnapHistory] = useState<SnapHistoryItem[]>([]);
-  const [snapDetail, setSnapDetail] = useState<Record<number, Snapshot>>({});
   const [histLoading, setHistLoading] = useState(true);
   const [histError, setHistError] = useState<string | null>(null);
-  const [expandedSnap, setExpandedSnap] = useState<number | null>(null);
-  const [snapLoadingId, setSnapLoadingId] = useState<number | null>(null);
-  const [filtProduto, setFiltProduto] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
@@ -256,29 +217,6 @@ export default function BennerIntegracaoPage() {
     if (tab === "rpa") loadRpa();
   }, [tab, loadRpa]);
 
-  // ── drill-down snapshot ──────────────────────────────────────────────────
-
-  async function toggleSnap(s: SnapHistoryItem) {
-    if (expandedSnap === s.id) {
-      setExpandedSnap(null);
-      setFiltProduto("");
-      setSearch("");
-      setExpanded(new Set());
-      return;
-    }
-    setExpandedSnap(s.id);
-    setFiltProduto("");
-    setSearch("");
-    setExpanded(new Set());
-    if (snapDetail[s.id]) return;
-    setSnapLoadingId(s.id);
-    try {
-      const d = await apiFetch<Snapshot>(`/api/monitoring/benner/snapshot/${s.id}`, { token });
-      setSnapDetail(prev => ({ ...prev, [s.id]: d }));
-    } catch { /* silently ignore */ }
-    finally { setSnapLoadingId(null); }
-  }
-
   // ── drill-down categoria RPA ─────────────────────────────────────────────
 
   async function toggleCategoria(cat: string) {
@@ -324,20 +262,6 @@ export default function BennerIntegracaoPage() {
     { total: 0, ok: 0, erros: 0 }
   );
   const histTaxaMedia = histTotals.total ? (histTotals.erros / histTotals.total * 100) : 0;
-
-  function errosFiltrados(erros: ErroItem[]) {
-    return erros.filter(e => {
-      if (filtProduto && e.produto !== filtProduto) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        if (!e.mensagem?.toLowerCase().includes(q) &&
-            !e.reserva?.toLowerCase().includes(q) &&
-            !e.sistema?.toLowerCase().includes(q) &&
-            !e.cliente?.toLowerCase().includes(q)) return false;
-      }
-      return true;
-    });
-  }
 
   function snapTaxaCor(pct: number) {
     return pct < 10 ? "text-green-600 dark:text-green-400"

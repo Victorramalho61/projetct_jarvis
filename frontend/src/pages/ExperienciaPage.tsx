@@ -219,8 +219,8 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
 
 // ─── modal edição e-mail gestor ───────────────────────────────────────────────
 
-function EditGestorModal({ avId, empId, gestorEmail, gestorNome, onClose, onSaved }:
-  { avId: string; empId: string; gestorEmail: string; gestorNome: string; onClose: () => void; onSaved: () => void }) {
+function EditGestorModal({ empId, gestorEmail, gestorNome, onClose, onSaved }:
+  { empId: string; gestorEmail: string; gestorNome: string; onClose: () => void; onSaved: () => void }) {
   const { token } = useAuth();
   const [email, setEmail] = useState(gestorEmail || "");
   const [saving, setSaving] = useState(false);
@@ -298,7 +298,7 @@ function TabelaDias({
       if (empresa) params.set("empresa", empresa);
       if (status) params.set("status", status);
       if (q) params.set("q", q);
-      const data = await apiFetch(`/api/experiencia/admin/${tipoParam}?${params}`, { token });
+      const data = await apiFetch<AvaliacaoRow[]>(`/api/experiencia/admin/${tipoParam}?${params}`, { token });
       setRows(data);
     } catch (e: any) {
       showToast("Erro ao carregar: " + e.message);
@@ -335,7 +335,7 @@ function TabelaDias({
     try {
       const body: any = { tipo: `${tipo}_dias` };
       if (empresa) body.empresa = empresa;
-      const r = await apiFetch("/api/experiencia/admin/disparar-cobracas", {
+      const r = await apiFetch<{ enviados?: number }>("/api/experiencia/admin/disparar-cobracas", {
         token,
         method: "POST",
         json: body,
@@ -347,7 +347,7 @@ function TabelaDias({
 
   async function handleVerRespostas(id: string) {
     try {
-      const data = await apiFetch(`/api/experiencia/admin/auditoria/${id}/detalhes`, { token });
+      const data = await apiFetch<DetalheModal>(`/api/experiencia/admin/auditoria/${id}/detalhes`, { token });
       setDetalhe(data);
     } catch (e: any) { showToast("Erro: " + e.message); }
   }
@@ -463,7 +463,6 @@ function TabelaDias({
       {detalhe && <DetalheModalView detalhe={detalhe} onClose={() => setDetalhe(null)} />}
       {editModal && (
         <EditGestorModal
-          avId={editModal.avId}
           empId={editModal.empId ?? ""}
           gestorNome={editModal.gestorNome}
           gestorEmail={editModal.gestorEmail}
@@ -500,7 +499,7 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
       if (q) params.set("q", q);
       if (dataInicio) params.set("data_inicio", dataInicio);
       if (dataFim) params.set("data_fim", dataFim);
-      const data = await apiFetch(`/api/experiencia/admin/auditoria?${params}`, { token });
+      const data = await apiFetch<AvaliacaoRow[]>(`/api/experiencia/admin/auditoria?${params}`, { token });
       setRows(data);
     } catch (e: any) {
       setToast("Erro: " + e.message);
@@ -513,7 +512,7 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
 
   async function handleVer(id: string) {
     try {
-      const data = await apiFetch(`/api/experiencia/admin/auditoria/${id}/detalhes`, { token });
+      const data = await apiFetch<DetalheModal>(`/api/experiencia/admin/auditoria/${id}/detalhes`, { token });
       setDetalhe(data);
     } catch (e: any) { setToast("Erro: " + e.message); }
   }
@@ -626,7 +625,7 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
     if (!window.confirm("Disparar sincronização manual com o Benner agora?")) return;
     setSyncing(true);
     try {
-      const r = await apiFetch("/api/experiencia/admin/sync-benner", { token, method: "POST" });
+      const r = await apiFetch<{ novos?: number; atualizados?: number }>("/api/experiencia/admin/sync-benner", { token, method: "POST" });
       showToast(`Sync concluído: ${r.novos ?? 0} novo(s), ${r.atualizados ?? 0} atualizado(s)`);
     } catch (e: any) {
       showToast("Erro no sync: " + e.message);

@@ -156,12 +156,6 @@ export const PRIORITY_COLORS: Record<number, string> = {
   4: "text-red-600",
 };
 
-const CSAT_LABELS: Record<number, string> = {
-  1: "Insatisfeito",
-  2: "Neutro",
-  3: "Satisfeito",
-};
-
 export const CSAT_EMOJIS: Record<number, string> = {
   1: "😞",
   2: "😐",
