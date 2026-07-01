@@ -167,3 +167,50 @@ export const CSAT_EMOJIS: Record<number, string> = {
   2: "😐",
   3: "😊",
 };
+
+export interface FsProject {
+  id: number;
+  name: string;
+  key: string | null;
+  description: string | null;
+  status_id: number | null;
+  status_label: string | null;
+  priority_id: number | null;
+  start_date: string | null;
+  end_date: string | null;
+  archived: boolean;
+  manager_id: number | null;
+  manager_name: string | null;
+  total_tasks: number;
+  done_tasks: number;
+  pending_tasks: number;
+  percent_complete: number | null;
+}
+
+export interface FsProjectTask {
+  id: number;
+  project_id: number;
+  title: string;
+  display_key: string | null;
+  status_id: number | null;
+  status_label: string | null;
+  is_done: boolean;
+  priority_id: number | null;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  reporter_id: number | null;
+  parent_id: number | null;
+  planned_start_date: string | null;
+  planned_end_date: string | null;
+}
+
+export interface FsProjectPendingGroup {
+  assignee_name: string;
+  tasks: FsProjectTask[];
+}
+
+export interface FsProjectDetail {
+  project: FsProject;
+  tasks: FsProjectTask[];
+  pending_by_assignee: FsProjectPendingGroup[];
+}

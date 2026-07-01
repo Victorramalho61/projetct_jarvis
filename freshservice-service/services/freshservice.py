@@ -39,7 +39,7 @@ class FreshserviceClient:
         url = f"{BASE_URL}{path}"
         for attempt in range(MAX_RETRIES):
             try:
-                with httpx.Client(timeout=30, auth=self._auth) as client:
+                with httpx.Client(timeout=30, auth=self._auth, headers={"Content-Type": "application/json"}) as client:
                     r = client.get(url, params=params)
                     if r.status_code == 429:
                         time.sleep(2 ** (attempt + 1))
@@ -163,6 +163,27 @@ class FreshserviceClient:
                 return []
             raise
 
+    # Projects (Freshservice PM / Freshrelease) — endpoint legado /projects retorna
+    # 403 "require_feature" nesta conta; o módulo NewGen vive sob o prefixo /pm.
+    def list_projects(self, page: int = 1) -> list[dict]:
+        try:
+            return self._get("/pm/projects", {"page": page, "per_page": PAGE_SIZE}).get("projects", [])
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (403, 404):
+                logger.warning("Projects endpoint indisponível (%s) — ignorando", exc.response.status_code)
+                return []
+            raise
+
+    def list_project_tasks(self, project_id: int, page: int = 1) -> list[dict]:
+        try:
+            return self._get(
+                f"/pm/projects/{project_id}/tasks", {"page": page, "per_page": PAGE_SIZE}
+            ).get("tasks", [])
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (403, 404):
+                return []
+            raise
+
 
 def _extract_ticket_row(raw: dict) -> dict:
     stats = raw.get("stats") or {}
@@ -197,6 +218,102 @@ def _upsert_tickets(db, rows: list[dict]) -> None:
         return
     for i in range(0, len(rows), _UPSERT_BATCH):
         db.table("freshservice_tickets").upsert(rows[i:i + _UPSERT_BATCH]).execute()
+
+
+def _extract_project_row(raw: dict) -> dict:
+    return {
+        "id":          raw["id"],
+        "name":        raw.get("name") or "",
+        "key":         raw.get("key"),
+        "description": raw.get("description"),
+        "status_id":   raw.get("status_id"),
+        "priority_id": raw.get("priority_id"),
+        "start_date":  raw.get("start_date"),
+        "end_date":    raw.get("end_date"),
+        "archived":    raw.get("archived", False),
+        "manager_id":  raw.get("manager_id"),
+        "raw":         raw,
+    }
+
+
+def _extract_task_row(raw: dict) -> dict:
+    return {
+        "id":                 raw["id"],
+        "project_id":         raw.get("project_id"),
+        "title":              raw.get("title") or "",
+        "display_key":        raw.get("display_key"),
+        "status_id":          raw.get("status_id"),
+        "priority_id":        raw.get("priority_id"),
+        "assignee_id":        raw.get("assignee_id"),
+        "reporter_id":        raw.get("reporter_id"),
+        "parent_id":          raw.get("parent_id"),
+        "planned_start_date": raw.get("planned_start_date"),
+        "planned_end_date":   raw.get("planned_end_date"),
+        "raw":                raw,
+    }
+
+
+def _upsert_projects(db, rows: list[dict]) -> None:
+    if not rows:
+        return
+    for i in range(0, len(rows), _UPSERT_BATCH):
+        db.table("freshservice_projects").upsert(rows[i:i + _UPSERT_BATCH]).execute()
+
+
+def _upsert_project_tasks(db, rows: list[dict]) -> None:
+    if not rows:
+        return
+    for i in range(0, len(rows), _UPSERT_BATCH):
+        db.table("freshservice_project_tasks").upsert(rows[i:i + _UPSERT_BATCH]).execute()
+
+
+def _register_statuses(db, status_ids: set, kind: str) -> None:
+    """Auto-cadastra status_id novos vistos no sync (label fica null até o admin preencher)."""
+    rows = [{"status_id": sid, "kind": kind} for sid in status_ids if sid is not None]
+    if not rows:
+        return
+    db.table("freshservice_project_statuses").upsert(rows, on_conflict="status_id", ignore_duplicates=True).execute()
+
+
+def _sync_projects_impl() -> dict:
+    db = get_supabase()
+    s = get_settings()
+    client = FreshserviceClient(s.freshservice_api_key)
+
+    projects_total = 0
+    tasks_total = 0
+    page = 1
+    while True:
+        projects = client.list_projects(page=page)
+        if not projects:
+            break
+        _upsert_projects(db, [_extract_project_row(p) for p in projects])
+        _register_statuses(db, {p.get("status_id") for p in projects}, kind="project")
+        projects_total += len(projects)
+
+        for p in projects:
+            tpage = 1
+            while True:
+                tasks = client.list_project_tasks(p["id"], page=tpage)
+                if not tasks:
+                    break
+                _upsert_project_tasks(db, [_extract_task_row(t) for t in tasks])
+                _register_statuses(db, {t.get("status_id") for t in tasks}, kind="task")
+                tasks_total += len(tasks)
+                if len(tasks) < PAGE_SIZE:
+                    break
+                tpage += 1
+
+        if len(projects) < PAGE_SIZE:
+            break
+        page += 1
+
+    logger.info("Freshservice projects sync: %d projetos, %d tarefas", projects_total, tasks_total)
+    return {"projects": projects_total, "tasks": tasks_total}
+
+
+async def run_projects_sync() -> dict:
+    return await asyncio.to_thread(_sync_projects_impl)
 
 
 def _sync_csat_page(

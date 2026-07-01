@@ -75,30 +75,38 @@ export default function FreshservicePage() {
   const fetchMain = useCallback(async () => {
     setLoadingMain(true);
     setError(null);
-    try {
-      const qs = `from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}`;
-      const mqs = `month=${month}`;
+    const qs = `from=${encodeURIComponent(period.from)}&to=${encodeURIComponent(period.to)}`;
+    const mqs = `month=${month}`;
 
-      const [sum, sla, ag, req, cs, status] = await Promise.all([
-        apiFetch<FreshserviceSummary>(`/api/freshservice/dashboard/summary?${qs}`, { token }),
-        apiFetch<GroupSLA[]>(`/api/freshservice/dashboard/sla-by-group?${qs}`, { token }),
-        apiFetch<AgentStats[]>(`/api/freshservice/dashboard/agents?${mqs}`, { token }),
-        apiFetch<CompanyRequester[]>(`/api/freshservice/dashboard/top-requesters?${qs}&limit=5`, { token }),
-        apiFetch<CSATSummary>(`/api/freshservice/dashboard/csat?${qs}`, { token }),
-        apiFetch<SyncStatus>(`/api/freshservice/sync/status`, { token }),
-      ]);
+    const [sum, sla, ag, req, cs, status] = await Promise.allSettled([
+      apiFetch<FreshserviceSummary>(`/api/freshservice/dashboard/summary?${qs}`, { token }),
+      apiFetch<GroupSLA[]>(`/api/freshservice/dashboard/sla-by-group?${qs}`, { token }),
+      apiFetch<AgentStats[]>(`/api/freshservice/dashboard/agents?${mqs}`, { token }),
+      apiFetch<CompanyRequester[]>(`/api/freshservice/dashboard/top-requesters?${qs}&limit=5`, { token }),
+      apiFetch<CSATSummary>(`/api/freshservice/dashboard/csat?${qs}`, { token }),
+      apiFetch<SyncStatus>(`/api/freshservice/sync/status`, { token }),
+    ]);
 
-      setSummary(sum);
-      setSlaGroups(Array.isArray(sla) ? sla : []);
-      setAgents(Array.isArray(ag) ? ag : []);
-      setRequesters(Array.isArray(req) ? req : []);
-      setCsat(cs);
-      setSyncStatus(status);
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Erro ao carregar dados.");
-    } finally {
-      setLoadingMain(false);
+    if (sum.status === "fulfilled") setSummary(sum.value);
+    if (sla.status === "fulfilled") setSlaGroups(Array.isArray(sla.value) ? sla.value : []);
+    if (ag.status === "fulfilled") setAgents(Array.isArray(ag.value) ? ag.value : []);
+    if (req.status === "fulfilled") setRequesters(Array.isArray(req.value) ? req.value : []);
+    if (cs.status === "fulfilled") setCsat(cs.value);
+    if (status.status === "fulfilled") setSyncStatus(status.value);
+
+    const failed = [sum, sla, ag, req, cs, status].filter(
+      (r): r is PromiseRejectedResult => r.status === "rejected"
+    );
+    if (failed.length > 0) {
+      const reason = failed[0].reason;
+      const msg = reason instanceof ApiError ? reason.message : "Erro ao carregar dados.";
+      setError(
+        failed.length === 6
+          ? msg
+          : `${msg} (${failed.length} de 6 seções não carregaram — as demais foram exibidas normalmente)`
+      );
     }
+    setLoadingMain(false);
   }, [token, period, month]);
 
   const fetchLive = useCallback(async () => {

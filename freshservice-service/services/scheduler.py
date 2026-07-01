@@ -8,15 +8,18 @@ _scheduler = AsyncIOScheduler(timezone="UTC")
 
 
 def start_scheduler() -> None:
-    from services.freshservice import run_daily_sync, run_open_tickets_sync
+    from services.freshservice import run_daily_sync, run_open_tickets_sync, run_projects_sync
     _scheduler.add_job(run_daily_sync, CronTrigger(hour=9, minute=0),
                        id="daily_freshservice_sync", replace_existing=True,
                        max_instances=1, misfire_grace_time=300)
     _scheduler.add_job(run_open_tickets_sync, CronTrigger(hour=9, minute=30),
                        id="daily_open_tickets_sync", replace_existing=True,
                        max_instances=1, misfire_grace_time=300)
+    _scheduler.add_job(run_projects_sync, CronTrigger(hour=6, minute=0),
+                       id="daily_projects_sync", replace_existing=True,
+                       max_instances=1, misfire_grace_time=300)
     _scheduler.start()
-    logger.info("Freshservice scheduler started — daily sync 09h UTC, open tickets 09:30h UTC")
+    logger.info("Freshservice scheduler started — daily sync 09h UTC, open tickets 09:30h UTC, projects 06h UTC")
 
 
 def stop_scheduler() -> None:

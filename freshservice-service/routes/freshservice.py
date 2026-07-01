@@ -4,9 +4,11 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from pydantic import BaseModel
+
 from auth import get_current_user, require_role
 from db import get_supabase
-from services.freshservice import get_live_metrics, run_backfill, run_daily_sync
+from services.freshservice import get_live_metrics, run_backfill, run_daily_sync, run_projects_sync
 
 router = APIRouter(prefix="/freshservice", tags=["freshservice"])
 logger = logging.getLogger(__name__)
@@ -475,3 +477,146 @@ async def payfly_tickets(
     if rows:
         rows = _enrich_ticket_names(db, rows)
     return {"data": rows, "total": result.count or 0, "page": page, "page_size": page_size}
+
+
+# ── Projects ─────────────────────────────────────────────────────────────────
+
+def _status_maps(db) -> tuple[dict[int, dict], dict[int, dict]]:
+    rows = db.table("freshservice_project_statuses").select("*").execute().data or []
+    project_statuses = {r["status_id"]: r for r in rows if r["kind"] == "project"}
+    task_statuses = {r["status_id"]: r for r in rows if r["kind"] == "task"}
+    return project_statuses, task_statuses
+
+
+def _agent_names(db, agent_ids: set[int]) -> dict[int, str]:
+    if not agent_ids:
+        return {}
+    rows = db.table("freshservice_agents").select("id,name").in_("id", list(agent_ids)).execute().data or []
+    return {r["id"]: r["name"] for r in rows}
+
+
+@router.get("/projects")
+async def list_projects(_: dict = Depends(require_role("admin"))):
+    db = get_supabase()
+    projects = db.table("freshservice_projects").select("*").order("start_date", desc=True).execute().data or []
+    tasks = db.table("freshservice_project_tasks").select("project_id,status_id").execute().data or []
+
+    project_statuses, task_statuses = _status_maps(db)
+    agent_names = _agent_names(db, {p["manager_id"] for p in projects if p.get("manager_id")})
+
+    tasks_by_project: dict[int, list[dict]] = {}
+    for t in tasks:
+        tasks_by_project.setdefault(t["project_id"], []).append(t)
+
+    result = []
+    for p in projects:
+        proj_tasks = tasks_by_project.get(p["id"], [])
+        total = len(proj_tasks)
+        done = sum(1 for t in proj_tasks if task_statuses.get(t["status_id"], {}).get("is_done"))
+        status_row = project_statuses.get(p.get("status_id"))
+        result.append({
+            **p,
+            "status_label":     status_row["label"] if status_row else None,
+            "manager_name":     agent_names.get(p.get("manager_id")),
+            "total_tasks":      total,
+            "done_tasks":       done,
+            "pending_tasks":    total - done,
+            "percent_complete": round(done / total * 100, 1) if total else None,
+        })
+    return result
+
+
+@router.get("/projects/statuses")
+async def list_project_statuses(_: dict = Depends(require_role("admin"))):
+    db = get_supabase()
+    return db.table("freshservice_project_statuses").select("*").order("kind").order("status_id").execute().data or []
+
+
+class ProjectStatusUpdate(BaseModel):
+    label: str | None = None
+    is_done: bool | None = None
+
+
+@router.patch("/projects/statuses/{status_id}")
+async def update_project_status(
+    status_id: int,
+    body: ProjectStatusUpdate,
+    _: dict = Depends(require_role("admin")),
+):
+    db = get_supabase()
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not patch:
+        raise HTTPException(status_code=422, detail="Nada para atualizar.")
+    result = db.table("freshservice_project_statuses").update(patch).eq("status_id", status_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Status não encontrado.")
+    return result.data[0]
+
+
+@router.get("/projects/{project_id}")
+async def get_project(project_id: int, _: dict = Depends(require_role("admin"))):
+    db = get_supabase()
+    project_row = db.table("freshservice_projects").select("*").eq("id", project_id).maybe_single().execute()
+    if not project_row.data:
+        raise HTTPException(status_code=404, detail="Projeto não encontrado.")
+    project = project_row.data
+
+    tasks = (
+        db.table("freshservice_project_tasks")
+        .select("*")
+        .eq("project_id", project_id)
+        .order("planned_end_date")
+        .execute()
+        .data or []
+    )
+
+    project_statuses, task_statuses = _status_maps(db)
+    agent_names = _agent_names(db, {
+        t["assignee_id"] for t in tasks if t.get("assignee_id")
+    } | ({project["manager_id"]} if project.get("manager_id") else set()))
+
+    enriched_tasks = []
+    for t in tasks:
+        status_row = task_statuses.get(t["status_id"])
+        enriched_tasks.append({
+            **t,
+            "status_label":  status_row["label"] if status_row else None,
+            "is_done":       bool(status_row and status_row["is_done"]),
+            "assignee_name": agent_names.get(t.get("assignee_id")),
+        })
+
+    pending_by_assignee: dict[str, list[dict]] = {}
+    for t in enriched_tasks:
+        if t["is_done"]:
+            continue
+        key = t["assignee_name"] or "Sem responsável"
+        pending_by_assignee.setdefault(key, []).append(t)
+
+    status_row = project_statuses.get(project.get("status_id"))
+    total = len(enriched_tasks)
+    done = sum(1 for t in enriched_tasks if t["is_done"])
+
+    return {
+        "project": {
+            **project,
+            "status_label":     status_row["label"] if status_row else None,
+            "manager_name":     agent_names.get(project.get("manager_id")),
+            "total_tasks":      total,
+            "done_tasks":       done,
+            "pending_tasks":    total - done,
+            "percent_complete": round(done / total * 100, 1) if total else None,
+        },
+        "tasks": enriched_tasks,
+        "pending_by_assignee": [
+            {"assignee_name": k, "tasks": v} for k, v in sorted(pending_by_assignee.items(), key=lambda x: -len(x[1]))
+        ],
+    }
+
+
+@router.post("/projects/sync")
+async def trigger_projects_sync(_: dict = Depends(require_role("admin"))):
+    import time
+    t0 = time.monotonic()
+    counts = await run_projects_sync()
+    duration = round(time.monotonic() - t0)
+    return {"status": "completed", **counts, "duration_seconds": duration}
