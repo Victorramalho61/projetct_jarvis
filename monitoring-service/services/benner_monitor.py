@@ -46,7 +46,10 @@ async def sync_benner_snapshot() -> None:
     }
 
     try:
-        get_supabase().table("benner_snapshots").insert(payload).execute()
+        sb = get_supabase()
+        await asyncio.to_thread(
+            lambda: sb.table("benner_snapshots").insert(payload).execute()
+        )
         logger.info(
             "benner_monitor: snapshot salvo — total=%d ok=%d erros=%d",
             raw["total"], raw["ok"], raw["erros"],

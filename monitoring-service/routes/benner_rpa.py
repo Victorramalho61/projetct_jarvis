@@ -1,4 +1,5 @@
 """Endpoints RPA Benner — dashboard de monitoramento das automações."""
+import asyncio
 import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
@@ -27,9 +28,11 @@ async def rpa_summary(
     """KPIs gerais + distribuição por categoria."""
     sb = get_supabase()
     try:
-        resp = sb.table("benner_erros").select(
-            "id,rpa_status,rpa_categoria,capturado_em,rpa_ultima_acao"
-        ).execute()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_erros")
+            .select("id,rpa_status,rpa_categoria,capturado_em,rpa_ultima_acao")
+            .execute()
+        )
         rows = resp.data or []
     except Exception as exc:
         raise HTTPException(502, f"Falha ao consultar benner_erros: {exc}") from exc
@@ -91,8 +94,9 @@ async def rpa_categoria_detail(
 ):
     """Retorna erros de uma categoria com detalhe extraído + agregações."""
     sb = get_supabase()
-    try:
-        resp = (
+
+    def _fetch_page():
+        return (
             sb.table("benner_erros")
             .select("id,benner_handle,produto,sistema_origem,codigo_reserva,mensagem,rpa_status,rpa_tentativas,rpa_ultima_acao,capturado_em")
             .eq("rpa_categoria", categoria)
@@ -100,12 +104,19 @@ async def rpa_categoria_detail(
             .range((page - 1) * limit, page * limit - 1)
             .execute()
         )
-        # total
-        total_resp = (
+
+    def _fetch_total():
+        return (
             sb.table("benner_erros")
             .select("id", count="exact")
             .eq("rpa_categoria", categoria)
             .execute()
+        )
+
+    try:
+        resp, total_resp = await asyncio.gather(
+            asyncio.to_thread(_fetch_page),
+            asyncio.to_thread(_fetch_total),
         )
     except Exception as exc:
         raise HTTPException(502, f"Falha ao consultar categoria: {exc}") from exc
@@ -132,8 +143,8 @@ async def rpa_categoria_detail(
     # Para fornecedor: busca total acumulado em TODAS as páginas
     if categoria == "fornecedor_nao_localizado":
         try:
-            all_resp = (
-                sb.table("benner_erros")
+            all_resp = await asyncio.to_thread(
+                lambda: sb.table("benner_erros")
                 .select("mensagem")
                 .eq("rpa_categoria", categoria)
                 .execute()
@@ -183,7 +194,8 @@ async def rpa_queue(
         )
         if categoria:
             q = q.eq("rpa_categoria", categoria)
-        resp = q.range((page - 1) * limit, page * limit - 1).execute()
+        q = q.range((page - 1) * limit, page * limit - 1)
+        resp = await asyncio.to_thread(q.execute)
     except Exception as exc:
         raise HTTPException(502, f"Falha ao consultar fila: {exc}") from exc
 
@@ -215,7 +227,7 @@ async def rpa_history(
         )
         if status:
             q = q.eq("rpa_status", status)
-        resp = q.execute()
+        resp = await asyncio.to_thread(q.execute)
     except Exception as exc:
         raise HTTPException(502, f"Falha ao buscar histórico: {exc}") from exc
 
@@ -243,8 +255,8 @@ async def rpa_evolucao(
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(days=dias)).isoformat()
 
     try:
-        resp = (
-            sb.table("benner_erros")
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_erros")
             .select("capturado_em,produto,sistema_origem,rpa_categoria,rpa_status")
             .gte("capturado_em", cutoff)
             .execute()
@@ -330,11 +342,13 @@ async def rpa_resolve(
     """Marca erro como resolvido manualmente."""
     sb = get_supabase()
     try:
-        resp = sb.table("benner_erros").update({
-            "rpa_status": "resolvido",
-            "rpa_resultado": f"Resolvido manualmente por {user.get('email', 'admin')}",
-            "rpa_ultima_acao": datetime.now(tz=timezone.utc).isoformat(),
-        }).eq("id", erro_id).execute()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_erros").update({
+                "rpa_status": "resolvido",
+                "rpa_resultado": f"Resolvido manualmente por {user.get('email', 'admin')}",
+                "rpa_ultima_acao": datetime.now(tz=timezone.utc).isoformat(),
+            }).eq("id", erro_id).execute()
+        )
     except Exception as exc:
         raise HTTPException(502, f"Falha ao resolver: {exc}") from exc
 
@@ -353,11 +367,13 @@ async def rpa_ignore(
     """Marca erro como ignorado."""
     sb = get_supabase()
     try:
-        resp = sb.table("benner_erros").update({
-            "rpa_status": "ignorado",
-            "rpa_resultado": f"Ignorado por {user.get('email', 'admin')}",
-            "rpa_ultima_acao": datetime.now(tz=timezone.utc).isoformat(),
-        }).eq("id", erro_id).execute()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_erros").update({
+                "rpa_status": "ignorado",
+                "rpa_resultado": f"Ignorado por {user.get('email', 'admin')}",
+                "rpa_ultima_acao": datetime.now(tz=timezone.utc).isoformat(),
+            }).eq("id", erro_id).execute()
+        )
     except Exception as exc:
         raise HTTPException(502, f"Falha ao ignorar: {exc}") from exc
 
@@ -376,11 +392,13 @@ async def rpa_retry(
     """Reseta para pendente para ser reprocessado no próximo ciclo RPA."""
     sb = get_supabase()
     try:
-        resp = sb.table("benner_erros").update({
-            "rpa_status": "pendente",
-            "rpa_tentativas": 0,
-            "rpa_resultado": f"Retry manual por {user.get('email', 'admin')}",
-        }).eq("id", erro_id).execute()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_erros").update({
+                "rpa_status": "pendente",
+                "rpa_tentativas": 0,
+                "rpa_resultado": f"Retry manual por {user.get('email', 'admin')}",
+            }).eq("id", erro_id).execute()
+        )
     except Exception as exc:
         raise HTTPException(502, f"Falha ao retentar: {exc}") from exc
 

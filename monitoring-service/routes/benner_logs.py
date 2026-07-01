@@ -24,9 +24,9 @@ async def benner_latest(
 ):
     """Retorna o snapshot mais recente salvo no banco."""
     try:
-        resp = (
-            get_supabase()
-            .table("benner_snapshots")
+        sb = get_supabase()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_snapshots")
             .select("*")
             .order("capturado_em", desc=True)
             .limit(1)
@@ -83,9 +83,9 @@ async def benner_snapshot_detail(
 ):
     """Retorna snapshot completo por ID (drill-down do histórico)."""
     try:
-        resp = (
-            get_supabase()
-            .table("benner_snapshots")
+        sb = get_supabase()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_snapshots")
             .select("*")
             .eq("id", snap_id)
             .limit(1)
@@ -140,9 +140,9 @@ async def benner_history(
 ):
     """Retorna série histórica de snapshots (apenas métricas, sem erros) para gráficos."""
     try:
-        resp = (
-            get_supabase()
-            .table("benner_snapshots")
+        sb = get_supabase()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_snapshots")
             .select("id,capturado_em,total,ok,erros,taxa_erro_pct")
             .order("capturado_em", desc=True)
             .limit(limit)
