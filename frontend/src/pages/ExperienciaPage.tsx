@@ -4,33 +4,41 @@ import { useAuth } from "../context/AuthContext";
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 
+interface Colaborador {
+  id: string | null;
+  matricula: string;
+  nome: string;
+  cargo: string | null;
+  empresa: string | null;
+  departamento: string | null;
+  gestor_nome: string | null;
+  gestor_email: string | null;
+}
+
 interface AvaliacaoRow {
   id: string;
-  employee_id: string;
   tipo: string;
   data_prevista: string;
   status: string;
   total_envios: number;
   ultimo_envio_at: string | null;
   primeiro_envio_at: string | null;
-  exp_employees: {
-    matricula: string;
-    nome: string;
-    cargo: string | null;
-    empresa: string | null;
-    departamento: string | null;
-    gestor_nome: string | null;
-    gestor_email: string | null;
-  };
+  colaborador: Colaborador;
 }
 
 interface DetalheModal {
-  avaliacao: AvaliacaoRow & {
+  avaliacao: {
+    id: string;
+    tipo: string;
+    status: string;
+    data_prevista: string;
     respostas: any;
     gestor_concordou: boolean;
     gestor_assinatura_at: string | null;
     gestor_ip: string | null;
+    total_envios: number;
   };
+  colaborador: Colaborador;
   email_log: {
     id: string;
     tipo_email: string;
@@ -88,7 +96,7 @@ function fmtDate(dt: string | null) {
 
 function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose: () => void }) {
   const av = detalhe.avaliacao;
-  const emp = av.exp_employees;
+  const emp = detalhe.colaborador;
   const r = av.respostas || {};
   const ind: Record<string, number> = r.indicadores || {};
   const parecer = r.parecer;
@@ -102,8 +110,8 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
 
         <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
           <div>
-            <p className="font-bold text-gray-900 dark:text-gray-100">{emp.nome}</p>
-            <p className="text-xs text-gray-500">Avaliação {av.tipo === "45_dias" ? "45 Dias" : "90 Dias"} · {emp.empresa}</p>
+            <p className="font-bold text-gray-900 dark:text-gray-100">{emp?.nome}</p>
+            <p className="text-xs text-gray-500">Avaliação {av.tipo === "45_dias" ? "45 Dias" : "90 Dias"} · {emp?.empresa}</p>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
         </div>
@@ -380,23 +388,23 @@ function TabelaDias({
             ) : rows.length === 0 ? (
               <tr><td colSpan={11} className="px-4 py-8 text-center text-gray-400">Nenhum registro encontrado</td></tr>
             ) : rows.map((row) => {
-              const emp = row.exp_employees;
-              const semGestor = !emp.gestor_email;
+              const emp = row.colaborador;
+              const semGestor = !emp?.gestor_email;
               return (
                 <tr key={row.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-4 py-3 whitespace-nowrap">{emp.empresa || "—"}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{emp.matricula}</td>
-                  <td className="px-4 py-3 font-medium whitespace-nowrap">{emp.nome}</td>
-                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{emp.cargo || "—"}</td>
-                  <td className="px-4 py-3 whitespace-nowrap">{emp.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{emp?.empresa || "—"}</td>
+                  <td className="px-4 py-3 font-mono text-xs">{emp?.matricula}</td>
+                  <td className="px-4 py-3 font-medium whitespace-nowrap">{emp?.nome}</td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-gray-400">{emp?.cargo || "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-1.5">
                       {semGestor
                         ? <span className="text-red-500 text-xs font-semibold">sem e-mail</span>
-                        : <span className="text-xs text-gray-600 dark:text-gray-400">{emp.gestor_email}</span>
+                        : <span className="text-xs text-gray-600 dark:text-gray-400">{emp?.gestor_email}</span>
                       }
                       <button
-                        onClick={() => setEditModal({ avId: row.id, empId: row.employee_id, gestorNome: emp.gestor_nome || "", gestorEmail: emp.gestor_email || "" })}
+                        onClick={() => setEditModal({ avId: row.id, empId: emp?.id ?? "", gestorNome: emp?.gestor_nome || "", gestorEmail: emp?.gestor_email || "" })}
                         className="text-[#00694E] hover:text-[#004F3A] text-xs underline"
                         title="Corrigir e-mail">✏️</button>
                     </div>
@@ -439,7 +447,7 @@ function TabelaDias({
       {editModal && (
         <EditGestorModal
           avId={editModal.avId}
-          empId={editModal.empId}
+          empId={editModal.empId ?? ""}
           gestorNome={editModal.gestorNome}
           gestorEmail={editModal.gestorEmail}
           onClose={() => setEditModal(null)}
@@ -542,21 +550,21 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
             ) : rows.length === 0 ? (
               <tr><td colSpan={10} className="px-4 py-8 text-center text-gray-400">Nenhum resultado</td></tr>
             ) : rows.map((row) => {
-              const emp = row.exp_employees;
+              const emp = row.colaborador;
               const av = row as any;
               return (
                 <tr key={row.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                  <td className="px-4 py-3 whitespace-nowrap">{emp.empresa || "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{emp?.empresa || "—"}</td>
                   <td className="px-4 py-3">
-                    <p className="font-medium">{emp.nome}</p>
-                    <p className="text-xs text-gray-500 font-mono">{emp.matricula}</p>
+                    <p className="font-medium">{emp?.nome}</p>
+                    <p className="text-xs text-gray-500 font-mono">{emp?.matricula}</p>
                   </td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${row.tipo === "45_dias" ? "bg-purple-100 text-purple-800" : "bg-indigo-100 text-indigo-800"}`}>
                       {row.tipo === "45_dias" ? "45 Dias" : "90 Dias"}
                     </span>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">{emp.gestor_nome || "—"}</td>
+                  <td className="px-4 py-3 whitespace-nowrap">{emp?.gestor_nome || "—"}</td>
                   <td className="px-4 py-3 whitespace-nowrap">{fmtDate(row.data_prevista)}</td>
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmt(av.gestor_assinatura_at)}</td>
                   <td className="px-4 py-3 text-xs text-gray-600 whitespace-nowrap">{fmt(av.gestor_assinatura_at)}</td>
