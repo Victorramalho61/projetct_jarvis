@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiFetch } from "../lib/api";
+import { useAuth } from "../context/AuthContext";
 
 // ─── tipos ───────────────────────────────────────────────────────────────────
 
@@ -195,6 +196,7 @@ function DetalheModalView({ detalhe, onClose }: { detalhe: DetalheModal; onClose
 
 function EditGestorModal({ avId, empId, gestorEmail, gestorNome, onClose, onSaved }:
   { avId: string; empId: string; gestorEmail: string; gestorNome: string; onClose: () => void; onSaved: () => void }) {
+  const { token } = useAuth();
   const [email, setEmail] = useState(gestorEmail || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
@@ -204,8 +206,9 @@ function EditGestorModal({ avId, empId, gestorEmail, gestorNome, onClose, onSave
     setSaving(true);
     try {
       await apiFetch(`/api/experiencia/admin/colaborador/${empId}/gestor-email`, {
+        token,
         method: "PATCH",
-        body: JSON.stringify({ gestor_email: email.trim() }),
+        json: { gestor_email: email.trim() },
       });
       onSaved();
     } catch (e: any) {
@@ -252,6 +255,7 @@ function TabelaDias({
   setEmpresa: (e: string) => void;
   empresas: string[];
 }) {
+  const { token } = useAuth();
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
   const [rows, setRows] = useState<AvaliacaoRow[]>([]);
@@ -269,7 +273,7 @@ function TabelaDias({
       if (empresa) params.set("empresa", empresa);
       if (status) params.set("status", status);
       if (q) params.set("q", q);
-      const data = await apiFetch(`/api/experiencia/admin/${tipoParam}?${params}`);
+      const data = await apiFetch(`/api/experiencia/admin/${tipoParam}?${params}`, { token });
       setRows(data);
     } catch (e: any) {
       showToast("Erro ao carregar: " + e.message);
@@ -287,7 +291,7 @@ function TabelaDias({
 
   async function handleEnviar(id: string) {
     try {
-      await apiFetch(`/api/experiencia/admin/enviar/${id}`, { method: "POST" });
+      await apiFetch(`/api/experiencia/admin/enviar/${id}`, { token, method: "POST" });
       showToast("Avaliação enviada!");
       load();
     } catch (e: any) { showToast("Erro: " + e.message); }
@@ -295,7 +299,7 @@ function TabelaDias({
 
   async function handleReenviar(id: string) {
     try {
-      await apiFetch(`/api/experiencia/admin/reenviar/${id}`, { method: "POST" });
+      await apiFetch(`/api/experiencia/admin/reenviar/${id}`, { token, method: "POST" });
       showToast("Cobrança reenviada!");
       load();
     } catch (e: any) { showToast("Erro: " + e.message); }
@@ -307,8 +311,9 @@ function TabelaDias({
       const body: any = { tipo: `${tipo}_dias` };
       if (empresa) body.empresa = empresa;
       const r = await apiFetch("/api/experiencia/admin/disparar-cobracas", {
+        token,
         method: "POST",
-        body: JSON.stringify(body),
+        json: body,
       });
       showToast(`${r.enviados ?? 0} cobrança(s) disparada(s)!`);
       load();
@@ -317,7 +322,7 @@ function TabelaDias({
 
   async function handleVerRespostas(id: string) {
     try {
-      const data = await apiFetch(`/api/experiencia/admin/auditoria/${id}/detalhes`);
+      const data = await apiFetch(`/api/experiencia/admin/auditoria/${id}/detalhes`, { token });
       setDetalhe(data);
     } catch (e: any) { showToast("Erro: " + e.message); }
   }
@@ -449,6 +454,7 @@ function TabelaDias({
 
 function TabAuditoria({ empresa, setEmpresa, empresas }:
   { empresa: string; setEmpresa: (e: string) => void; empresas: string[] }) {
+  const { token } = useAuth();
   const [tipo, setTipo] = useState("");
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
@@ -469,7 +475,7 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
       if (q) params.set("q", q);
       if (dataInicio) params.set("data_inicio", dataInicio);
       if (dataFim) params.set("data_fim", dataFim);
-      const data = await apiFetch(`/api/experiencia/admin/auditoria?${params}`);
+      const data = await apiFetch(`/api/experiencia/admin/auditoria?${params}`, { token });
       setRows(data);
     } catch (e: any) {
       setToast("Erro: " + e.message);
@@ -482,7 +488,7 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
 
   async function handleVer(id: string) {
     try {
-      const data = await apiFetch(`/api/experiencia/admin/auditoria/${id}/detalhes`);
+      const data = await apiFetch(`/api/experiencia/admin/auditoria/${id}/detalhes`, { token });
       setDetalhe(data);
     } catch (e: any) { setToast("Erro: " + e.message); }
   }
@@ -578,6 +584,7 @@ function TabAuditoria({ empresa, setEmpresa, empresas }:
 // ─── aba relatórios ───────────────────────────────────────────────────────────
 
 function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: string[] }) {
+  const { token } = useAuth();
   const [empFilt, setEmpFilt] = useState(empresa);
   const [tipo, setTipo] = useState("");
   const [status, setStatus] = useState("");
@@ -594,7 +601,7 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
     if (!window.confirm("Disparar sincronização manual com o Benner agora?")) return;
     setSyncing(true);
     try {
-      const r = await apiFetch("/api/experiencia/admin/sync-benner", { method: "POST" });
+      const r = await apiFetch("/api/experiencia/admin/sync-benner", { token, method: "POST" });
       showToast(`Sync concluído: ${r.novos ?? 0} novo(s), ${r.atualizados ?? 0} atualizado(s)`);
     } catch (e: any) {
       showToast("Erro no sync: " + e.message);
@@ -610,10 +617,10 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
       if (empFilt) params.set("empresa", empFilt);
       if (tipo) params.set("tipo", tipo);
       if (status) params.set("status", status);
-      const token = localStorage.getItem("token") || sessionStorage.getItem("token") || "";
+      const exportToken = localStorage.getItem("auth_token") ?? "";
       const API = import.meta.env.VITE_API_URL ?? "";
       const resp = await fetch(`${API}/api/experiencia/admin/export?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${exportToken}` },
       });
       if (!resp.ok) throw new Error("Falha ao exportar");
       const blob = await resp.blob();
@@ -702,15 +709,17 @@ function TabRelatorios({ empresa, empresas }: { empresa: string; empresas: strin
 // ─── página principal ─────────────────────────────────────────────────────────
 
 export default function ExperienciaPage() {
+  const { token } = useAuth();
   const [tab, setTab] = useState<TabId>("45");
   const [empresa, setEmpresa] = useState("");
   const [empresas, setEmpresas] = useState<string[]>([]);
 
   useEffect(() => {
-    apiFetch("/api/experiencia/admin/empresas")
-      .then((data) => setEmpresas(data))
+    if (!token) return;
+    apiFetch("/api/experiencia/admin/empresas", { token })
+      .then((data) => setEmpresas(data as string[]))
       .catch(() => {});
-  }, []);
+  }, [token]);
 
   return (
     <div className="p-6 max-w-screen-2xl mx-auto">
