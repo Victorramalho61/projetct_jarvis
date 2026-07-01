@@ -30,6 +30,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth, Role } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useNotifications } from "../hooks/useNotifications";
+import { MODULE_PERMISSIONS } from "../constants/modulePermissions";
 import Icon from "./Icon";
 
 type NavItem = {
@@ -181,21 +182,9 @@ export default function AppLayout() {
   const userDropdownRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLElement>(null);
 
-  const MODULES_BY_NAV_ID: Record<string, string> = {
-    desempenho: "desempenho",
-    moneypenny: "moneypenny",
-    monitoring: "monitoramento",
-    freshservice: "freshservice",
-    agents: "agentes",
-    expenses: "gastos_ti",
-    fiscal: "fiscal",
-    governance: "governanca",
-    payfly: "payfly",
-    hermes: "hermes",
-    cartoes: "cartoes",
-    financeiro: "financeiro",
-    experiencia: "experiencia",
-  };
+  const MODULES_BY_NAV_ID: Record<string, string> = Object.fromEntries(
+    MODULE_PERMISSIONS.map((m) => [m.navId, m.id])
+  );
 
   const visible = NAV_ITEMS.filter((i) => {
     if (!user || !i.roles.includes(user.role)) return false;

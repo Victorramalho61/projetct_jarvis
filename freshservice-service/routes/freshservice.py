@@ -495,6 +495,9 @@ _HIDDEN_PROJECT_IDS = {
     1000485987,  # Implantação Novo Backup
     1000485984,  # Implantação do Novo Antivírus
     1000485966,  # Migração Servidores pra Hybrid Cloud
+    1000485739,  # Implantação de Infraestrutura de TI e CFTV – CD Campinas
+    1000485969,  # Ambiente de DR Equinix
+    1000486066,  # Instalação das Câmeras CD - VTC / Otimização da rede Wi-Fi Carlos Alberto
 }
 
 
