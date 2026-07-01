@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     jwt_expire_minutes: int = 480
     allowed_origins: str = "http://localhost:5173"
     sql_server_host: str = ""
-    sql_server_port: int = 1444
+    sql_server_port: int = 1433
     sql_server_db: str = "BennerRh"
     sql_server_user: str = ""
     sql_server_password: str = ""
