@@ -134,7 +134,14 @@ def submit_evaluation(token: str, body: EvaluationSubmit, request: Request) -> d
 
     final_score = round(sum(scores_list) / len(scores_list), 2)
 
-    existing_review = db.table("performance_reviews").select("id,status").eq("cycle_id", t["cycle_id"]).eq("employee_id", employee_id).execute()
+    existing_review = (
+        db.table("performance_reviews")
+        .select("id,status")
+        .eq("cycle_id", t["cycle_id"])
+        .eq("employee_id", employee_id)
+        .eq("is_self_evaluation", False)
+        .execute()
+    )
     if existing_review.data:
         rev_status = existing_review.data[0].get("status", "pending")
         if rev_status in ("completed", "calibrated", "acknowledged"):
@@ -161,6 +168,7 @@ def submit_evaluation(token: str, body: EvaluationSubmit, request: Request) -> d
             "final_score": final_score,
             "observations": (body.observations or "").strip() or None,
             "submitted_at": "now()",
+            "is_self_evaluation": False,
         }).execute()
         if not review_res.data:
             raise HTTPException(500, detail="Erro ao salvar avaliação.")
