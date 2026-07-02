@@ -1913,3 +1913,39 @@ FRONTEND_URL=https://jarvis.voetur.com.br
 ```
 
 > **Nota**: `MSSQL_PORT` não é definido quando se usa instância nomeada. O SQL Server Browser (UDP 1434) resolve automaticamente a porta da instância `VOETUR`.
+
+---
+
+## Frontend — Auto-reload em chunk stale pós-deploy (2026-07-02)
+
+### Problema
+
+Erro `Failed to fetch dynamically imported module` ao navegar para páginas lazy (ex: `FreshservicePage`). Usuários com aba aberta antes de um deploy do frontend têm `index.html` referenciando hashes de chunk antigos (ex: `FreshservicePage-CWVrEnzU.js`) que não existem mais no `dist/` após o build seguinte (ex: `FreshservicePage-D5U1-BcX.js`).
+
+O `nginx.conf` já mitigava parcialmente (assets `immutable` + `error_page 404` → redirect `/?reload=1`), mas isso só cobre navegação de documento — não intercepta a Promise rejeitada de um `import()` dinâmico do React em uma aba já aberta.
+
+### Fix
+
+`frontend/src/lib/lazyWithReload.ts`: wrapper de `React.lazy` que captura falha do `import()` e força `window.location.reload()` uma única vez (flag em `sessionStorage` evita loop). Substituiu todos os `lazy(() => import(...))` em `App.tsx` (25 páginas).
+
+```ts
+// frontend/src/lib/lazyWithReload.ts
+export function lazyWithReload<T extends ComponentType<any>>(
+  factory: () => Promise<{ default: T }>
+) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (error) {
+      if (!sessionStorage.getItem(RELOAD_FLAG)) {
+        sessionStorage.setItem(RELOAD_FLAG, "1");
+        window.location.reload();
+        return new Promise<{ default: T }>(() => {});
+      }
+      throw error;
+    }
+  });
+}
+```
+
+Resultado: após um deploy do frontend, a próxima navegação para uma página lazy com chunk stale recarrega a página automaticamente e carrega o build atual, sem erro visível ao usuário.
