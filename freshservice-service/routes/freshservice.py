@@ -275,7 +275,10 @@ async def agent_daily_summary(_: dict = Depends(require_role("admin"))):
 async def trigger_backfill(_: dict = Depends(require_role("admin"))):
     import time
     t0 = time.monotonic()
-    count = await run_backfill()
+    try:
+        count = await run_backfill()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Backfill falhou: {exc}")
     duration = round(time.monotonic() - t0)
     return {"status": "completed", "tickets_upserted": count, "duration_seconds": duration}
 

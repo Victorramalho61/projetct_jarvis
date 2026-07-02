@@ -55,7 +55,7 @@ async def collect_benner_erros(horas: int = 48) -> int:
         batch = new_rows[i : i + _BATCH]
         try:
             await asyncio.to_thread(
-                lambda b=batch: sb.table("benner_erros").insert(b).execute()
+                lambda b=batch: sb.table("benner_erros").upsert(b, on_conflict="benner_handle").execute()
             )
             inserted += len(batch)
         except Exception as exc:

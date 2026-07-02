@@ -1008,6 +1008,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   useEffect(() => { loadList(); }, [token, filters]);
 
   function openCalib(item: any) {
+    if (!item?.id) return;
     setCalibModal({ open: true, item });
     setCalibEdits({});
     setCalibNotes("");
@@ -1021,6 +1022,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   }
 
   function openView(item: any) {
+    if (!item?.id) return;
     setViewModal({ open: true, item });
     setViewDetail(null);
     setViewDetailLoading(true);
@@ -1448,7 +1450,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             )}
 
             <div className="flex gap-3 pt-1">
-              {viewDetail.review?.status !== "pending" && (
+              {viewDetail.review?.status !== "pending" && viewModal.item?.id && (
                 <button
                   onClick={() => { setViewModal({ open: false, item: null }); openCalib(viewModal.item); }}
                   className="flex-1 py-2.5 bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 font-semibold rounded-lg text-sm transition-all">

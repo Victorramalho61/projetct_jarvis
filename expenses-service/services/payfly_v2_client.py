@@ -269,8 +269,20 @@ def sync_date_range(start_date: date, end_date: date) -> tuple[int, int]:
     return ok_count, err_count
 
 
+_UPSERT_RETRIES = 3
+
+
 def _upsert(sb, records: list[dict]) -> None:
-    try:
-        sb.table("payfly_reservations").upsert(records, on_conflict="id").execute()
-    except Exception as exc:
-        logger.error("payfly upsert batch: %s", exc)
+    # Ordena por id: reduz a chance de 2 transações concorrentes travarem
+    # linhas na mesma tabela em ordem diferente (causa clássica de deadlock).
+    records = sorted(records, key=lambda r: r["id"])
+    for attempt in range(_UPSERT_RETRIES):
+        try:
+            sb.table("payfly_reservations").upsert(records, on_conflict="id").execute()
+            return
+        except Exception as exc:
+            if "deadlock detected" in str(exc).lower() and attempt < _UPSERT_RETRIES - 1:
+                time.sleep(2 ** attempt)
+                continue
+            logger.error("payfly upsert batch: %s", exc)
+            return

@@ -56,6 +56,10 @@ services:
       - default_statistics_target=200    # era 100 — planos mais precisos para fiscal_documents
       - -c
       - timezone=America/Sao_Paulo       # horário de Brasília — alinha NOW() com o servidor
+      - -c
+      - log_min_duration_statement=3000  # loga queries >3s — hoje desligado (-1), sem visibilidade de lentidão
+      - -c
+      - log_lock_waits=on                # loga esperas de lock — ajuda a diagnosticar deadlocks/contenção
     ports:
       - "127.0.0.1:5432:5432"
     environment:

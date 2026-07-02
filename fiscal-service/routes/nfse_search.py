@@ -69,6 +69,10 @@ async def run_nfse_sync(
     return {"ok": True, "message": "Sync NFSe NDD iniciado em background"}
 
 
+_NFSE_STATS_TTL = 300  # 5 minutos — agregação anual é cara, dado muda pouco
+_nfse_stats_cache: dict[str, tuple[dict, float]] = {}
+
+
 @router.get("/nfse/stats")
 def nfse_stats(
     company_id: Optional[str] = Query(None),
@@ -77,19 +81,36 @@ def nfse_stats(
     _user: dict = Depends(get_current_user),
 ):
     """Totais agregados via SQL — sem varredura full-table no Python."""
+    cache_key = f"{company_id}:{ano}:{mes}"
+    now = time.monotonic()
+    cached = _nfse_stats_cache.get(cache_key)
+    if cached and now - cached[1] < _NFSE_STATS_TTL:
+        return cached[0]
+
     sb = get_supabase()
-    result = sb.rpc("fiscal_nfse_stats", {
-        "p_company_id": company_id,
-        "p_ano": ano,
-        "p_mes": mes,
-    }).execute()
+    try:
+        result = sb.rpc("fiscal_nfse_stats", {
+            "p_company_id": company_id,
+            "p_ano": ano,
+            "p_mes": mes,
+        }).execute()
+    except Exception as exc:
+        msg = str(exc)
+        if "57014" in msg or "statement timeout" in msg.lower():
+            raise HTTPException(
+                status_code=503,
+                detail="Consulta de estatísticas excedeu o tempo limite do banco. Tente filtrar por mês.",
+            )
+        raise
     data = result.data
     if isinstance(data, list):
         data = data[0] if data else {}
-    return data or {
+    data = data or {
         "total_notas": 0, "valor_total": 0, "valor_iss": 0,
         "por_municipio": {}, "por_status": {},
     }
+    _nfse_stats_cache[cache_key] = (data, now)
+    return data
 
 
 @router.get("/nfse/{doc_id}")

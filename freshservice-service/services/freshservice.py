@@ -217,7 +217,25 @@ def _upsert_tickets(db, rows: list[dict]) -> None:
     if not rows:
         return
     for i in range(0, len(rows), _UPSERT_BATCH):
-        db.table("freshservice_tickets").upsert(rows[i:i + _UPSERT_BATCH]).execute()
+        _upsert_tickets_with_size_backoff(db, rows[i:i + _UPSERT_BATCH])
+
+
+def _upsert_tickets_with_size_backoff(db, rows: list[dict]) -> None:
+    """Faz upsert do lote; se o payload exceder o limite do PostgREST (413),
+    divide o lote ao meio e tenta de novo, em vez de abortar o backfill inteiro."""
+    try:
+        db.table("freshservice_tickets").upsert(rows).execute()
+    except Exception as exc:
+        msg = str(exc)
+        too_large = "413" in msg or "payload too large" in msg.lower()
+        if not too_large:
+            raise
+        if len(rows) == 1:
+            logger.error("Ticket %s excede limite de payload sozinho — pulando: %s", rows[0].get("id"), exc)
+            return
+        mid = len(rows) // 2
+        _upsert_tickets_with_size_backoff(db, rows[:mid])
+        _upsert_tickets_with_size_backoff(db, rows[mid:])
 
 
 def _extract_project_row(raw: dict) -> dict:

@@ -168,7 +168,7 @@ async def _recompute_metrics(db, posts: list[dict]) -> int:
         except Exception as exc:
             logger.warning("media_pipeline monthly metrics [%s]: %s", ref_month, exc)
 
-    # ── Métricas diárias (todas as plataformas combinadas) ────────────────────
+    # ── Métricas diárias por plataforma (mesma granularidade da tabela mensal) ──
     for ref_date in affected_dates:
         from_dt = f"{ref_date}T00:00:00"
         to_dt   = f"{ref_date}T23:59:59.999999"
@@ -176,37 +176,43 @@ async def _recompute_metrics(db, posts: list[dict]) -> int:
         try:
             resp = await asyncio.to_thread(
                 lambda fd=from_dt, td=to_dt: db.table("payfly_media_posts")
-                    .select("sentiment")
+                    .select("platform,sentiment")
                     .gte("published_at", fd)
                     .lte("published_at", td)
                     .execute()
             )
             db_posts = resp.data or []
 
-            counts: dict = {
+            by_platform: dict[str, dict] = defaultdict(lambda: {
                 "posts_count": 0, "positive_count": 0,
                 "negative_count": 0, "neutral_count": 0,
-            }
+            })
             for p in db_posts:
+                plt = p.get("platform") or "unknown"
                 snt = p.get("sentiment") or "neutro"
-                counts["posts_count"] += 1
+                by_platform[plt]["posts_count"] += 1
                 if snt == "positivo":
-                    counts["positive_count"] += 1
+                    by_platform[plt]["positive_count"] += 1
                 elif snt == "negativo":
-                    counts["negative_count"] += 1
+                    by_platform[plt]["negative_count"] += 1
                 else:
-                    counts["neutral_count"] += 1
+                    by_platform[plt]["neutral_count"] += 1
 
-            await asyncio.to_thread(
-                lambda d=ref_date, c=counts: db.table("payfly_media_daily_metrics").upsert(
-                    {"ref_date": d, **c}, on_conflict="ref_date,platform"
-                ).execute()
-            )
-            total_rows += 1
-            logger.info(
-                "media_pipeline: métricas diárias %s — %d posts",
-                ref_date, counts["posts_count"],
-            )
+            rows = [
+                {"platform": plt, "ref_date": ref_date, **counts}
+                for plt, counts in by_platform.items()
+            ]
+            if rows:
+                await asyncio.to_thread(
+                    lambda r=rows: db.table("payfly_media_daily_metrics").upsert(
+                        r, on_conflict="ref_date,platform"
+                    ).execute()
+                )
+                total_rows += len(rows)
+                logger.info(
+                    "media_pipeline: métricas diárias %s — %d plataformas (%d posts)",
+                    ref_date, len(rows), len(db_posts),
+                )
         except Exception as exc:
             logger.warning("media_pipeline daily metrics [%s]: %s", ref_date, exc)
 

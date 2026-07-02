@@ -2200,6 +2200,11 @@ def get_evaluation_detail(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
     """Retorna avaliação do gestor + auto-avaliação + histórico de calibrações."""
+    try:
+        uuid_mod.UUID(review_id)
+    except ValueError:
+        raise HTTPException(400, detail="review_id inválido")
+
     db = get_supabase()
 
     rev = db.table("performance_reviews").select("*").eq("id", review_id).execute()
