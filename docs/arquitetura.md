@@ -16,6 +16,8 @@ Sistema interno da Voetur/VTCLog com autenticação própria e dez módulos:
 | Desempenho | performance-service | 8008 | Gestão de ciclos, metas, avaliações e KPIs de desempenho |
 | Fiscal | fiscal-service | 8009 | Validação NFe/NFSe — sync NDD Digital, busca full-text, dashboard |
 | Financeiro | financeiro-service | 8011 | Conciliação e analytics financeiro via ERP Benner (MSSQL read-only) |
+| Cofre de Cartões | cards-service | 8012 | Solicitação e aprovação de cartões corporativos com criptografia Fernet |
+| Aval. Experiência | experiencia-service | 8013 | Avaliações de 45/90 dias — sync Benner, e-mail ao gestor, assinatura digital |
 
 ### Serviços suspensos (❌ não sobem automaticamente)
 
@@ -54,8 +56,12 @@ Browser
         │                                     │     └─► agents-service:8005
         │                                     ├─ /api/expenses/*
         │                                     │     └─► expenses-service:8006
-        │                                     └─ /api/support/*
-        │                                           └─► support-service:8007
+        │                                     ├─ /api/support/*
+        │                                     │     └─► support-service:8007
+        │                                     ├─ /api/cards/*
+        │                                     │     └─► cards-service:8012
+        │                                     └─ /api/experiencia/*
+        │                                           └─► experiencia-service:8013
         └─ / ──────────────────────────────► SPA React (nginx serve estático)
 
 Inter-serviço (Docker app_net):
@@ -1842,6 +1848,68 @@ MSSQL_USER=usr_bi
 MSSQL_PASSWORD=<no .env>
 MSSQL_DATABASE=BennerSistemaCorporativo
 MAX_PERIOD_DAYS=31
+```
+
+---
+
+## experiencia-service (porta 8013)
+
+Módulo HR para gestão das avaliações de experiência obrigatórias (45 e 90 dias), norma VPA.RH.PGP.09 v04.
+
+### Tabelas (prefixo `exp_`)
+
+```sql
+exp_employees   -- colaboradores sincronizados do Benner (chave: matricula)
+exp_avaliacoes  -- avaliação por colaborador por tipo, UNIQUE(employee_id, tipo)
+                -- status: pendente → enviado → respondido | expirado | sem_gestor
+exp_email_log   -- log auditável de cada e-mail disparado
+```
+
+### Sync Benner
+
+- **Banco**: `BennerRh` em `10.141.0.111\VOETUR` porta **1433** (instância VOETUR — não confundir com porta 1444 da instância BI)
+- **Credencial**: `usr_bi` / `BENNER_RH_PASSWORD` no `.env`
+- **Scheduler**: sync às 03:00 · cobranças às 08:00 (America/Sao_Paulo)
+- **Join crítico**: `DO_FUNCIONARIOS.SUPERVISOR` → `RH_PESSOAS.HANDLE` → `DO_FUNCIONARIOS.HANDLE` (supervisor não aponta direto para DO_FUNCIONARIOS)
+- **Sem gestor**: quando `SUPERVISOR` é NULL/0 no Benner — RH corrige manualmente na tela antes de enviar
+
+### Endpoints principais
+
+| Método | Rota | Acesso |
+|---|---|---|
+| GET | `/api/experiencia/admin/45-dias` | admin, rh |
+| GET | `/api/experiencia/admin/90-dias` | admin, rh |
+| GET | `/api/experiencia/admin/auditoria` | admin, rh |
+| POST | `/api/experiencia/admin/enviar/:id` | admin, rh |
+| POST | `/api/experiencia/admin/reenviar/:id` | admin, rh |
+| POST | `/api/experiencia/admin/disparar-cobracas` | admin, rh |
+| POST | `/api/experiencia/admin/sync-benner` | admin, rh |
+| GET | `/api/experiencia/formulario/:token` | público |
+| POST | `/api/experiencia/formulario/:token` | público |
+| GET | `/api/experiencia/admin/export` | admin, rh |
+
+### Response shape
+
+Os endpoints de listagem retornam `colaborador` (objeto aninhado), **não** `exp_employees`:
+
+```json
+{
+  "id": "uuid",
+  "tipo": "45_dias",
+  "status": "pendente",
+  "colaborador": { "id": "...", "matricula": "...", "nome": "...", "gestor_email": "..." }
+}
+```
+
+### Variáveis de ambiente
+
+```
+SQL_SERVER_HOST=10.141.0.111
+SQL_SERVER_PORT=1433
+SQL_SERVER_DB=BennerRh
+SQL_SERVER_USER=usr_bi
+SQL_SERVER_PASSWORD=<BENNER_RH_PASSWORD no .env>
+FRONTEND_URL=https://jarvis.voetur.com.br
 ```
 
 > **Nota**: `MSSQL_PORT` não é definido quando se usa instância nomeada. O SQL Server Browser (UDP 1434) resolve automaticamente a porta da instância `VOETUR`.
