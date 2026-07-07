@@ -148,7 +148,7 @@ CREATE TABLE performance_employees (
   has_corporate_email boolean not null default true,
   whatsapp_phone      text default '',
   perfil              text default 'administrativo_operacional',
-  hierarchy_level     int not null check (hierarchy_level in (1, 2, 3, 4)),
+  hierarchy_level     int not null check (hierarchy_level in (1, 2, 3)),
   manager_id          uuid references performance_employees(id),
   management_id       uuid references performance_managements(id),
   branch_id           uuid not null references performance_branches(id),
@@ -170,13 +170,15 @@ CREATE INDEX idx_perf_emp_matricula ON performance_employees (matricula);
 -- Indicadores de avaliação
 -- ------------------------------------------------------------
 CREATE TABLE performance_indicators (
-  id          uuid primary key default gen_random_uuid(),
-  name        text not null,
-  description text,
-  active      boolean default true,
-  created_by  text,
-  created_at  timestamptz default now(),
-  updated_at  timestamptz default now()
+  id              uuid primary key default gen_random_uuid(),
+  name            text not null,
+  description     text,
+  hierarchy_level int,
+  perfil          text default '',
+  active          boolean default true,
+  created_by      text,
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now()
 );
 
 

@@ -707,7 +707,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     yn_col = all_col + 2
     ws_lists.cell(row=1, column=lv_col).value = "Nível Hierárquico"
     ws_lists.cell(row=1, column=lv_col).font = Font(bold=True)
-    for i, lv in enumerate(["Gerente", "Coordenador-Supervisor", "Operacional-Administrativo"], 2):
+    for i, lv in enumerate(["Gerente", "Coordenador-Supervisor", "Administrativo", "Operacional"], 2):
         ws_lists.cell(row=i, column=lv_col).value = lv
     ws_lists.cell(row=1, column=yn_col).value = "Tem E-mail"
     ws_lists.cell(row=1, column=yn_col).font = Font(bold=True)
@@ -718,7 +718,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     all_branches_col_letter = get_column_letter(all_col)
     all_branches_ref = f"Listas!${all_branches_col_letter}$2:${all_branches_col_letter}${len(all_branch_names) + 1}"
     company_list_ref = f"Listas!$A$2:$A${len(company_names) + 1}"
-    level_ref = f"Listas!${get_column_letter(lv_col)}$2:${get_column_letter(lv_col)}$4"
+    level_ref = f"Listas!${get_column_letter(lv_col)}$2:${get_column_letter(lv_col)}$5"
     yn_ref = f"Listas!${get_column_letter(yn_col)}$2:${get_column_letter(yn_col)}$3"
 
     # ── Instructions sheet ────────────────────────────────────────────────────
@@ -733,7 +733,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
         ("C", "Gerência",                 "Obrigatório — nome da área. Ex: 'Gerência de Recursos Humanos'"),
         ("D", "Nome Completo",            "Obrigatório — sem abreviações. Mín. 2 palavras com 3+ letras."),
         ("E", "Cargo",                    "Obrigatório — cargo do colaborador. Ex: 'Analista de RH Pleno'"),
-        ("F", "Nível Hierárquico",        "Obrigatório — selecione da lista: Gerente / Coordenador-Supervisor / Operacional-Administrativo"),
+        ("F", "Nível Hierárquico",        "Obrigatório — selecione da lista: Gerente / Coordenador-Supervisor / Administrativo / Operacional"),
         ("G", "E-mail Corporativo",       "Obrigatório se Tem E-mail = Sim; deixe em branco se Não."),
         ("H", "Tem E-mail Corporativo?",  "Obrigatório — Sim ou Não."),
         ("I", "CPF",                      "Obrigatório se Tem E-mail = Não. 11 dígitos numéricos sem pontos/traços. Ex: 12345678901"),
@@ -751,6 +751,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
         "- CPF é obrigatório para todos os colaboradores (avaliadores e avaliados).",
         "- Colaboradores SEM e-mail corporativo fazem ciência presencial usando o CPF.",
         "- Gerentes (nível 1) são avaliadores; Coordenadores/Supervisores (nível 2) avaliam e são avaliados.",
+        "- Administrativo e Operacional são perfis distintos (nível 3), cada um com indicadores de avaliação próprios.",
         "- A hierarquia (quem avalia quem) é configurada manualmente no sistema após a importação.",
         "- Filiais: os nomes devem ser exatamente como aparecem na aba Listas (lista suspensa).",
     ]
@@ -775,7 +776,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
          "Coordenadora de Logística", "Coordenador-Supervisor", "maria.costa@empresa.com.br", "Sim", "04987654321"],
         [company_names[0] if company_names else "Empresa", all_branch_names[0] if all_branch_names else "Filial",
          "Gerência de Operações", "Carlos Eduardo Lima",
-         "Operador Logístico", "Operacional-Administrativo", "", "Não", "12345678901"],
+         "Operador Logístico", "Operacional", "", "Não", "12345678901"],
     ]
     for r_i, row_data in enumerate(examples, 24):
         for c_i, val in enumerate(row_data, 1):
@@ -818,7 +819,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     dv_filial = DataValidation(type="list", formula1=f"={all_branches_ref}", allow_blank=False, showErrorMessage=True,
                                errorTitle="Filial inválida", error="Selecione uma filial da lista. O nome deve ser idêntico ao sistema.")
     dv_nivel = DataValidation(type="list", formula1=f"={level_ref}", allow_blank=False, showErrorMessage=True,
-                              errorTitle="Nível inválido", error="Use: Gerente, Coordenador-Supervisor ou Operacional-Administrativo")
+                              errorTitle="Nível inválido", error="Use: Gerente, Coordenador-Supervisor, Administrativo ou Operacional")
     dv_email = DataValidation(type="list", formula1=f"={yn_ref}", allow_blank=False)
     ws_data.add_data_validation(dv_empresa)
     ws_data.add_data_validation(dv_filial)
