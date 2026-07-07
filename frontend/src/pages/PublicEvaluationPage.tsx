@@ -5,11 +5,11 @@ type Indicator = { id: string; name: string; description?: string };
 type Employee  = { id: string; name: string; matricula: string; cargo: string; hierarchy_level?: number };
 
 const SCORE_OPTIONS = [
-  { value: 5, label: "5", sublabel: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
-  { value: 4, label: "4", sublabel: "SE",  desc: "Supera as Expectativas",              color: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
-  { value: 3, label: "3", sublabel: "AE",  desc: "Atende as Expectativas",              color: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
-  { value: 2, label: "2", sublabel: "APE", desc: "Atende Parcialmente as Expectativas", color: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
   { value: 1, label: "1", sublabel: "NAE", desc: "Não Atende às Expectativas",          color: "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+  { value: 2, label: "2", sublabel: "APE", desc: "Atende Parcialmente as Expectativas", color: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+  { value: 3, label: "3", sublabel: "AE",  desc: "Atende as Expectativas",              color: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  { value: 4, label: "4", sublabel: "SE",  desc: "Supera as Expectativas",              color: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  { value: 5, label: "5", sublabel: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
 ];
 
 const SOCIALS = [
@@ -206,7 +206,7 @@ function ConfirmModal({
           <div className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
             <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5">
               <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
-                Observações do Gestor
+                Comentários sobre o desempenho do colaborador
               </p>
             </div>
             <div className="px-4 py-3">
@@ -221,14 +221,7 @@ function ConfirmModal({
             <p className="text-sm text-blue-800 dark:text-blue-300 leading-relaxed">
               📋 Confira as notas acima. Ao confirmar, a avaliação de{" "}
               <strong>{employeeName}</strong> será registrada e não poderá ser
-              alterada por você — o RH poderá realizar ajustes na etapa de calibração.
-            </p>
-          </div>
-
-          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl p-3">
-            <p className="text-xs text-amber-800 dark:text-amber-300 leading-relaxed">
-              ⚠️ Após o envio, o <strong>RH poderá calibrar</strong> as notas conforme
-              acordado na reunião de apresentação do processo.
+              alterada por você.
             </p>
           </div>
 
@@ -593,10 +586,7 @@ export default function PublicEvaluationPage() {
                               ? "bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400"
                               : "bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
                             }`}>
-                            {selected === 5
-                              ? <span>🏆 Justificativa obrigatória — nota EE (Excede as Expectativas)</span>
-                              : <span>⚠️ Justificativa obrigatória — nota NAE (Não Atende às Expectativas)</span>
-                            }
+                            <span>💬 Descreva com exemplos concretos esta nota atribuída.</span>
                             <span className={`ml-auto font-normal text-[10px] ${justOk ? "opacity-70" : "font-semibold"}`}>
                               {wordCount} {wordCount === 1 ? "palavra" : "palavras"} (mín. 10)
                             </span>
@@ -604,11 +594,7 @@ export default function PublicEvaluationPage() {
                           <textarea
                             value={justVal}
                             onChange={e => setJustifications(prev => ({ ...prev, [ind.id]: e.target.value }))}
-                            placeholder={
-                              selected === 5
-                                ? "Descreva os comportamentos e resultados excepcionais que justificam esta nota máxima…"
-                                : "Descreva os comportamentos e situações que justificam esta nota mínima, com exemplos concretos…"
-                            }
+                            placeholder="Descreva com exemplos concretos esta nota atribuída…"
                             rows={3}
                             className="w-full text-sm px-3 py-2.5 resize-none focus:outline-none
                                        bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200
@@ -627,7 +613,7 @@ export default function PublicEvaluationPage() {
               <div className={`${primaryBg} px-6 py-4 flex items-center justify-between`}>
                 <div>
                   <h3 className="text-white font-bold text-sm uppercase tracking-wide">
-                    Observações do Gestor
+                    Comentários sobre o desempenho do colaborador
                   </h3>
                   <p className="text-white/60 text-xs mt-0.5">(opcional) — comentário livre sobre o desempenho</p>
                 </div>

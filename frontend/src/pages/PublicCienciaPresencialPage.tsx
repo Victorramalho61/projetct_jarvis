@@ -340,26 +340,59 @@ export default function PublicCienciaPresencialPage() {
                 <h3 className="text-white font-bold text-sm uppercase tracking-wide">Notas por Indicador</h3>
               </div>
               <div className="divide-y divide-gray-50 dark:divide-gray-700">
-                {data.indicator_scores?.map((s: any) => (
-                  <div key={s.indicator_id}>
-                    <div className="flex items-center justify-between px-5 py-3 gap-3">
-                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
-                      <ScoreBadge score={s.score} />
-                    </div>
-                    {s.justification && (
-                      <div className="px-5 pb-3 -mt-1">
-                        <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-gray-300 dark:border-gray-600">
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">
-                            Justificativa do gestor
-                          </p>
-                          <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
-                            "{s.justification}"
-                          </p>
+                {data.indicator_scores?.map((s: any) => {
+                  const wasCalibrated = s.calibrated_score != null;
+                  const displayScore = wasCalibrated ? s.calibrated_score : s.score;
+                  return (
+                    <div key={s.indicator_id}>
+                      <div className="flex items-center justify-between px-5 py-3 gap-3">
+                        <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
+                        <div className="flex items-center gap-2">
+                          {s.self_score != null && (
+                            <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
+                              Auto: {s.self_score}
+                            </span>
+                          )}
+                          <ScoreBadge score={displayScore} />
                         </div>
                       </div>
-                    )}
-                  </div>
-                ))}
+                      {wasCalibrated ? (
+                        <div className="px-5 pb-3 -mt-1 space-y-1.5">
+                          <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 border-l-2 border-amber-400 dark:border-amber-600">
+                            <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">
+                              🟧 RH realizou a calibragem desta nota
+                            </p>
+                            {s.calibrated_justification && (
+                              <p className="text-xs text-amber-800 dark:text-amber-300 italic leading-relaxed">"{s.calibrated_justification}"</p>
+                            )}
+                          </div>
+                          <details className="group">
+                            <summary className="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 select-none list-none flex items-center gap-1">
+                              <span className="group-open:rotate-90 transition-transform inline-block">▸</span> Ver nota/comentário original do gestor
+                            </summary>
+                            <div className="mt-1.5 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
+                              <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">🟦 Nota original do gestor: {s.score}</p>
+                              <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
+                                {s.justification ? `"${s.justification}"` : "Sem comentários do gestor"}
+                              </p>
+                            </div>
+                          </details>
+                        </div>
+                      ) : s.justification && (
+                        <div className="px-5 pb-3 -mt-1">
+                          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
+                            <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">
+                              🟦 Comentário do Gestor
+                            </p>
+                            <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
+                              "{s.justification}"
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
@@ -377,21 +410,67 @@ export default function PublicCienciaPresencialPage() {
               </div>
             </div>
 
-            {/* Observações do gestor */}
-            {data.observations && (
-              <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
-                <div className="bg-gray-50 dark:bg-gray-700/50 px-5 py-3">
-                  <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                    📝 Observações do Gestor
-                  </h3>
+            {/* Comentários — Gestor / Colaborador / RH, empilhados e coloridos */}
+            <div className="space-y-3">
+              {data.was_calibrated ? (
+                <details className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden group">
+                  <summary className="cursor-pointer bg-gray-50 dark:bg-gray-700/50 px-5 py-3 select-none list-none flex items-center gap-2">
+                    <span className="group-open:rotate-90 transition-transform inline-block text-gray-400">▸</span>
+                    <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+                      🟦 Ver comentário original do gestor
+                    </h3>
+                  </summary>
+                  <div className="px-5 py-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                      {data.observations || "Sem comentários do gestor"}
+                    </p>
+                  </div>
+                </details>
+              ) : data.observations && (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-blue-100 dark:border-blue-900/40 overflow-hidden">
+                  <div className="bg-blue-50 dark:bg-blue-900/20 px-5 py-3">
+                    <h3 className="text-sm font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
+                      🟦 Comentários sobre o desempenho do colaborador
+                    </h3>
+                  </div>
+                  <div className="px-5 py-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                      {data.observations}
+                    </p>
+                  </div>
                 </div>
-                <div className="px-5 py-4">
-                  <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                    {data.observations}
-                  </p>
+              )}
+
+              {data.self_observations && (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-violet-100 dark:border-violet-900/40 overflow-hidden">
+                  <div className="bg-violet-50 dark:bg-violet-900/20 px-5 py-3">
+                    <h3 className="text-sm font-bold text-violet-700 dark:text-violet-400 uppercase tracking-wide">
+                      🟪 Comentários sobre seu desempenho (auto avaliação)
+                    </h3>
+                  </div>
+                  <div className="px-5 py-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                      {data.self_observations}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+
+              {data.was_calibrated && data.calibration_notes && (
+                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-amber-100 dark:border-amber-900/40 overflow-hidden">
+                  <div className="bg-amber-50 dark:bg-amber-900/20 px-5 py-3">
+                    <h3 className="text-sm font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
+                      🟧 Comentário do RH (calibragem)
+                    </h3>
+                  </div>
+                  <div className="px-5 py-4">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
+                      {data.calibration_notes}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {submitError && (
               <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">

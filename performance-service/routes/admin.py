@@ -2381,77 +2381,81 @@ def calibrate_evaluation(
     if not cycle.data or cycle.data[0]["status"] != "open":
         raise HTTPException(400, detail="Calibração só pode ser feita com o ciclo aberto")
 
-    # Buscar scores atuais
-    current_scores_raw = (
-        db.table("performance_indicator_scores")
-        .select("indicator_id,score,performance_indicators(name)")
-        .eq("review_id", review_id)
-        .execute()
-        .data
-    )
-    current_map: dict[str, dict] = {}
-    for s in current_scores_raw:
-        ind = s.get("performance_indicators") or {}
-        current_map[s["indicator_id"]] = {
-            "score": float(s["score"]),
-            "name": ind.get("name", s["indicator_id"]) if isinstance(ind, dict) else s["indicator_id"],
-        }
+    try:
+        # Buscar scores atuais
+        current_scores_raw = (
+            db.table("performance_indicator_scores")
+            .select("indicator_id,score,performance_indicators(name)")
+            .eq("review_id", review_id)
+            .execute()
+            .data
+        )
+        current_map: dict[str, dict] = {}
+        for s in current_scores_raw:
+            ind = s.get("performance_indicators") or {}
+            current_map[s["indicator_id"]] = {
+                "score": float(s["score"]),
+                "name": ind.get("name", s["indicator_id"]) if isinstance(ind, dict) else s["indicator_id"],
+            }
 
-    original_final = rev_data.get("final_score")
+        original_final = rev_data.get("final_score")
 
-    # Criar registro de calibração (sessão)
-    calib_rec = db.table("performance_calibrations").insert({
-        "cycle_id": cycle_id,
-        "review_id": review_id,
-        "original_score": original_final,
-        "calibrated_score": original_final,  # será atualizado abaixo
-        "justification": (body.notes or "Calibração por indicador").strip(),
-        "calibrated_by": current_user["username"],
-        "notes": body.notes,
-    }).execute()
-    calib_id = calib_rec.data[0]["id"] if calib_rec.data else None
+        # Criar registro de calibração (sessão)
+        calib_rec = db.table("performance_calibrations").insert({
+            "cycle_id": cycle_id,
+            "review_id": review_id,
+            "original_score": original_final,
+            "calibrated_score": original_final,  # será atualizado abaixo
+            "justification": (body.notes or "Calibração por indicador").strip(),
+            "calibrated_by": current_user["username"],
+            "notes": body.notes,
+        }).execute()
+        calib_id = calib_rec.data[0]["id"] if calib_rec.data else None
 
-    # Processar cada item
-    calib_items_payload = []
-    for item in body.items:
-        old = current_map.get(item.indicator_id, {})
-        old_score = old.get("score", item.new_score)
-        ind_name = old.get("name", item.indicator_id)
+        # Processar cada item
+        calib_items_payload = []
+        for item in body.items:
+            old = current_map.get(item.indicator_id, {})
+            old_score = old.get("score", item.new_score)
+            ind_name = old.get("name", item.indicator_id)
 
-        # Atualizar score no indicator_scores
-        db.table("performance_indicator_scores").update({
-            "score": item.new_score,
-        }).eq("review_id", review_id).eq("indicator_id", item.indicator_id).execute()
+            # Atualizar score no indicator_scores
+            db.table("performance_indicator_scores").update({
+                "score": item.new_score,
+            }).eq("review_id", review_id).eq("indicator_id", item.indicator_id).execute()
 
-        # Registrar item de auditoria
-        calib_items_payload.append({
-            "calibration_id": calib_id,
-            "indicator_id": item.indicator_id,
-            "indicator_name": ind_name,
-            "old_score": old_score,
-            "new_score": item.new_score,
-            "justification": item.justification.strip(),
-        })
+            # Registrar item de auditoria
+            calib_items_payload.append({
+                "calibration_id": calib_id,
+                "indicator_id": item.indicator_id,
+                "indicator_name": ind_name,
+                "old_score": old_score,
+                "new_score": item.new_score,
+                "justification": item.justification.strip(),
+            })
 
-    if calib_items_payload and calib_id:
-        db.table("performance_calibration_items").insert(calib_items_payload).execute()
+        if calib_items_payload and calib_id:
+            db.table("performance_calibration_items").insert(calib_items_payload).execute()
 
-    # Recalcular final_score como média de todos os scores atuais
-    updated_scores = (
-        db.table("performance_indicator_scores")
-        .select("score")
-        .eq("review_id", review_id)
-        .execute()
-        .data
-    )
-    new_final = round(sum(float(s["score"]) for s in updated_scores) / len(updated_scores), 2) if updated_scores else original_final
+        # Recalcular final_score como média de todos os scores atuais
+        updated_scores = (
+            db.table("performance_indicator_scores")
+            .select("score")
+            .eq("review_id", review_id)
+            .execute()
+            .data
+        )
+        new_final = round(sum(float(s["score"]) for s in updated_scores) / len(updated_scores), 2) if updated_scores else original_final
 
-    # Atualizar review e calibration com novo score final
-    db.table("performance_reviews").update({
-        "final_score": new_final, "status": "calibrated", "updated_at": "now()",
-    }).eq("id", review_id).execute()
-    if calib_id:
-        db.table("performance_calibrations").update({"calibrated_score": new_final}).eq("id", calib_id).execute()
+        # Atualizar review e calibration com novo score final
+        db.table("performance_reviews").update({
+            "final_score": new_final, "status": "calibrated", "updated_at": "now()",
+        }).eq("id", review_id).execute()
+        if calib_id:
+            db.table("performance_calibrations").update({"calibrated_score": new_final}).eq("id", calib_id).execute()
+    except Exception:
+        _logger.exception("Falha ao calibrar review_id=%s", review_id)
+        raise
 
     log_action("review", review_id, "calibrate",
                {"final_score": original_final},

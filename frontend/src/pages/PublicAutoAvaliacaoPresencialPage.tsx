@@ -3,11 +3,11 @@ import { useState } from "react";
 // ── Constantes de marca ───────────────────────────────────────────────────────
 
 const SCORE_OPTIONS = [
-  { value: 5, label: "5", sublabel: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
-  { value: 4, label: "4", sublabel: "SE",  desc: "Supera as Expectativas",              color: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
-  { value: 3, label: "3", sublabel: "AE",  desc: "Atende as Expectativas",              color: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
-  { value: 2, label: "2", sublabel: "APE", desc: "Atende Parcialmente as Expectativas", color: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
   { value: 1, label: "1", sublabel: "NAE", desc: "Não Atende às Expectativas",          color: "border-red-500 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+  { value: 2, label: "2", sublabel: "APE", desc: "Atende Parcialmente as Expectativas", color: "border-amber-500 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+  { value: 3, label: "3", sublabel: "AE",  desc: "Atende as Expectativas",              color: "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+  { value: 4, label: "4", sublabel: "SE",  desc: "Supera as Expectativas",              color: "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+  { value: 5, label: "5", sublabel: "EE",  desc: "Excede as Expectativas",              color: "border-purple-500 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
 ];
 
 const SOCIALS = [
@@ -147,7 +147,7 @@ function ConfirmModal({
           {observations.trim() && (
             <div className="rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden">
               <div className="bg-gray-50 dark:bg-gray-700/50 px-4 py-2.5">
-                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Suas Observações</p>
+                <p className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Comentários sobre seu desempenho (auto avaliação)</p>
               </div>
               <div className="px-4 py-3">
                 <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap line-clamp-5">{observations}</p>
@@ -411,9 +411,7 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
                         {selected ? "✓" : idx + 1}
                       </span>
                       <div>
-                        <p className="font-semibold text-gray-900 dark:text-white text-sm leading-snug">
-                          Como você avalia seu desempenho em: <span className="text-[#00694E]">{ind.name}</span>?
-                        </p>
+                        <p className="font-semibold text-gray-900 dark:text-white text-sm leading-snug">{ind.name}</p>
                         {ind.description && (
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{ind.description}</p>
                         )}
@@ -434,11 +432,11 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
                     {needsJust && (
                       <div className={`mt-4 ml-10 rounded-xl border-2 overflow-hidden ${!justVal.trim() ? "border-red-300 dark:border-red-700" : "border-[#00694E]/30 dark:border-[#00694E]/40"}`}>
                         <div className={`px-3 py-2 text-xs font-semibold ${!justVal.trim() ? "bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400" : "bg-[#E6F4F0] dark:bg-[#00694E]/10 text-[#00694E] dark:text-emerald-400"}`}>
-                          {selected === 5 ? "💬 Justificativa obrigatória para nota máxima *" : "💬 Justificativa obrigatória para nota mínima *"}
+                          💬 Descreva com exemplos concretos esta nota atribuída. *
                         </div>
                         <textarea value={justVal}
                           onChange={e => setJustifications(prev => ({ ...prev, [ind.id]: e.target.value }))}
-                          placeholder="Descreva brevemente o que motivou esta avaliação…"
+                          placeholder="Descreva com exemplos concretos esta nota atribuída…"
                           rows={2}
                           className="w-full text-sm px-3 py-2.5 resize-none focus:outline-none bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
                       </div>
@@ -452,7 +450,7 @@ export default function PublicAutoAvaliacaoPresencialPage({ inline = false }: { 
           {/* Observações */}
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden">
             <div className={`${PRIMARY_BG} px-6 py-4`}>
-              <h3 className="text-white font-bold text-sm uppercase tracking-wide">Observações</h3>
+              <h3 className="text-white font-bold text-sm uppercase tracking-wide">Comentários sobre seu desempenho (auto avaliação)</h3>
               <p className="text-white/60 text-xs mt-0.5">(opcional) — comentário livre sobre este ciclo</p>
             </div>
             <div className="p-5">

@@ -983,7 +983,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   // Envio de e-mail de auto-avaliação individual
-  const [sendingEmailFor, setSendingEmailFor] = useState<string | null>(null);
 
   // Ver Avaliação (leitura — gestor + auto-aval)
   const [viewModal, setViewModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
@@ -1022,9 +1021,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   }
 
   function openView(item: any) {
-    if (!item?.id) return;
     setViewModal({ open: true, item });
     setViewDetail(null);
+    if (!item?.id) { setViewDetailLoading(false); return; }
     setViewDetailLoading(true);
     apiFetch<any>(`/api/performance/admin/evaluations/${item.id}/detail`, { token })
       .then(d => setViewDetail(d))
@@ -1038,6 +1037,18 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
   function setCalibJust(indId: string, value: string) {
     setCalibEdits(prev => ({ ...prev, [indId]: { ...(prev[indId] || { new_score: "" }), justification: value } }));
+  }
+
+  function handleKeepAllScores() {
+    if (!calibDetail?.indicators) return;
+    const next: Record<string, { new_score: string; justification: string }> = {};
+    for (const ind of calibDetail.indicators) {
+      next[ind.id] = {
+        new_score: String(ind.manager_score),
+        justification: "Nota mantida pelo RH — aderência ≥ 80% entre avaliação e auto-avaliação.",
+      };
+    }
+    setCalibEdits(next);
   }
 
   async function handleCalibrate() {
@@ -1090,20 +1101,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       loadList();
     } catch (e: any) { alert(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
     finally { setNovaSelfAvalFor(null); }
-  }
-
-  async function handleSendSelfEvalEmail(employeeId: string) {
-    setSendingEmailFor(employeeId);
-    try {
-      await apiFetch("/api/performance/admin/cycle/self-evaluation-tokens/send-for-employee", {
-        token, method: "POST", json: { employee_id: employeeId },
-      });
-      loadList();
-    } catch (e: any) {
-      alert(e?.message || "Erro ao enviar auto-avaliação.");
-    } finally {
-      setSendingEmailFor(null);
-    }
   }
 
   function handleCopyPresentialLink() {
@@ -1260,17 +1257,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                             ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
                             : "✏️"}
                           Nova Auto-Aval.
-                        </button>
-                        {/* Reenviar Auto-Avaliação — reenvia e-mail sem resetar token */}
-                        <button
-                          onClick={() => handleSendSelfEvalEmail(ev.employee_id)}
-                          disabled={sendingEmailFor === ev.employee_id}
-                          title="Reenviar link de auto-avaliação por e-mail (sem resetar token)"
-                          className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-60">
-                          {sendingEmailFor === ev.employee_id
-                            ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
-                            : "📧"}
-                          Reenviar Auto-Aval.
                         </button>
                         {/* Link presencial */}
                         <button
@@ -1465,7 +1451,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           </div>
         ) : (
           <div className="space-y-3">
-            <p className="text-sm text-gray-500 text-center py-4">Erro ao carregar detalhes.</p>
+            <p className="text-sm text-gray-500 text-center py-4">
+              {viewModal.item?.id ? "Erro ao carregar detalhes." : "Não há avaliações realizadas para este colaborador."}
+            </p>
             <button onClick={() => setViewModal({ open: false, item: null })} className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Fechar</button>
           </div>
         )}
@@ -1526,17 +1514,27 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               </div>
             )}
 
+            {/* ── Manter todas as notas (alta aderência) ── */}
+            {calibDetail.overall_adherence_index != null && calibDetail.overall_adherence_index >= 80 && (
+              <button
+                type="button"
+                onClick={handleKeepAllScores}
+                className="w-full py-2.5 rounded-xl border-2 border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 font-semibold text-sm hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-all">
+                ✅ Manter todas as notas (aderência de {calibDetail.overall_adherence_index}% entre avaliação e auto-avaliação)
+              </button>
+            )}
+
             {/* ── Cards de competências ── */}
             <div className="space-y-4">
               {calibDetail.indicators?.map((ind: any) => {
                 const edit = calibEdits[ind.id];
                 const isChanged = edit?.new_score !== "" && edit?.new_score !== undefined;
                 const CALIB_SCORES = [
-                  { v: 5, lbl: "5", sub: "EE",  cls: "border-purple-400 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
-                  { v: 4, lbl: "4", sub: "SE",  cls: "border-emerald-400 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
-                  { v: 3, lbl: "3", sub: "AE",  cls: "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
-                  { v: 2, lbl: "2", sub: "APE", cls: "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
                   { v: 1, lbl: "1", sub: "NAE", cls: "border-red-400 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
+                  { v: 2, lbl: "2", sub: "APE", cls: "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
+                  { v: 3, lbl: "3", sub: "AE",  cls: "border-blue-400 bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300" },
+                  { v: 4, lbl: "4", sub: "SE",  cls: "border-emerald-400 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300" },
+                  { v: 5, lbl: "5", sub: "EE",  cls: "border-purple-400 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
                 ];
                 return (
                   <div key={ind.id} className={`rounded-2xl border-2 transition-all ${isChanged ? "border-violet-300 dark:border-violet-700 bg-violet-50/30 dark:bg-violet-900/10" : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"}`}>

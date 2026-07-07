@@ -225,6 +225,15 @@ def send_evaluation_token_email(
       Por favor, acesse o formulário e avalie o colaborador abaixo:
     </p>
 
+    <p style="margin:0 0 24px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      A avaliação de desempenho é uma etapa importante do desenvolvimento profissional
+      do colaborador na empresa. As respostas fornecidas aqui servirão de base para a
+      construção do seu Plano de Desenvolvimento Individual (PDI), ajudando a identificar
+      pontos fortes e oportunidades de crescimento. Por isso, contamos com a sua sinceridade
+      e reflexão ao preencher cada questão — suas percepções são fundamentais para tornarmos
+      esse processo cada vez mais justo e eficaz.
+    </p>
+
     <!-- Card do colaborador -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
            style="background:{light_bg};border-left:5px solid {primary};
@@ -244,13 +253,27 @@ def send_evaluation_token_email(
     <!-- Aviso -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
            style="background:#FFFBEB;border:1px solid #FCD34D;
-                  border-radius:8px;margin:0 0 28px;">
+                  border-radius:8px;margin:0 0 12px;">
       <tr>
         <td style="padding:12px 18px;">
           <p style="margin:0;font-size:13px;color:#92400E;line-height:1.6;">
             &#9888;&#65039; <strong>Link individual e intransferível.</strong>
             Este formulário é exclusivo para a avaliação de
             <strong>{employee_name}</strong>. Não compartilhe este link.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Transparência sobre acesso às informações -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:#F9FAFB;border:1px solid #E5E7EB;
+                  border-radius:8px;margin:0 0 28px;">
+      <tr>
+        <td style="padding:12px 18px;">
+          <p style="margin:0;font-size:12px;color:{_TEXT_MUTED};line-height:1.6;">
+            &#128274; As notas e comentários desta avaliação serão disponibilizados ao
+            colaborador avaliado e, no processo de calibração, ao RH.
           </p>
         </td>
       </tr>
@@ -329,6 +352,15 @@ def send_evaluation_batch_email(
       Clique em <em>Avaliar</em> ao lado de cada colaborador para preencher o formulário.
     </p>
 
+    <p style="margin:0 0 20px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      A avaliação de desempenho é uma etapa importante do desenvolvimento profissional
+      de cada colaborador na empresa. As respostas fornecidas aqui servirão de base para a
+      construção do Plano de Desenvolvimento Individual (PDI) de cada um, ajudando a
+      identificar pontos fortes e oportunidades de crescimento. Por isso, contamos com a
+      sua sinceridade e reflexão ao preencher cada questão — suas percepções são
+      fundamentais para tornarmos esse processo cada vez mais justo e eficaz.
+    </p>
+
     <!-- Tabela de colaboradores -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
            style="border:1px solid #E5E7EB;border-radius:10px;overflow:hidden;margin:0 0 24px;">
@@ -362,6 +394,20 @@ def send_evaluation_batch_email(
           <p style="margin:0;font-size:13px;color:#92400E;line-height:1.6;">
             &#9888;&#65039; <strong>Links individuais e intransferíveis.</strong>
             Cada botão é exclusivo para o respectivo colaborador. Não compartilhe os links.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Transparência sobre acesso às informações -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:#F9FAFB;border:1px solid #E5E7EB;
+                  border-radius:8px;margin:0 0 12px;">
+      <tr>
+        <td style="padding:12px 18px;">
+          <p style="margin:0;font-size:12px;color:{_TEXT_MUTED};line-height:1.6;">
+            &#128274; As notas e comentários de cada avaliação serão disponibilizados ao
+            respectivo colaborador avaliado e, no processo de calibração, ao RH.
           </p>
         </td>
       </tr>
@@ -399,6 +445,15 @@ def send_self_evaluation_email(
       seu próprio desempenho neste período.
     </p>
 
+    <p style="margin:0 0 24px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      A avaliação de desempenho é uma etapa importante do seu desenvolvimento profissional
+      na empresa. As respostas fornecidas aqui servirão de base para a construção do seu
+      Plano de Desenvolvimento Individual (PDI), ajudando a identificar pontos fortes e
+      oportunidades de crescimento. Por isso, contamos com a sua sinceridade e reflexão ao
+      preencher cada questão — suas percepções são fundamentais para tornarmos esse
+      processo cada vez mais justo e eficaz.
+    </p>
+
     <!-- Info box -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
            style="background:{light_bg};border-left:5px solid {primary};
@@ -416,12 +471,26 @@ def send_self_evaluation_email(
     <!-- Aviso -->
     <table width="100%" cellpadding="0" cellspacing="0" border="0"
            style="background:#FFFBEB;border:1px solid #FCD34D;
-                  border-radius:8px;margin:0 0 28px;">
+                  border-radius:8px;margin:0 0 12px;">
       <tr>
         <td style="padding:12px 18px;">
           <p style="margin:0;font-size:13px;color:#92400E;line-height:1.6;">
             &#9888;&#65039; <strong>Link individual e intransferível.</strong>
             Este formulário é exclusivo para a sua auto-avaliação. Não compartilhe este link.
+          </p>
+        </td>
+      </tr>
+    </table>
+
+    <!-- Transparência sobre acesso às informações -->
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:#F9FAFB;border:1px solid #E5E7EB;
+                  border-radius:8px;margin:0 0 28px;">
+      <tr>
+        <td style="padding:12px 18px;">
+          <p style="margin:0;font-size:12px;color:{_TEXT_MUTED};line-height:1.6;">
+            &#128274; Suas respostas e notas serão acessadas pelo seu gestor imediato e,
+            no processo de calibração, pelo RH.
           </p>
         </td>
       </tr>
@@ -487,6 +556,13 @@ def send_ciencia_email(
       <strong style="color:{_TEXT_DARK};">{cycle_name}</strong>
       foi concluída pelo(a) gestor(a)
       <strong style="color:{_TEXT_DARK};">{evaluator_name}</strong>.
+    </p>
+
+    <p style="margin:0 0 20px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      A avaliação de desempenho é uma etapa importante do seu desenvolvimento profissional
+      na empresa. As respostas e notas registradas aqui servirão de base para a construção
+      do seu Plano de Desenvolvimento Individual (PDI), ajudando a identificar pontos fortes
+      e oportunidades de crescimento.
     </p>
 
     <!-- Info box -->
