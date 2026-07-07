@@ -115,6 +115,19 @@ async def sync_bulk(
     }
 
 
+# ── Clientes/Empresas (para filtro em Dashboard e Vendas) ─────────────────────
+
+@router.get("/companies")
+def list_companies(_=Depends(require_role("admin"))):
+    sb = get_supabase()
+    try:
+        result = sb.rpc("payfly_distinct_companies", {}).execute()
+        return [row["company_name"] for row in (result.data or [])]
+    except Exception as exc:
+        logger.error("list_companies: %s", exc)
+        raise HTTPException(502, "Erro ao buscar clientes/empresas")
+
+
 # ── List ──────────────────────────────────────────────────────────────────────
 
 @router.get("/")

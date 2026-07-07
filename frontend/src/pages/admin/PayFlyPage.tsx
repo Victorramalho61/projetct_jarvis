@@ -419,10 +419,16 @@ function DashboardTab({ token }: { token: string }) {
   const [startDate, setStartDate]   = useState('2026-01-01')
   const [endDate, setEndDate]       = useState(todayStr)
   const [company, setCompany]       = useState('')
+  const [companies, setCompanies]   = useState<string[]>([])
   const [data, setData]             = useState<PayFlyDashboardData | null>(null)
   const [loading, setLoading]       = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const cacheRef = useRef(new Map<string, { data: PayFlyDashboardData; ts: number }>())
+
+  useEffect(() => {
+    apiFetch<string[]>('/api/expenses/payfly/reservations/companies', { token })
+      .then(setCompanies).catch(() => setCompanies([]))
+  }, [token])
 
   const load = useCallback(async () => {
     const key = `dash:${startDate}:${endDate}:${company}`
@@ -466,9 +472,12 @@ function DashboardTab({ token }: { token: string }) {
             className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Empresa</label>
-          <input type="text" value={company} placeholder="Todas" onChange={e => setCompany(e.target.value)}
-            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 w-48" />
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cliente</label>
+          <select value={company} onChange={e => setCompany(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 w-48">
+            <option value="">Todos</option>
+            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
         <button onClick={load}
           className="px-4 py-1.5 bg-brand-green text-white text-sm font-medium rounded-lg hover:opacity-90 transition-opacity">
@@ -524,7 +533,7 @@ function DashboardTab({ token }: { token: string }) {
                           <span className="text-sm text-gray-700 dark:text-gray-300 truncate">{item.solicitor_name}</span>
                         </div>
                         <div className="flex items-center gap-3 ml-3 shrink-0">
-                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{FMT_COMPACT(item.total_amount)}</span>
+                          <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{FMT_COMPACT(item.total_amount ?? 0)}</span>
                           <span className="text-xs text-gray-400">{item.qty} res.</span>
                         </div>
                       </div>
@@ -558,7 +567,7 @@ function DashboardTab({ token }: { token: string }) {
                         </div>
                         <div className="flex items-center gap-3 ml-3 shrink-0">
                           <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{item.qty} res.</span>
-                          <span className="text-xs text-gray-400">{FMT_COMPACT(item.total_amount)}</span>
+                          <span className="text-xs text-gray-400">{FMT_COMPACT(item.total_amount ?? 0)}</span>
                         </div>
                       </div>
                       <div className="h-1.5 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
@@ -588,10 +597,16 @@ function VendasTab({ token }: { token: string }) {
   const [startDate, setStartDate]     = useState('2026-01-01')
   const [endDate, setEndDate]         = useState(todayStr)
   const [company, setCompany]         = useState('')
+  const [companies, setCompanies]     = useState<string[]>([])
   const [filterType, setFilterType]   = useState('')
   const [filterStatus, setFilterStatus] = useState('')
   const [offset, setOffset]           = useState(0)
   const LIMIT = 50
+
+  useEffect(() => {
+    apiFetch<string[]>('/api/expenses/payfly/reservations/companies', { token })
+      .then(setCompanies).catch(() => setCompanies([]))
+  }, [token])
 
   const [stats, setStats]             = useState<SalesStats | null>(null)
   const [items, setItems]             = useState<SaleReservation[]>([])
@@ -724,9 +739,12 @@ function VendasTab({ token }: { token: string }) {
             className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Empresa</label>
-          <input type="text" value={company} placeholder="Todas" onChange={e => setCompany(e.target.value)}
-            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 w-40" />
+          <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Cliente</label>
+          <select value={company} onChange={e => setCompany(e.target.value)}
+            className="px-3 py-1.5 text-sm rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 w-40">
+            <option value="">Todos</option>
+            {companies.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
         </div>
         <div>
           <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Tipo</label>
