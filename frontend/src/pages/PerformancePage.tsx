@@ -988,6 +988,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [viewModal, setViewModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
   const [viewDetail, setViewDetail] = useState<any>(null);
   const [viewDetailLoading, setViewDetailLoading] = useState(false);
+  const [viewDetailNotFound, setViewDetailNotFound] = useState(false);
+
+  // Filtros client-side de calibragem/ciência (não disparam reload da lista)
+  const [calibFilter, setCalibFilter] = useState<"" | "yes" | "no">("");
+  const [ackFilter, setAckFilter] = useState<"" | "yes" | "no">("");
 
   useEffect(() => {
     apiFetch<any>("/api/performance/admin/cycle/status", { token })
@@ -1006,6 +1011,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   }
   useEffect(() => { loadList(); }, [token, filters]);
 
+  const visibleList = list.filter(ev =>
+    (calibFilter === "" || (calibFilter === "yes" ? ev.calibrated : !ev.calibrated)) &&
+    (ackFilter === "" || (ackFilter === "yes" ? ev.acknowledged : !ev.acknowledged))
+  );
+
   function openCalib(item: any) {
     if (!item?.id) return;
     setCalibModal({ open: true, item });
@@ -1023,11 +1033,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   function openView(item: any) {
     setViewModal({ open: true, item });
     setViewDetail(null);
-    if (!item?.id) { setViewDetailLoading(false); return; }
+    setViewDetailNotFound(false);
     setViewDetailLoading(true);
-    apiFetch<any>(`/api/performance/admin/evaluations/${item.id}/detail`, { token })
+    apiFetch<any>(`/api/performance/admin/evaluations/detail?employee_id=${item.employee_id}`, { token })
       .then(d => setViewDetail(d))
-      .catch(() => setViewDetail(null))
+      .catch((e: any) => { if (e instanceof ApiError && e.status === 404) setViewDetailNotFound(true); })
       .finally(() => setViewDetailLoading(false));
   }
 
@@ -1172,8 +1182,18 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <option value="">Todos os status</option>
           <option value="pending">Pendente</option>
           <option value="completed">Avaliado</option>
-          <option value="acknowledged">Ciência dada</option>
-          <option value="calibrated">Calibrado</option>
+        </select>
+        <select value={calibFilter} onChange={e => setCalibFilter(e.target.value as "" | "yes" | "no")}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+          <option value="">Calibragem: Todas</option>
+          <option value="yes">Calibradas</option>
+          <option value="no">Não calibradas</option>
+        </select>
+        <select value={ackFilter} onChange={e => setAckFilter(e.target.value as "" | "yes" | "no")}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+          <option value="">Ciência: Todas</option>
+          <option value="yes">Ciência dada</option>
+          <option value="no">Ciência pendente</option>
         </select>
         <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value }))}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
@@ -1189,24 +1209,24 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[700px]">
+            <table className="w-full min-w-[980px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Colaborador", "Gestor", "Nota Final", "Status", "Auto-Aval.", "Ações"].map(h => (
+                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Calibragem", "Ciência", "Ações"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {list.length === 0 && <tr><td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
-                {list.map(ev => (
-                  <tr key={ev.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                {visibleList.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
+                {visibleList.map(ev => (
+                  <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{ev.evaluator_name}</td>
                     <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">{ev.final_score != null ? ev.final_score.toFixed(2) : "—"}</td>
                     <td className="px-4 py-3">
-                      <Badge color={ev.status === "acknowledged" ? "green" : ev.status === "calibrated" ? "violet" : ev.status === "completed" ? "blue" : "gray"}>
-                        {ev.status === "pending" ? "Pendente" : ev.status === "completed" ? "Avaliado" : ev.status === "acknowledged" ? "Ciência Dada" : ev.status === "calibrated" ? "Calibrado" : ev.status}
+                      <Badge color={ev.status === "completed" ? "blue" : "gray"}>
+                        {ev.status === "completed" ? "Avaliado" : "Pendente"}
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
@@ -1215,6 +1235,25 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         : ev.self_eval_status === "pending"
                         ? <Badge color="amber">⏳ Pendente</Badge>
                         : <Badge color="red">Não enviada</Badge>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {ev.calibrated
+                        ? <Badge color="violet">🎯 Calibrado</Badge>
+                        : <Badge color="gray">—</Badge>}
+                      {ev.calibrated && ev.calibrated_at && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {ev.acknowledged
+                        ? <Badge color="green">✅ Ciente</Badge>
+                        : <Badge color="gray">Pendente</Badge>}
+                      {ev.acknowledged && ev.acknowledged_at && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {new Date(ev.acknowledged_at).toLocaleDateString("pt-BR")}
+                          {ev.acknowledged_via === "presencial" ? " · presencial" : ev.acknowledged_via === "email" ? " · e-mail" : ""}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5 items-center">
@@ -1452,7 +1491,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         ) : (
           <div className="space-y-3">
             <p className="text-sm text-gray-500 text-center py-4">
-              {viewModal.item?.id ? "Erro ao carregar detalhes." : "Não há avaliações realizadas para este colaborador."}
+              {viewDetailNotFound ? "Não há avaliações realizadas para este colaborador." : "Erro ao carregar detalhes."}
             </p>
             <button onClick={() => setViewModal({ open: false, item: null })} className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Fechar</button>
           </div>

@@ -2101,13 +2101,30 @@ def list_evaluations(
 
     # ── Acks e calibrações ────────────────────────────────────────────────────────
     review_ids = [r["id"] for r in reviews_raw]
-    acked_ids: set[str] = set()
-    calibrated_ids: set[str] = set()
+    ack_map: dict[str, dict] = {}
+    calib_map: dict[str, dict] = {}
     if review_ids:
-        acks = db.table("performance_review_acknowledgments").select("review_id").in_("review_id", review_ids).execute().data
-        acked_ids = {a["review_id"] for a in acks}
-        calibs = db.table("performance_calibrations").select("review_id").in_("review_id", review_ids).execute().data
-        calibrated_ids = {c["review_id"] for c in calibs}
+        acks = (
+            db.table("performance_review_acknowledgments")
+            .select("review_id,acknowledged_at,acknowledged_via")
+            .in_("review_id", review_ids)
+            .order("acknowledged_at", desc=True)
+            .execute()
+            .data
+        )
+        for a in acks:
+            ack_map.setdefault(a["review_id"], a)
+
+        calibs = (
+            db.table("performance_calibrations")
+            .select("review_id,calibrated_at")
+            .in_("review_id", review_ids)
+            .order("calibrated_at", desc=True)
+            .execute()
+            .data
+        )
+        for c in calibs:
+            calib_map.setdefault(c["review_id"], c)
 
     # ── Self-eval status ──────────────────────────────────────────────────────────
     self_eval_reviews = (
@@ -2144,23 +2161,27 @@ def list_evaluations(
         r = review_by_emp.get(emp_id)
         tok = token_by_emp.get(emp_id)
 
-        # Status da avaliação
+        # Status da avaliação do gestor — independente de calibragem/ciência
         if r:
             rid = r["id"]
-            if rid in calibrated_ids:
-                final_status = "calibrated"
-            elif rid in acked_ids:
-                final_status = "acknowledged"
-            elif r.get("status") == "completed":
-                final_status = "completed"
-            else:
-                final_status = "pending"
+            manager_status = "completed" if r.get("status") == "completed" else "pending"
         else:
             rid = None
-            final_status = "pending"
+            manager_status = "pending"
 
-        if status and final_status != status:
-            continue
+        calib_info = calib_map.get(rid, {}) if rid else {}
+        ack_info = ack_map.get(rid, {}) if rid else {}
+        is_calibrated = bool(rid) and rid in calib_map
+        is_acknowledged = bool(rid) and rid in ack_map
+
+        # Filtro `status`: calibragem/ciência têm valor próprio; senão filtra pelo status do gestor
+        if status:
+            if status == "calibrated" and not is_calibrated:
+                continue
+            elif status == "acknowledged" and not is_acknowledged:
+                continue
+            elif status in ("pending", "completed") and manager_status != status:
+                continue
 
         # Self-eval status
         if self_eval_map.get(emp_id) == "completed" or self_eval_token_map.get(emp_id):
@@ -2181,16 +2202,130 @@ def list_evaluations(
             "employee_name": emp_name,
             "evaluator_name": evaluator.get("name", ""),
             "final_score": r.get("final_score") if r else None,
-            "status": final_status,
+            "status": manager_status,
             "submitted_at": r.get("submitted_at") if r else None,
             "employee_id": emp_id,
             "evaluator_id": evaluator_id,
             "has_email": emp.get("has_corporate_email", False),
             "observations": r.get("observations") if r else None,
             "self_eval_status": self_eval_status,
+            "calibrated": is_calibrated,
+            "calibrated_at": calib_info.get("calibrated_at"),
+            "acknowledged": is_acknowledged,
+            "acknowledged_at": ack_info.get("acknowledged_at"),
+            "acknowledged_via": ack_info.get("acknowledged_via"),
         })
 
     return sorted(result, key=lambda x: (x["employee_name"] or ""))
+
+
+# ── Helpers de montagem de indicadores (gestor + auto-avaliação) ──────────────
+
+def _build_manager_indicator_map(db, review_id: str) -> dict[str, dict]:
+    """Scores do gestor por indicador, com metadata (nome, descrição, nível)."""
+    scores_raw = (
+        db.table("performance_indicator_scores")
+        .select("indicator_id,score,justification,performance_indicators(id,name,description,hierarchy_level)")
+        .eq("review_id", review_id)
+        .execute()
+        .data
+    )
+    out: dict[str, dict] = {}
+    for s in scores_raw:
+        ind = s.get("performance_indicators") or {}
+        iid = s["indicator_id"]
+        out[iid] = {
+            "id": iid,
+            "name": ind.get("name", "") if isinstance(ind, dict) else "",
+            "description": ind.get("description", "") if isinstance(ind, dict) else "",
+            "hierarchy_level": ind.get("hierarchy_level") if isinstance(ind, dict) else None,
+            "manager_score": float(s["score"]),
+            "manager_justification": s.get("justification") or "",
+        }
+    return out
+
+
+def _build_self_indicator_map(db, self_review_id: str | None) -> dict[str, dict]:
+    """Scores da auto-avaliação por indicador. Usado também quando não há review do gestor."""
+    if not self_review_id:
+        return {}
+    scores_raw = (
+        db.table("performance_indicator_scores")
+        .select("indicator_id,score,performance_indicators(id,name,description,hierarchy_level)")
+        .eq("review_id", self_review_id)
+        .execute()
+        .data
+    )
+    out: dict[str, dict] = {}
+    for s in scores_raw:
+        ind = s.get("performance_indicators") or {}
+        iid = s["indicator_id"]
+        out[iid] = {
+            "id": iid,
+            "name": ind.get("name", "") if isinstance(ind, dict) else "",
+            "description": ind.get("description", "") if isinstance(ind, dict) else "",
+            "hierarchy_level": ind.get("hierarchy_level") if isinstance(ind, dict) else None,
+            "self_score": float(s["score"]),
+        }
+    return out
+
+
+def _merge_indicator_matrix(manager_map: dict, self_map: dict) -> list[dict]:
+    """União dos indicadores presentes no gestor OU na auto-avaliação (nunca só a interseção) —
+    corrige o caso em que só a auto-avaliação existe e a lista de indicadores ficava vazia."""
+    all_ids = set(manager_map) | set(self_map)
+    result = []
+    for iid in all_ids:
+        m, s = manager_map.get(iid, {}), self_map.get(iid, {})
+        manager_score = m.get("manager_score")
+        self_score = s.get("self_score")
+        entry = {
+            "id": iid,
+            "name": m.get("name") or s.get("name") or "",
+            "description": m.get("description") or s.get("description") or "",
+            "hierarchy_level": m.get("hierarchy_level") if m else s.get("hierarchy_level"),
+            "manager_score": manager_score,
+            "manager_justification": m.get("manager_justification", ""),
+            "current_score": manager_score,  # sobrescrito por calibração, quando aplicável
+            "self_score": self_score,
+        }
+        if manager_score and self_score:
+            lo, hi = min(manager_score, self_score), max(manager_score, self_score)
+            adh = round((lo / hi) * 100, 1) if hi else None
+            entry["adherence_index"] = adh
+            entry["adherence_label"] = (
+                "alinhado" if adh >= 80 else "atencao" if adh >= 60 else "desalinhamento"
+            ) if adh is not None else None
+        else:
+            entry["adherence_index"] = None
+            entry["adherence_label"] = None
+        result.append(entry)
+    return sorted(result, key=lambda x: x["name"] or "")
+
+
+def _calibration_history_for_review(db, review_id: str) -> list[dict]:
+    calibs = (
+        db.table("performance_calibrations")
+        .select("id,calibrated_by,calibrated_at,notes,original_score,calibrated_score")
+        .eq("review_id", review_id)
+        .order("calibrated_at", desc=True)
+        .execute()
+        .data
+    )
+    calib_ids = [c["id"] for c in calibs]
+    calib_items_map: dict[str, list] = {}
+    if calib_ids:
+        items_raw = (
+            db.table("performance_calibration_items")
+            .select("*")
+            .in_("calibration_id", calib_ids)
+            .order("created_at")
+            .execute()
+            .data
+        )
+        for item in items_raw:
+            calib_items_map.setdefault(item["calibration_id"], []).append(item)
+    return [{**c, "items": calib_items_map.get(c["id"], [])} for c in calibs]
 
 
 # ── Detalhe da avaliação (para modal de calibração) ───────────────────────────
@@ -2219,28 +2354,6 @@ def get_evaluation_detail(
     evaluator = db.table("performance_employees").select("id,name").eq("id", r["evaluator_id"]).execute()
     ev_data = evaluator.data[0] if evaluator.data else {}
 
-    # Indicadores com scores do gestor
-    scores_raw = (
-        db.table("performance_indicator_scores")
-        .select("indicator_id,score,justification,performance_indicators(id,name,description,hierarchy_level)")
-        .eq("review_id", review_id)
-        .execute()
-        .data
-    )
-    manager_scores: dict[str, dict] = {}
-    for s in scores_raw:
-        ind = s.get("performance_indicators") or {}
-        iid = s["indicator_id"]
-        manager_scores[iid] = {
-            "id": iid,
-            "name": ind.get("name", "") if isinstance(ind, dict) else "",
-            "description": ind.get("description", "") if isinstance(ind, dict) else "",
-            "hierarchy_level": ind.get("hierarchy_level") if isinstance(ind, dict) else None,
-            "manager_score": float(s["score"]),
-            "manager_justification": s.get("justification") or "",
-            "current_score": float(s["score"]),  # será sobrescrito por calibração
-        }
-
     # Auto-avaliação do mesmo colaborador no mesmo ciclo
     self_rev = (
         db.table("performance_reviews")
@@ -2252,34 +2365,11 @@ def get_evaluation_detail(
         .execute()
         .data
     )
-    self_scores: dict[str, float] = {}
-    self_rev_data = None
-    if self_rev:
-        self_rev_data = self_rev[0]
-        s_scores = (
-            db.table("performance_indicator_scores")
-            .select("indicator_id,score")
-            .eq("review_id", self_rev_data["id"])
-            .execute()
-            .data
-        )
-        self_scores = {s["indicator_id"]: float(s["score"]) for s in s_scores}
+    self_rev_data = self_rev[0] if self_rev else None
 
-    # Mesclar self scores + calcular índice de aderência por indicador
-    for iid, ind in manager_scores.items():
-        ind["self_score"] = self_scores.get(iid)
-        ms = ind.get("manager_score")
-        ss = ind.get("self_score")
-        if ms and ss:
-            lo, hi = min(ms, ss), max(ms, ss)
-            adh = round((lo / hi) * 100, 1) if hi else None
-            ind["adherence_index"] = adh
-            ind["adherence_label"] = (
-                "alinhado" if adh >= 80 else "atencao" if adh >= 60 else "desalinhamento"
-            ) if adh is not None else None
-        else:
-            ind["adherence_index"] = None
-            ind["adherence_label"] = None
+    manager_map = _build_manager_indicator_map(db, review_id)
+    self_map = _build_self_indicator_map(db, self_rev_data["id"] if self_rev_data else None)
+    indicators = _merge_indicator_matrix(manager_map, self_map)
 
     # Aderência geral (notas finais)
     overall_adherence_index = None
@@ -2296,44 +2386,90 @@ def get_evaluation_detail(
                 else "desalinhamento"
             )
 
-    # Histórico de calibrações
-    calibs = (
-        db.table("performance_calibrations")
-        .select("id,calibrated_by,calibrated_at,notes,original_score,calibrated_score")
-        .eq("review_id", review_id)
-        .order("calibrated_at", desc=True)
-        .execute()
-        .data
-    )
-    calib_ids = [c["id"] for c in calibs]
-    calib_items_map: dict[str, list] = {}
-    if calib_ids:
-        items_raw = (
-            db.table("performance_calibration_items")
-            .select("*")
-            .in_("calibration_id", calib_ids)
-            .order("created_at")
-            .execute()
-            .data
-        )
-        for item in items_raw:
-            calib_items_map.setdefault(item["calibration_id"], []).append(item)
+    return {
+        "review": r,
+        "employee": emp_data,
+        "evaluator": ev_data,
+        "indicators": indicators,
+        "self_eval": self_rev_data,
+        "calibration_history": _calibration_history_for_review(db, review_id),
+        "observations": r.get("observations"),
+        "self_observations": self_rev_data.get("observations") if self_rev_data else None,
+        "overall_adherence_index": overall_adherence_index,
+        "overall_adherence_label": overall_adherence_label,
+    }
 
-    calibration_history = []
-    for c in calibs:
-        calibration_history.append({
-            **c,
-            "items": calib_items_map.get(c["id"], []),
-        })
+
+@router.get("/evaluations/detail")
+def get_evaluation_detail_by_employee(
+    employee_id: str,
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """Retorna avaliação do gestor (se existir) + auto-avaliação (se existir) do colaborador
+    no ciclo aberto atual. Não exige que a review do gestor exista — cobre o caso em que só a
+    auto-avaliação foi preenchida, que o endpoint baseado em review_id não conseguia mostrar."""
+    try:
+        uuid_mod.UUID(employee_id)
+    except ValueError:
+        raise HTTPException(400, detail="employee_id inválido")
+
+    db = get_supabase()
+    cycle = _get_current_cycle(db)
+    if not cycle:
+        raise HTTPException(404, detail="Nenhum ciclo aberto encontrado")
+
+    mgr_rev = (
+        db.table("performance_reviews").select("*")
+        .eq("cycle_id", cycle["id"]).eq("employee_id", employee_id)
+        .eq("is_self_evaluation", False).execute()
+    )
+    r = mgr_rev.data[0] if mgr_rev.data else None
+
+    self_rev = (
+        db.table("performance_reviews").select("id,final_score,observations")
+        .eq("cycle_id", cycle["id"]).eq("employee_id", employee_id)
+        .eq("is_self_evaluation", True).eq("status", "completed").execute()
+    )
+    self_rev_data = self_rev.data[0] if self_rev.data else None
+
+    if not r and not self_rev_data:
+        raise HTTPException(404, detail="Não há avaliações realizadas para este colaborador neste ciclo.")
+
+    emp = db.table("performance_employees").select("id,name,cargo,hierarchy_level,manager_id").eq("id", employee_id).execute()
+    emp_data = emp.data[0] if emp.data else {}
+
+    evaluator_id = (r.get("evaluator_id") if r else None) or emp_data.get("manager_id")
+    ev_data: dict = {}
+    if evaluator_id:
+        evaluator = db.table("performance_employees").select("id,name").eq("id", evaluator_id).execute()
+        ev_data = evaluator.data[0] if evaluator.data else {}
+
+    manager_map = _build_manager_indicator_map(db, r["id"]) if r else {}
+    self_map = _build_self_indicator_map(db, self_rev_data["id"] if self_rev_data else None)
+    indicators = _merge_indicator_matrix(manager_map, self_map)
+
+    overall_adherence_index = None
+    overall_adherence_label = None
+    mgr_final = r.get("final_score") if r else None
+    self_final = self_rev_data.get("final_score") if self_rev_data else None
+    if mgr_final and self_final:
+        lo, hi = min(float(mgr_final), float(self_final)), max(float(mgr_final), float(self_final))
+        overall_adherence_index = round((lo / hi) * 100, 1) if hi else None
+        if overall_adherence_index is not None:
+            overall_adherence_label = (
+                "alinhado" if overall_adherence_index >= 80
+                else "atencao" if overall_adherence_index >= 60
+                else "desalinhamento"
+            )
 
     return {
         "review": r,
         "employee": emp_data,
         "evaluator": ev_data,
-        "indicators": list(manager_scores.values()),
+        "indicators": indicators,
         "self_eval": self_rev_data,
-        "calibration_history": calibration_history,
-        "observations": r.get("observations"),
+        "calibration_history": _calibration_history_for_review(db, r["id"]) if r else [],
+        "observations": r.get("observations") if r else None,
         "self_observations": self_rev_data.get("observations") if self_rev_data else None,
         "overall_adherence_index": overall_adherence_index,
         "overall_adherence_label": overall_adherence_label,
