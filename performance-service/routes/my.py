@@ -129,6 +129,7 @@ def resend_ciencia(
         .select("id,evaluator_id,status")
         .eq("employee_id", employee_id)
         .eq("cycle_id", cycle["id"])
+        .eq("is_self_evaluation", False)
         .execute()
     )
     if not review.data:

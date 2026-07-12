@@ -2164,7 +2164,9 @@ def list_evaluations(
         # Status da avaliação do gestor — independente de calibragem/ciência
         if r:
             rid = r["id"]
-            manager_status = "completed" if r.get("status") == "completed" else "pending"
+            # "calibrated" também conta como submetida — só a calibração do RH altera
+            # esse valor na review; a ciência não grava status na tabela de reviews.
+            manager_status = "completed" if r.get("status") in ("completed", "calibrated") else "pending"
         else:
             rid = None
             manager_status = "pending"

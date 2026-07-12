@@ -434,7 +434,14 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
         raise HTTPException(400, detail="Não há ciclo de avaliação aberto no momento. Procure o RH.")
 
     cycle = open_cycles[0]
-    review = db.table("performance_reviews").select("*").eq("employee_id", employee["id"]).eq("cycle_id", cycle["id"]).execute()
+    review = (
+        db.table("performance_reviews")
+        .select("*")
+        .eq("employee_id", employee["id"])
+        .eq("cycle_id", cycle["id"])
+        .eq("is_self_evaluation", False)
+        .execute()
+    )
 
     if not review.data:
         raise HTTPException(404, detail="Nenhuma avaliação disponível para sua ciência no momento.")
