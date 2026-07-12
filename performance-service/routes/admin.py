@@ -2851,6 +2851,10 @@ def reset_cycle_data(
     review_ids = [r["id"] for r in reviews]
 
     if review_ids:
+        calibs = db.table("performance_calibrations").select("id").in_("review_id", review_ids).execute().data
+        calib_ids = [c["id"] for c in calibs]
+        if calib_ids:
+            db.table("performance_calibration_items").delete().in_("calibration_id", calib_ids).execute()
         db.table("performance_review_acknowledgments").delete().in_("review_id", review_ids).execute()
         db.table("performance_calibrations").delete().in_("review_id", review_ids).execute()
         db.table("performance_indicator_scores").delete().in_("review_id", review_ids).execute()
@@ -2858,6 +2862,7 @@ def reset_cycle_data(
         db.table("performance_reviews").delete().eq("cycle_id", cycle_id).execute()
 
     db.table("performance_evaluation_tokens").delete().eq("cycle_id", cycle_id).execute()
+    db.table("performance_self_evaluation_tokens").delete().eq("cycle_id", cycle_id).execute()
     db.table("performance_cycle_reopens").delete().eq("cycle_id", cycle_id).execute()
     db.table("performance_cycles").update({"status": "draft"}).eq("id", cycle_id).execute()
 
