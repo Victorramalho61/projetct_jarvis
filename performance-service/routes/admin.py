@@ -2034,21 +2034,55 @@ def list_evaluations(
     status: str | None = None,
     company_id: str | None = None,
     search: str | None = None,
+    cycle_id: str | None = None,
 ) -> list[dict]:
     db = get_supabase()
-    cycle = _get_current_cycle(db)
+    current_cycle = _get_current_cycle(db)
+
+    if cycle_id:
+        cycle_res = db.table("performance_cycles").select("*").eq("id", cycle_id).execute()
+        if not cycle_res.data:
+            raise HTTPException(404, detail="Ciclo não encontrado")
+        cycle = cycle_res.data[0]
+    else:
+        cycle = current_cycle
     if not cycle:
         return []
 
-    # ── Base: TODOS os ativos L2+L3 do ciclo (aparecem mesmo sem token/review) ───
-    base_emps_raw = (
-        db.table("performance_employees")
-        .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
-        .in_("hierarchy_level", [2, 3])
-        .eq("active", True)
-        .execute()
-        .data
-    )
+    # É o ciclo corrente (gestão ativa) ou um ciclo passado (consulta histórica)?
+    is_management_view = current_cycle is not None and cycle["id"] == current_cycle["id"]
+
+    if is_management_view:
+        # ── Gestão ativa: TODOS os ativos L2+L3 (aparecem mesmo sem token/review) ──
+        base_emps_raw = (
+            db.table("performance_employees")
+            .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
+            .in_("hierarchy_level", [2, 3])
+            .eq("active", True)
+            .execute()
+            .data
+        )
+    else:
+        # ── Consulta histórica: só quem teve alguma atividade neste ciclo,
+        # independente de estar ativo hoje (pode ter saído da empresa depois) ──
+        hist_emp_ids: set[str] = set()
+        for table, col in (
+            ("performance_reviews", "employee_id"),
+            ("performance_evaluation_tokens", "employee_id"),
+            ("performance_self_evaluation_tokens", "employee_id"),
+        ):
+            rows = db.table(table).select(col).eq("cycle_id", cycle["id"]).execute().data
+            hist_emp_ids.update(r[col] for r in rows if r.get(col))
+        if not hist_emp_ids:
+            return []
+        base_emps_raw = (
+            db.table("performance_employees")
+            .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
+            .in_("id", list(hist_emp_ids))
+            .execute()
+            .data
+        )
+
     emp_map: dict[str, dict] = {e["id"]: e for e in base_emps_raw}
     all_emp_ids: set[str] = set(emp_map.keys())
 

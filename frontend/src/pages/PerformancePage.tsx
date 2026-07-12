@@ -1753,6 +1753,27 @@ function TabCiclo({ companies }: { companies: any[] }) {
   const [resendingSelfEval, setResendingSelfEval] = useState<string | null>(null);
   const [copiedPresencial, setCopiedPresencial] = useState(false);
 
+  // ── Consulta histórica: selecionar um ciclo (atual ou passado) e ver todos
+  // os colaboradores avaliados nele, com avaliação/auto-avaliação/calibragem/ciência ──
+  const [cycles, setCycles] = useState<any[]>([]);
+  const [historyCycleId, setHistoryCycleId] = useState("");
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const isViewingHistory = historyCycleId !== "";
+
+  useEffect(() => {
+    apiFetch<any[]>("/api/performance/admin/cycles", { token }).then(setCycles).catch(() => {});
+  }, [token]);
+
+  useEffect(() => {
+    if (!historyCycleId) { setHistoryList([]); return; }
+    setHistoryLoading(true);
+    apiFetch<any[]>(`/api/performance/admin/evaluations?cycle_id=${historyCycleId}`, { token })
+      .then(setHistoryList)
+      .catch(() => setHistoryList([]))
+      .finally(() => setHistoryLoading(false));
+  }, [token, historyCycleId]);
+
   function handleCopyPresencialLink() {
     const url = `${window.location.origin}/auto-avaliacao-presencial`;
     navigator.clipboard.writeText(url).then(() => {
@@ -1892,6 +1913,75 @@ function TabCiclo({ companies }: { companies: any[] }) {
 
   return (
     <div className="space-y-6">
+      <Card className="p-4 flex flex-wrap items-center gap-3">
+        <label className="text-xs font-semibold uppercase tracking-widest text-gray-400">Consultar ciclo</label>
+        <select value={historyCycleId} onChange={e => setHistoryCycleId(e.target.value)}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+          <option value="">Ciclo atual (gestão)</option>
+          {cycles.map(c => (
+            <option key={c.id} value={c.id}>{c.name} — {c.status === "open" ? "aberto" : c.status === "draft" ? "rascunho" : "fechado"}</option>
+          ))}
+        </select>
+        {isViewingHistory && (
+          <span className="text-xs text-gray-400">Consulta histórica — somente leitura, sem ações de envio.</span>
+        )}
+      </Card>
+
+      {isViewingHistory ? (
+        <Card>
+          {historyLoading ? (
+            <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[900px]">
+                <thead>
+                  <tr className="border-b border-gray-100 dark:border-gray-700">
+                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Calibragem", "Ciência"].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyList.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum colaborador avaliado neste ciclo.</td></tr>}
+                  {historyList.map(ev => (
+                    <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
+                      <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{ev.evaluator_name}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">{ev.final_score != null ? ev.final_score.toFixed(2) : "—"}</td>
+                      <td className="px-4 py-3">
+                        <Badge color={ev.status === "completed" ? "blue" : "gray"}>{ev.status === "completed" ? "Avaliado" : "Pendente"}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {ev.self_eval_status === "completed"
+                          ? <Badge color="green">✅ Concluída</Badge>
+                          : ev.self_eval_status === "pending"
+                          ? <Badge color="amber">⏳ Pendente</Badge>
+                          : <Badge color="red">Não enviada</Badge>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {ev.calibrated ? <Badge color="violet">🎯 Calibrado</Badge> : <Badge color="gray">—</Badge>}
+                        {ev.calibrated && ev.calibrated_at && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {ev.acknowledged ? <Badge color="green">✅ Ciente</Badge> : <Badge color="gray">Pendente</Badge>}
+                        {ev.acknowledged && ev.acknowledged_at && (
+                          <p className="text-[10px] text-gray-400 mt-0.5">
+                            {new Date(ev.acknowledged_at).toLocaleString("pt-BR")}
+                            {ev.acknowledged_via === "presencial" ? " · presencial" : ev.acknowledged_via === "email" ? " · e-mail" : ""}
+                          </p>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : (
+      <>
       <Card className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex-1">
@@ -2141,6 +2231,8 @@ function TabCiclo({ companies }: { companies: any[] }) {
             </table>
           </Card>
         </div>
+      )}
+      </>
       )}
 
       {/* ── Modal: Enviar Formulários ─────────────────────────────────────────── */}
