@@ -657,6 +657,64 @@ def list_branches(
     return result
 
 
+class CompanyBody(BaseModel):
+    name: str
+    code: str
+
+
+@router.post("/companies", status_code=status.HTTP_201_CREATED)
+def create_company(
+    body: CompanyBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    name = body.name.strip()
+    code = body.code.strip().upper()
+    if not name or not code:
+        raise HTTPException(400, detail="Nome e código são obrigatórios")
+    db = get_supabase()
+    dup = db.table("performance_companies").select("id").eq("code", code).execute()
+    if dup.data:
+        raise HTTPException(400, detail=f"Código '{code}' já cadastrado")
+    result = db.table("performance_companies").insert({"name": name, "code": code, "active": True}).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao cadastrar empresa")
+    _cache_invalidate_prefix("companies")
+    company = result.data[0]
+    log_action("company", company["id"], "create", None, company, current_user["username"], request)
+    return company
+
+
+class BranchBody(BaseModel):
+    name: str
+    company_id: str
+
+
+@router.post("/branches", status_code=status.HTTP_201_CREATED)
+def create_branch(
+    body: BranchBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, detail="Nome é obrigatório")
+    db = get_supabase()
+    company = db.table("performance_companies").select("id").eq("id", body.company_id).execute()
+    if not company.data:
+        raise HTTPException(400, detail="Empresa inválida")
+    dup = db.table("performance_branches").select("id").eq("company_id", body.company_id).ilike("name", name).execute()
+    if dup.data:
+        raise HTTPException(400, detail=f"Filial '{name}' já cadastrada para essa empresa")
+    result = db.table("performance_branches").insert({"name": name, "company_id": body.company_id, "active": True}).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao cadastrar filial")
+    _cache_invalidate_prefix("branches")
+    branch = result.data[0]
+    log_action("branch", branch["id"], "create", None, branch, current_user["username"], request)
+    return branch
+
+
 @router.get("/employees/template")
 def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     try:
