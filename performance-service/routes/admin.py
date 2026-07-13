@@ -1083,7 +1083,9 @@ async def import_employees(
     ws = wb["Dados"]
     db = get_supabase()
 
-    companies = {c["name"]: c for c in db.table("performance_companies").select("*").execute().data}
+    companies_raw = db.table("performance_companies").select("*").execute().data
+    companies = {c["name"]: c for c in companies_raw}
+    companies_ci = {c["name"].lower(): c for c in companies_raw}
     branches_all = db.table("performance_branches").select("*").execute().data
     existing_cpfs = {
         e["cpf"]: True
@@ -1117,10 +1119,10 @@ async def import_employees(
         if all(v is None or str(v).strip() == "" for v in row):
             break
 
-        # ── Novo formato de 9 colunas (sem Matrícula, sem Gestor) ──────────
+        # ── Novo formato de 9 colunas (sem Matrícula) ──────────
         empresa_name  = str(row[0] or "").strip()          # A
         filial_name   = str(row[1] or "").strip()          # B
-        gerencia_name = str(row[2] or "").strip()          # C
+        gestor_nome   = str(row[2] or "").strip()          # C — nome do gestor imediato
         nome          = str(row[3] or "").strip()          # D
         cargo         = str(row[4] or "").strip()          # E
         nivel_str     = str(row[5] or "").strip()          # F
@@ -1131,8 +1133,8 @@ async def import_employees(
 
         row_errors: list[dict] = []
 
-        # Empresa
-        company = companies.get(empresa_name)
+        # Empresa (match case-insensitive, igual à Filial)
+        company = companies.get(empresa_name) or companies_ci.get(empresa_name.lower())
         if not company:
             row_errors.append({"linha": row_idx, "campo": "Empresa", "erro": f"Empresa '{empresa_name}' inválida"})
 
@@ -1186,7 +1188,7 @@ async def import_employees(
             rows_data.append({
                 "company_id": company["id"] if company else None,
                 "branch_id": branch["id"] if branch else None,
-                "gerencia_name": gerencia_name,
+                "gestor_nome": gestor_nome,
                 "name": nome, "matricula": matricula, "cargo": cargo,
                 "hierarchy_level": hierarchy_level,
                 "perfil": nivel_perfil,
@@ -1200,23 +1202,10 @@ async def import_employees(
     if not rows_data:
         return {"errors": ["Nenhuma linha de dados encontrada (preencha a partir da linha 3)"], "imported": 0}
 
-    existing_mgmts = {
-        f"{m['branch_id']}_{m['name'].lower()}": m["id"]
-        for m in db.table("performance_managements").select("*").execute().data
-    }
     imported = 0
+    inserted: list[dict] = []  # {"id","branch_id","gestor_nome"} — para 2ª passada de manager_id
 
     for row in sorted(rows_data, key=lambda x: x["hierarchy_level"]):
-        mgmt_key = f"{row['branch_id']}_{row['gerencia_name'].lower()}"
-        mgmt_id = existing_mgmts.get(mgmt_key)
-        if not mgmt_id:
-            mgmt_res = db.table("performance_managements").insert(
-                {"branch_id": row["branch_id"], "name": row["gerencia_name"], "active": True}
-            ).execute()
-            if mgmt_res.data:
-                mgmt_id = mgmt_res.data[0]["id"]
-                existing_mgmts[mgmt_key] = mgmt_id
-
         emp_res = db.table("performance_employees").insert({
             "name": row["name"], "matricula": row["matricula"],
             "email": row["email"], "cargo": row["cargo"],
@@ -1224,16 +1213,43 @@ async def import_employees(
             "cpf": row.get("cpf"),
             "hierarchy_level": row["hierarchy_level"],
             "perfil": row.get("perfil", "administrativo_operacional"),
-            "manager_id": None,           # hierarquia definida via UI
-            "management_id": mgmt_id,
+            "manager_id": None,
+            "management_id": None,   # departamento não é capturado pela planilha (coluna C é o gestor imediato)
             "branch_id": row["branch_id"], "company_id": row["company_id"],
             "active": True,
         }).execute()
         if emp_res.data:
             imported += 1
+            inserted.append({
+                "id": emp_res.data[0]["id"],
+                "branch_id": row["branch_id"],
+                "gestor_nome": row["gestor_nome"],
+            })
+
+    # 2ª passada: vincula manager_id casando o nome do gestor (coluna "Gerência")
+    # com o Nome Completo de outro colaborador da mesma filial.
+    manager_warnings: list[str] = []
+    branch_ids = {r["branch_id"] for r in inserted if r["branch_id"]}
+    name_to_ids: dict[str, dict[str, list[str]]] = {}
+    if branch_ids:
+        peers = db.table("performance_employees").select("id,name,branch_id").in_("branch_id", list(branch_ids)).execute().data
+        for e in peers:
+            name_to_ids.setdefault(e["branch_id"], {}).setdefault(e["name"].strip().lower(), []).append(e["id"])
+
+    for r in inserted:
+        gestor_nome = (r["gestor_nome"] or "").strip()
+        if not gestor_nome:
+            continue
+        candidates = [eid for eid in name_to_ids.get(r["branch_id"], {}).get(gestor_nome.lower(), []) if eid != r["id"]]
+        if len(candidates) == 1:
+            db.table("performance_employees").update({"manager_id": candidates[0]}).eq("id", r["id"]).execute()
+        elif not candidates:
+            manager_warnings.append(f"Gestor '{gestor_nome}' não encontrado na filial — manager_id não vinculado automaticamente")
+        else:
+            manager_warnings.append(f"Gestor '{gestor_nome}' ambíguo (mais de um colaborador com esse nome na filial) — manager_id não vinculado automaticamente")
 
     log_action("system", "import-excel", "bulk_import", None, {"imported": imported}, current_user["username"], request)
-    return {"errors": [], "imported": imported}
+    return {"errors": [], "imported": imported, "manager_warnings": manager_warnings}
 
 
 # ── Current cycle management ───────────────────────────────────────────────────

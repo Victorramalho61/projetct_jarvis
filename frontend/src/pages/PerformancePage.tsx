@@ -749,7 +749,11 @@ function TabHierarquia({ companies }: { companies: any[] }) {
         setImportErrors(json.errors);
       } else {
         // Sucesso real
-        setImportErrors([`✅ ${json.imported} colaborador(es) importado(s) com sucesso!`]);
+        const warnings: string[] = json.manager_warnings || [];
+        setImportErrors([
+          `✅ ${json.imported} colaborador(es) importado(s) com sucesso!`,
+          ...warnings.map((w: string) => `⚠️ ${w}`),
+        ]);
         loadEmployees();
       }
     } catch { setImportErrors(["Erro de conexão."]); }
