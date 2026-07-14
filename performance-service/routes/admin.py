@@ -789,6 +789,7 @@ def migrate_add_diretoria_level(
     """Migração única: amplia o CHECK de hierarchy_level de (1,2,3) para (1,2,3,4) — nível Diretoria.
     Idempotente: se o constraint já permitir 4, não faz nada."""
     import psycopg2
+    from psycopg2 import sql as pgsql
 
     url = get_settings().postgres_direct_url
     if not url:
@@ -811,7 +812,12 @@ def migrate_add_diretoria_level(
         conname, condef = rows[0]
         if "4" in condef:
             return {"status": "já aplicado", "constraint": conname, "def": condef}
-        cur.execute(f'ALTER TABLE performance_employees DROP CONSTRAINT "{conname}"')
+        # Nome do constraint vem só de pg_constraint (catálogo interno, não input do usuário),
+        # mas usamos Identifier em vez de f-string para montar o DROP com segurança mesmo assim.
+        cur.execute(
+            pgsql.SQL("ALTER TABLE performance_employees DROP CONSTRAINT {}")
+            .format(pgsql.Identifier(conname))
+        )
         cur.execute(
             "ALTER TABLE performance_employees ADD CONSTRAINT performance_employees_hierarchy_level_check "
             "CHECK (hierarchy_level IN (1, 2, 3, 4))"
