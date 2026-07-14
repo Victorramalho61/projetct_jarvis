@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from db import get_supabase, get_settings
 from limiter import limiter
+from services.ciencia import build_ciencia_payload
 
 router = APIRouter(prefix="/api/performance/public")
 _logger = logging.getLogger(__name__)
@@ -29,65 +30,6 @@ def _normalize_name(name: str) -> str:
     return " ".join(name.lower().split())
 
 
-def _build_ciencia_extras(db, rev: dict) -> dict:
-    """Busca auto-avaliação e histórico de calibração de uma review, para compor
-    a tela de Ciência com os comentários de gestor, colaborador e RH."""
-    self_rev = (
-        db.table("performance_reviews")
-        .select("id,final_score,observations")
-        .eq("cycle_id", rev["cycle_id"])
-        .eq("employee_id", rev["employee_id"])
-        .eq("is_self_evaluation", True)
-        .eq("status", "completed")
-        .execute()
-        .data
-    )
-    self_rev_data = self_rev[0] if self_rev else None
-    self_scores: dict[str, dict] = {}
-    if self_rev_data:
-        s_scores = (
-            db.table("performance_indicator_scores")
-            .select("indicator_id,score,justification")
-            .eq("review_id", self_rev_data["id"])
-            .execute()
-            .data
-        )
-        self_scores = {s["indicator_id"]: s for s in s_scores}
-
-    calibs = (
-        db.table("performance_calibrations")
-        .select("id,calibrated_by,calibrated_at,notes,original_score,calibrated_score")
-        .eq("review_id", rev["id"])
-        .order("calibrated_at", desc=True)
-        .execute()
-        .data
-    )
-    calib_items_by_indicator: dict[str, dict] = {}
-    calibration_notes = None
-    if calibs:
-        calibration_notes = calibs[0].get("notes")
-        calib_ids = [c["id"] for c in calibs]
-        items_raw = (
-            db.table("performance_calibration_items")
-            .select("*")
-            .in_("calibration_id", calib_ids)
-            .order("created_at", desc=True)
-            .execute()
-            .data
-        )
-        # itens mais recentes primeiro — setdefault garante que a última
-        # calibração de cada indicador prevaleça caso haja mais de uma sessão.
-        for item in items_raw:
-            calib_items_by_indicator.setdefault(item["indicator_id"], item)
-
-    return {
-        "self_observations": self_rev_data.get("observations") if self_rev_data else None,
-        "self_final_score": self_rev_data.get("final_score") if self_rev_data else None,
-        "self_scores": self_scores,
-        "calibration_items_by_indicator": calib_items_by_indicator,
-        "calibration_notes": calibration_notes,
-        "was_calibrated": bool(calibs),
-    }
 
 # ── Avaliação por token ────────────────────────────────────────────────────────
 
@@ -278,64 +220,10 @@ def get_ciencia_form(token: str, request: Request) -> dict:
         if datetime.now(tz=timezone.utc) > expires:
             raise HTTPException(400, detail="Este link expirou. Entre em contato com o RH.")
 
-    review = db.table("performance_reviews").select("*").eq("id", at["review_id"]).execute()
-    if not review.data:
+    payload = build_ciencia_payload(db, at["review_id"])
+    if payload is None:
         raise HTTPException(404, detail="Avaliação não encontrada.")
-    rev = review.data[0]
-
-    employee = db.table("performance_employees").select("name").eq("id", at["employee_id"]).execute()
-    evaluator = db.table("performance_employees").select("name").eq("id", rev.get("evaluator_id")).execute()
-    cycle = db.table("performance_cycles").select("name").eq("id", rev["cycle_id"]).execute()
-
-    # Buscar scores por indicador (inclui justificativa para notas extremas)
-    scores_raw = db.table("performance_indicator_scores").select("*, performance_indicators(name,description)").eq("review_id", rev["id"]).execute().data
-    extras = _build_ciencia_extras(db, rev)
-    self_scores = extras["self_scores"]
-    calib_by_indicator = extras["calibration_items_by_indicator"]
-    indicator_scores = []
-    for s in scores_raw:
-        ind = s.get("performance_indicators", {}) or {}
-        self_s = self_scores.get(s["indicator_id"])
-        calib = calib_by_indicator.get(s["indicator_id"])
-        indicator_scores.append({
-            "indicator_id": s["indicator_id"],
-            "indicator_name": ind.get("name", ""),
-            "indicator_description": ind.get("description", ""),
-            "score": s["score"],
-            "justification": s.get("justification"),
-            "self_score": self_s["score"] if self_s else None,
-            "self_justification": self_s.get("justification") if self_s else None,
-            "calibrated_score": calib["new_score"] if calib else None,
-            "calibrated_justification": calib.get("justification") if calib else None,
-        })
-
-    # Verificar se já deu ciência
-    existing_ack = db.table("performance_review_acknowledgments").select("*").eq("review_id", rev["id"]).eq("employee_id", at["employee_id"]).execute()
-    already_acknowledged = bool(existing_ack.data)
-    acknowledged_at = existing_ack.data[0]["acknowledged_at"] if already_acknowledged else None
-
-    # Buscar empresa do colaborador para branding correto no frontend
-    company_name = ""
-    emp_full = db.table("performance_employees").select("company_id").eq("id", at["employee_id"]).execute()
-    if emp_full.data and emp_full.data[0].get("company_id"):
-        co = db.table("performance_companies").select("name").eq("id", emp_full.data[0]["company_id"]).execute()
-        company_name = co.data[0]["name"] if co.data else ""
-
-    return {
-        "employee_name": employee.data[0]["name"] if employee.data else "",
-        "evaluator_name": evaluator.data[0]["name"] if evaluator.data else "",
-        "cycle_name": cycle.data[0]["name"] if cycle.data else "",
-        "final_score": rev.get("final_score"),
-        "observations": rev.get("observations"),
-        "indicator_scores": indicator_scores,
-        "already_acknowledged": already_acknowledged,
-        "acknowledged_at": acknowledged_at,
-        "company_name": company_name,
-        "self_final_score": extras["self_final_score"],
-        "self_observations": extras["self_observations"],
-        "was_calibrated": extras["was_calibrated"],
-        "calibration_notes": extras["calibration_notes"],
-    }
+    return payload
 
 class AcknowledgeBody(BaseModel):
     feedback_received: bool
@@ -448,54 +336,12 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
 
     rev = review.data[0]
 
-    existing_ack = db.table("performance_review_acknowledgments").select("*").eq("review_id", rev["id"]).eq("employee_id", employee["id"]).execute()
-    already_acknowledged = bool(existing_ack.data)
-    acknowledged_at_val = existing_ack.data[0].get("acknowledged_at") if already_acknowledged else None
-
-    evaluator = db.table("performance_employees").select("name").eq("id", rev.get("evaluator_id")).execute()
-    scores_raw = db.table("performance_indicator_scores").select("*, performance_indicators(name,description)").eq("review_id", rev["id"]).execute().data
-
-    extras = _build_ciencia_extras(db, rev)
-    self_scores = extras["self_scores"]
-    calib_by_indicator = extras["calibration_items_by_indicator"]
-    indicator_scores = []
-    for s in scores_raw:
-        ind = s.get("performance_indicators") or {}
-        self_s = self_scores.get(s["indicator_id"])
-        calib = calib_by_indicator.get(s["indicator_id"])
-        indicator_scores.append({
-            "indicator_id": s["indicator_id"],
-            "indicator_name": ind.get("name", ""),
-            "score": s["score"],
-            "justification": s.get("justification"),
-            "self_score": self_s["score"] if self_s else None,
-            "self_justification": self_s.get("justification") if self_s else None,
-            "calibrated_score": calib["new_score"] if calib else None,
-            "calibrated_justification": calib.get("justification") if calib else None,
-        })
-
-    company_name = ""
-    if employee.get("company_id"):
-        co = db.table("performance_companies").select("name").eq("id", employee["company_id"]).execute()
-        company_name = co.data[0]["name"] if co.data else ""
-
-    # Retorna resultado completo em ambos os casos (confirmado ou não)
-    # O frontend decide se mostra ou oculta o botão de ciência
+    payload = build_ciencia_payload(db, rev["id"])
+    if payload is None:
+        raise HTTPException(404, detail="Avaliação não encontrada.")
     return {
-        "already_acknowledged": already_acknowledged,
-        "acknowledged_at": acknowledged_at_val,
         "review_id": rev["id"],
-        "employee_name": employee["name"],
-        "evaluator_name": evaluator.data[0]["name"] if evaluator.data else "",
-        "cycle_name": cycle["name"],
-        "final_score": rev.get("final_score"),
-        "observations": rev.get("observations"),
-        "indicator_scores": indicator_scores,
-        "company_name": company_name,
-        "self_final_score": extras["self_final_score"],
-        "self_observations": extras["self_observations"],
-        "was_calibrated": extras["was_calibrated"],
-        "calibration_notes": extras["calibration_notes"],
+        **payload,
     }
 
 
