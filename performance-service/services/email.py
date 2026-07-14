@@ -1,11 +1,21 @@
 import logging
 import smtplib
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from db import get_settings
 
 _logger = logging.getLogger(__name__)
+
+# Erros transientes de rede/conexão — retenta. Auth/destinatário inválido falha rápido.
+_TRANSIENT_SMTP_ERRORS = (
+    TimeoutError,
+    ConnectionError,
+    smtplib.SMTPServerDisconnected,
+    smtplib.SMTPConnectError,
+    smtplib.SMTPHeloError,
+)
 
 # ── Brand — Grupo Voetur ──────────────────────────────────────────────────────
 _BRAND_GREEN = "#00694E"   # cor primária exata do logo Grupo Voetur
@@ -180,13 +190,27 @@ def send_email(to_email: str, display_name: str, subject: str, html: str) -> boo
         msg.attach(MIMEText(plain, "plain", "utf-8"))
         msg.attach(MIMEText(html,  "html",  "utf-8"))
 
-        with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as server:
-            server.starttls()
-            server.ehlo()
-            server.login(s.smtp_user, s.smtp_password)
-            server.sendmail(msg["From"], [to_email], msg.as_string())
-        _logger.info("Email sent to %s: %s", to_email, subject)
-        return True
+        # Falhas transientes de conexão/timeout com o SMTP (comuns logo após restart
+        # de container, ou throttling passageiro do Office 365) — retenta 3x com backoff.
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as server:
+                    server.starttls()
+                    server.ehlo()
+                    server.login(s.smtp_user, s.smtp_password)
+                    server.sendmail(msg["From"], [to_email], msg.as_string())
+                _logger.info("Email sent to %s: %s", to_email, subject)
+                return True
+            except _TRANSIENT_SMTP_ERRORS as exc:
+                if attempt == max_attempts - 1:
+                    raise
+                delay = 3.0 * (2 ** attempt)
+                _logger.warning(
+                    "Tentativa %d/%d de envio para %s falhou (%s: %s). Retry em %.0fs...",
+                    attempt + 1, max_attempts, to_email, type(exc).__name__, exc, delay,
+                )
+                time.sleep(delay)
     except Exception as exc:
         _logger.error("Failed to send email to %s: %s", to_email, exc)
         return False
