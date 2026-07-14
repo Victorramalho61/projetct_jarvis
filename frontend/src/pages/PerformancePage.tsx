@@ -2096,10 +2096,13 @@ function TabCiclo({ companies }: { companies: any[] }) {
       {/* ── Lista unificada: Avaliações + Auto-Avaliações ────────────────────── */}
       {(tokens.length > 0 || selfEvalTokens.length > 0) && (() => {
         // Monta lista única: union de employee_ids de ambas as listas
+        // API retorna ordenado do mais novo pro mais antigo (created_at desc) — mantém
+        // só a primeira ocorrência de cada colaborador (a mais recente), evitando que um
+        // token antigo/invalidado sobrescreva o token atual válido.
         const evalByEmp: Record<string, any> = {};
-        tokens.forEach(t => { evalByEmp[t.employee_id] = t; });
+        tokens.forEach(t => { if (!evalByEmp[t.employee_id]) evalByEmp[t.employee_id] = t; });
         const selfByEmp: Record<string, any> = {};
-        selfEvalTokens.forEach(st => { selfByEmp[st.employee_id] = st; });
+        selfEvalTokens.forEach(st => { if (!selfByEmp[st.employee_id]) selfByEmp[st.employee_id] = st; });
         const allEmpIds = Array.from(new Set([
           ...Object.keys(evalByEmp),
           ...Object.keys(selfByEmp),
@@ -2118,10 +2121,10 @@ function TabCiclo({ companies }: { companies: any[] }) {
               <div className="flex items-center gap-3">
                 <span className="text-xs text-gray-400">{rows.length} colaborador{rows.length !== 1 ? "es" : ""}</span>
                 <span className="text-xs text-[#00694E] font-semibold">
-                  {tokens.filter(t => t.status === "completed").length}/{tokens.length} aval.
+                  {Object.values(evalByEmp).filter((t: any) => t.status === "completed").length}/{Object.keys(evalByEmp).length} aval.
                 </span>
                 <span className="text-xs text-violet-600 font-semibold">
-                  {selfEvalTokens.filter(st => st.status === "completed").length}/{selfEvalTokens.length} auto-aval.
+                  {Object.values(selfByEmp).filter((st: any) => st.status === "completed").length}/{Object.keys(selfByEmp).length} auto-aval.
                 </span>
               </div>
             </div>
