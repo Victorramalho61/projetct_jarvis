@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     sql_server_user: str = ""
     sql_server_password: str = ""
     sql_server_driver: str = "ODBC Driver 17 for SQL Server"
+    postgres_direct_url: str = ""
     smtp_host: str = "smtp.office365.com"
     smtp_port: int = 587
     smtp_user: str = ""

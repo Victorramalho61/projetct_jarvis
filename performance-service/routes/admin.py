@@ -46,12 +46,13 @@ def _cache_invalidate_prefix(prefix: str) -> None:
 # ── Level mapping ──────────────────────────────────────────────────────────────
 
 _LEVEL_MAP = {
+    "diretoria": 4,
     "gerente": 1,
     "coordenador_supervisor": 2,
     "administrativo": 3,
     "operacional": 3,
 }
-_PERFIS_VALIDOS = {"gerente", "coordenador_supervisor", "administrativo", "operacional"}
+_PERFIS_VALIDOS = {"diretoria", "gerente", "coordenador_supervisor", "administrativo", "operacional"}
 # Sem legado "administrativo_operacional" — todos os colaboradores já foram migrados
 
 
@@ -59,7 +60,9 @@ def _emp_out(e: dict) -> dict:
     out = dict(e)
     hl = e.get("hierarchy_level") or 3
     perfil = e.get("perfil") or ""
-    if hl == 1:
+    if hl == 4:
+        out["level"] = "diretoria"
+    elif hl == 1:
         out["level"] = "gerente"
     elif hl == 2:
         out["level"] = "coordenador_supervisor"
@@ -228,11 +231,11 @@ def dashboard_pending_evaluators(
     if not cycle_id:
         return []
 
-    # Employees that should be evaluated (L2 + L3)
+    # Employees that should be evaluated (L1 Gerente + L2 + L3 — L4 Diretoria não é avaliada)
     emp_q = (
         db.table("performance_employees")
         .select("id,name,cargo,manager_id")
-        .in_("hierarchy_level", [2, 3])
+        .in_("hierarchy_level", [1, 2, 3])
         .eq("active", True)
     )
     if company_id:
@@ -318,10 +321,10 @@ def dashboard_pending_self_eval(
         .data
     }
 
-    _PERFIL_LABEL = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
+    _PERFIL_LABEL = {"diretoria": "Diretoria", "gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                      "administrativo": "Administrativo", "operacional": "Operacional",
                      }
-    _HLEVEL_LABEL = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    _HLEVEL_LABEL = {4: "Diretoria", 1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
     def _level_str(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL.get(p) or _HLEVEL_LABEL.get(emp_data.get("hierarchy_level"), "")
@@ -452,10 +455,10 @@ def dashboard_export(
     for cell in ws2[1]:
         header_style(cell)
 
-    _PERFIL_LABEL_XLS = {"gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
+    _PERFIL_LABEL_XLS = {"diretoria": "Diretoria", "gerente": "Gerente", "coordenador_supervisor": "Coord./Supervisor",
                          "administrativo": "Administrativo", "operacional": "Operacional",
                          }
-    _HLEVEL_LABEL_XLS = {1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
+    _HLEVEL_LABEL_XLS = {4: "Diretoria", 1: "Gerente", 2: "Coord./Supervisor", 3: "Adm./Operacional"}
     def _emp_level_label(emp_data: dict) -> str:
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL_XLS.get(p) or _HLEVEL_LABEL_XLS.get(emp_data.get("hierarchy_level"), "")
@@ -779,6 +782,45 @@ def update_branch(
     return branch
 
 
+@router.post("/migrations/diretoria-level")
+def migrate_add_diretoria_level(
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """Migração única: amplia o CHECK de hierarchy_level de (1,2,3) para (1,2,3,4) — nível Diretoria.
+    Idempotente: se o constraint já permitir 4, não faz nada."""
+    import psycopg2
+
+    url = get_settings().postgres_direct_url
+    if not url:
+        raise HTTPException(500, detail="POSTGRES_DIRECT_URL não configurado")
+
+    conn = psycopg2.connect(url, connect_timeout=10)
+    try:
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT conname, pg_get_constraintdef(oid)
+            FROM pg_constraint
+            WHERE conrelid = 'performance_employees'::regclass
+              AND contype = 'c'
+              AND pg_get_constraintdef(oid) ILIKE '%hierarchy_level%'
+        """)
+        rows = cur.fetchall()
+        if not rows:
+            raise HTTPException(500, detail="Constraint de hierarchy_level não encontrado")
+        conname, condef = rows[0]
+        if "4" in condef:
+            return {"status": "já aplicado", "constraint": conname, "def": condef}
+        cur.execute(f'ALTER TABLE performance_employees DROP CONSTRAINT "{conname}"')
+        cur.execute(
+            "ALTER TABLE performance_employees ADD CONSTRAINT performance_employees_hierarchy_level_check "
+            "CHECK (hierarchy_level IN (1, 2, 3, 4))"
+        )
+        return {"status": "aplicado", "constraint_anterior": condef}
+    finally:
+        conn.close()
+
+
 @router.get("/employees/template")
 def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     try:
@@ -829,7 +871,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     yn_col = all_col + 2
     ws_lists.cell(row=1, column=lv_col).value = "Nível Hierárquico"
     ws_lists.cell(row=1, column=lv_col).font = Font(bold=True)
-    for i, lv in enumerate(["Gerente", "Coordenador-Supervisor", "Administrativo", "Operacional"], 2):
+    for i, lv in enumerate(["Diretoria", "Gerente", "Coordenador-Supervisor", "Administrativo", "Operacional"], 2):
         ws_lists.cell(row=i, column=lv_col).value = lv
     ws_lists.cell(row=1, column=yn_col).value = "Tem E-mail"
     ws_lists.cell(row=1, column=yn_col).font = Font(bold=True)
@@ -855,7 +897,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
         ("C", "Gerência",                 "Obrigatório — nome da área. Ex: 'Gerência de Recursos Humanos'"),
         ("D", "Nome Completo",            "Obrigatório — sem abreviações. Mín. 2 palavras com 3+ letras."),
         ("E", "Cargo",                    "Obrigatório — cargo do colaborador. Ex: 'Analista de RH Pleno'"),
-        ("F", "Nível Hierárquico",        "Obrigatório — selecione da lista: Gerente / Coordenador-Supervisor / Administrativo / Operacional"),
+        ("F", "Nível Hierárquico",        "Obrigatório — selecione da lista: Diretoria / Gerente / Coordenador-Supervisor / Administrativo / Operacional"),
         ("G", "E-mail Corporativo",       "Obrigatório se Tem E-mail = Sim; deixe em branco se Não."),
         ("H", "Tem E-mail Corporativo?",  "Obrigatório — Sim ou Não."),
         ("I", "CPF",                      "Obrigatório se Tem E-mail = Não. 11 dígitos numéricos sem pontos/traços. Ex: 12345678901"),
@@ -941,7 +983,7 @@ def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     dv_filial = DataValidation(type="list", formula1=f"={all_branches_ref}", allow_blank=False, showErrorMessage=True,
                                errorTitle="Filial inválida", error="Selecione uma filial da lista. O nome deve ser idêntico ao sistema.")
     dv_nivel = DataValidation(type="list", formula1=f"={level_ref}", allow_blank=False, showErrorMessage=True,
-                              errorTitle="Nível inválido", error="Use: Gerente, Coordenador-Supervisor, Administrativo ou Operacional")
+                              errorTitle="Nível inválido", error="Use: Diretoria, Gerente, Coordenador-Supervisor, Administrativo ou Operacional")
     dv_email = DataValidation(type="list", formula1=f"={yn_ref}", allow_blank=False)
     ws_data.add_data_validation(dv_empresa)
     ws_data.add_data_validation(dv_filial)
@@ -1215,12 +1257,14 @@ async def import_employees(
         if e.get("cpf")
     }
     NIVEL_MAP = {
+        "diretoria": 4,
         "gerente": 1,
         "coordenador-supervisor": 2,
         "administrativo": 3,
         "operacional": 3,
     }
     NIVEL_PERFIL = {
+        "diretoria": "diretoria",
         "gerente": "gerente",
         "coordenador-supervisor": "coordenador_supervisor",
         "administrativo": "administrativo",
@@ -1281,7 +1325,7 @@ async def import_employees(
         hierarchy_level = NIVEL_MAP.get(nivel_key)
         nivel_perfil = NIVEL_PERFIL.get(nivel_key, "administrativo_operacional")
         if hierarchy_level is None:
-            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido. Use: Gerente / Coordenador-Supervisor / Administrativo / Operacional"})
+            row_errors.append({"linha": row_idx, "campo": "Nível Hierárquico", "erro": f"Nível '{nivel_str}' inválido. Use: Diretoria / Gerente / Coordenador-Supervisor / Administrativo / Operacional"})
 
         # E-mail
         tem_email = tem_email_str.lower() in ("sim", "s", "yes")
@@ -1540,11 +1584,11 @@ def send_tokens_current_cycle(
     if not cycle or cycle["status"] != "open":
         raise HTTPException(400, detail="O ciclo precisa estar aberto para enviar tokens")
 
-    # Buscar colaboradores a serem avaliados: L2 e L3 (Gerentes não são avaliados)
+    # Buscar colaboradores a serem avaliados: L1 (Gerente), L2 e L3 (Diretoria L4 não é avaliada)
     employees_to_eval = (
         db.table("performance_employees")
         .select("id,name,cargo,email,has_corporate_email,hierarchy_level,manager_id,branch_id,company_id")
-        .in_("hierarchy_level", [2, 3])
+        .in_("hierarchy_level", [1, 2, 3])
         .eq("active", True)
         .execute()
         .data
@@ -2105,7 +2149,7 @@ def export_evaluations(
                     "acknowledged": "Ciência Dada"}
 
     if cycle:
-        # Usa list_evaluations para ter dados completos (inclui todos L2+L3)
+        # Usa list_evaluations para ter dados completos (inclui todos L1+L2+L3)
         from routes.admin import list_evaluations as _le  # noqa — import circular evitado com alias
         # Chama diretamente a lógica de list_evaluations
         reviews_raw = (
@@ -2115,7 +2159,7 @@ def export_evaluations(
         base_emps = (
             db.table("performance_employees")
             .select("id,name,cargo,company_id,has_corporate_email,hierarchy_level,perfil")
-            .in_("hierarchy_level", [2, 3]).eq("active", True).execute().data
+            .in_("hierarchy_level", [1, 2, 3]).eq("active", True).execute().data
         )
         emp_map2 = {e["id"]: e for e in base_emps}
         rev_by_emp = {r["employee_id"]: r for r in reviews_raw if r.get("employee_id")}
@@ -2191,11 +2235,11 @@ def list_evaluations(
     is_management_view = current_cycle is not None and cycle["id"] == current_cycle["id"]
 
     if is_management_view:
-        # ── Gestão ativa: TODOS os ativos L2+L3 (aparecem mesmo sem token/review) ──
+        # ── Gestão ativa: TODOS os ativos L1+L2+L3 (aparecem mesmo sem token/review; L4 Diretoria não é avaliada) ──
         base_emps_raw = (
             db.table("performance_employees")
             .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
-            .in_("hierarchy_level", [2, 3])
+            .in_("hierarchy_level", [1, 2, 3])
             .eq("active", True)
             .execute()
             .data

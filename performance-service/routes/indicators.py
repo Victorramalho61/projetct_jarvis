@@ -13,7 +13,7 @@ _RH_ADMIN = ("admin", "rh")
 class IndicatorCreate(BaseModel):
     name: str
     description: str | None = None
-    hierarchy_level: int | None = None  # 1=Gerente, 2=Coord/Sup, 3=Admin/Oper; None=todos
+    hierarchy_level: int | None = None  # 1=Gerente, 2=Coord/Sup, 3=Admin/Oper, 4=Diretoria; None=todos
     perfil: str = ""  # "administrativo" | "operacional" | "" (todos do nível)
 
 class IndicatorUpdate(BaseModel):

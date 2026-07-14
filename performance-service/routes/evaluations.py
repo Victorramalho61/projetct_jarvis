@@ -195,10 +195,10 @@ def send_tokens(
     frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
     cycle_name = cycle.data[0]["name"]
 
-    # Buscar avaliadores: hierarchy_level 1 (Gerente) e 2 (Coordenador-Supervisor)
+    # Buscar avaliadores: hierarchy_level 1 (Gerente), 2 (Coordenador-Supervisor) e 4 (Diretoria)
     query = db.table("performance_employees").select(
         "*, performance_branches(name), performance_companies(name)"
-    ).in_("hierarchy_level", [1, 2]).eq("active", True)
+    ).in_("hierarchy_level", [1, 2, 4]).eq("active", True)
 
     if body.company_id:
         query = query.eq("company_id", body.company_id)

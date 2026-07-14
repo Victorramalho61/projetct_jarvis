@@ -381,8 +381,8 @@ function TabDashboard({ companies }: { companies: any[] }) {
 
 type Indicator = { id: string; name: string; description?: string; active: boolean; hierarchy_level?: number | null; perfil?: string };
 
-const IND_LEVEL_LABELS: Record<number, string> = { 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3" };
-const IND_LEVEL_COLORS: Record<number, string> = { 1: "violet", 2: "blue", 3: "green" };
+const IND_LEVEL_LABELS: Record<number, string> = { 4: "N4 — Diretoria", 1: "N1 — Gerente", 2: "N2 — Coord./Supervisor", 3: "N3" };
+const IND_LEVEL_COLORS: Record<number, string> = { 4: "amber", 1: "violet", 2: "blue", 3: "green" };
 
 function TabIndicadores() {
   const { token } = useAuth();
@@ -524,6 +524,7 @@ function TabIndicadores() {
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, hierarchy_level: e.target.value ? Number(e.target.value) : null } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Selecione o nível</option>
+              <option value="4">N4 — Diretoria</option>
               <option value="1">N1 — Gerente (Estratégico)</option>
               <option value="2">N2 — Coordenador/Supervisor (Tático)</option>
               <option value="3">N3 — Administrativo</option>
@@ -584,6 +585,7 @@ type Employee = {
 };
 
 const LEVEL_LABELS: Record<string, string> = {
+  diretoria: "Diretoria",
   gerente: "Gerente",
   coordenador_supervisor: "Coord./Supervisor",
   administrativo: "Administrativo",
@@ -634,7 +636,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   useEffect(() => {
     if (!modal.open) return;
     apiFetch<any[]>(`/api/performance/admin/employees`, { token })
-      .then(emps => setModalManagers((emps || []).filter((e: any) => e.level === "gerente" || e.level === "coordenador_supervisor")))
+      .then(emps => setModalManagers((emps || []).filter((e: any) => e.level === "diretoria" || e.level === "gerente" || e.level === "coordenador_supervisor")))
       .catch(() => setModalManagers([]));
   }, [modal.open, token]);
 
@@ -660,7 +662,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   const levelFiltered = selLevel ? employees.filter(e => e.level === selLevel) : employees;
   const relevantMgrIds = new Set(levelFiltered.map(e => (e as any).manager_id).filter(Boolean));
   const managers = employees.filter(
-    e => (e.level === "gerente" || e.level === "coordenador_supervisor") && relevantMgrIds.has(e.id)
+    e => (e.level === "diretoria" || e.level === "gerente" || e.level === "coordenador_supervisor") && relevantMgrIds.has(e.id)
   );
   const filteredEmployees = employees.filter(e => {
     if (selLevel && e.level !== selLevel) return false;
@@ -782,6 +784,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           <select value={selLevel} onChange={e => setSelLevel(e.target.value)}
             className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
             <option value="">Todos os níveis</option>
+            <option value="diretoria">Diretoria</option>
             <option value="gerente">Gerente</option>
             <option value="coordenador_supervisor">Coordenador / Supervisor</option>
             <option value="administrativo">Administrativo</option>
@@ -923,6 +926,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <select value={modal.item?.level ?? "administrativo"}
               onChange={e => setModal(m => ({ ...m, item: { ...m.item!, level: e.target.value } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
+              <option value="diretoria">Diretoria</option>
               <option value="gerente">Gerente</option>
               <option value="coordenador_supervisor">Coordenador / Supervisor</option>
               <option value="administrativo">Administrativo</option>
