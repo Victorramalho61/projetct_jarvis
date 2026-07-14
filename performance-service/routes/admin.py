@@ -715,6 +715,70 @@ def create_branch(
     return branch
 
 
+class CompanyRenameBody(BaseModel):
+    name: str
+
+
+@router.put("/companies/{company_id}")
+def rename_company(
+    company_id: str,
+    body: CompanyRenameBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(400, detail="Nome é obrigatório")
+    db = get_supabase()
+    existing = db.table("performance_companies").select("*").eq("id", company_id).execute()
+    if not existing.data:
+        raise HTTPException(404, detail="Empresa não encontrada")
+    old = existing.data[0]
+    result = db.table("performance_companies").update({"name": name}).eq("id", company_id).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao renomear empresa")
+    _cache_invalidate_prefix("companies")
+    company = result.data[0]
+    log_action("company", company_id, "rename", old, company, current_user["username"], request)
+    return company
+
+
+class BranchUpdateBody(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+
+
+@router.put("/branches/{branch_id}")
+def update_branch(
+    branch_id: str,
+    body: BranchUpdateBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    db = get_supabase()
+    existing = db.table("performance_branches").select("*").eq("id", branch_id).execute()
+    if not existing.data:
+        raise HTTPException(404, detail="Filial não encontrada")
+    old = existing.data[0]
+    updates: dict[str, Any] = {}
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, detail="Nome não pode ser vazio")
+        updates["name"] = name
+    if body.active is not None:
+        updates["active"] = body.active
+    if not updates:
+        raise HTTPException(400, detail="Nada para atualizar")
+    result = db.table("performance_branches").update(updates).eq("id", branch_id).execute()
+    if not result.data:
+        raise HTTPException(500, detail="Erro ao atualizar filial")
+    _cache_invalidate_prefix("branches")
+    branch = result.data[0]
+    log_action("branch", branch_id, "update", old, branch, current_user["username"], request)
+    return branch
+
+
 @router.get("/employees/template")
 def download_template(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]):
     try:

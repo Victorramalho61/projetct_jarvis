@@ -664,7 +664,8 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   );
   const filteredEmployees = employees.filter(e => {
     if (selLevel && e.level !== selLevel) return false;
-    if (selManager && (e as any).manager_id !== selManager) return false;
+    if (selManager === "__no_manager__" && (e as any).manager_id) return false;
+    if (selManager && selManager !== "__no_manager__" && (e as any).manager_id !== selManager) return false;
     return true;
   });
 
@@ -787,10 +788,11 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <option value="operacional">Operacional</option>
           </select>
         )}
-        {managers.length > 0 && (
+        {employees.length > 0 && (
           <select value={selManager} onChange={e => setSelManager(e.target.value)}
             className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
             <option value="">Todos os gestores</option>
+            <option value="__no_manager__">Sem gestor</option>
             {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         )}
