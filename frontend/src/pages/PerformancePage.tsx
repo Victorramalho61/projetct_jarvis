@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
+import { ResultPanel } from "../components/CienciaResultPanel";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -86,6 +87,49 @@ function ModalWrapper({ open, onClose, title, children }: { open: boolean; onClo
           <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 transition-all">✕</button>
         </div>
         <div className="p-5">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+// Ver Ciência pro RH — mesma tela que o colaborador vê ao dar ciência, sem precisar do link/token.
+function CienciaViewModal({ reviewId, onClose, token }: { reviewId: string | null; onClose: () => void; token: string | null }) {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (!reviewId) return;
+    setData(null); setError(""); setLoading(true);
+    apiFetch<any>(`/api/performance/admin/evaluations/${reviewId}/ciencia-view`, { token })
+      .then(setData)
+      .catch((e: any) => setError(e?.message || "Erro ao carregar ciência."))
+      .finally(() => setLoading(false));
+  }, [reviewId, token]);
+
+  if (!reviewId) return null;
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+      <div className="bg-gray-100 dark:bg-gray-950 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5">
+        <div className="flex items-center justify-end mb-2">
+          <button onClick={onClose} className="h-8 w-8 grid place-items-center rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 transition-all">✕</button>
+        </div>
+        {loading && (
+          <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
+        )}
+        {error && !loading && (
+          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 text-sm text-red-700 dark:text-red-300">{error}</div>
+        )}
+        {data && !loading && (
+          <ResultPanel
+            data={data}
+            primaryBg="bg-[#00694E]"
+            primaryText="text-[#00694E]"
+            primaryBorder="border-[#00694E]"
+            acknowledged={data.already_acknowledged}
+            acknowledgedAt={data.acknowledged_at}
+          />
+        )}
       </div>
     </div>
   );
@@ -996,6 +1040,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
   // Ver Avaliação (leitura — gestor + auto-aval)
   const [viewModal, setViewModal] = useState<{ open: boolean; item: any | null }>({ open: false, item: null });
+  const [cienciaViewId, setCienciaViewId] = useState<string | null>(null);
   const [viewDetail, setViewDetail] = useState<any>(null);
   const [viewDetailLoading, setViewDetailLoading] = useState(false);
   const [viewDetailNotFound, setViewDetailNotFound] = useState(false);
@@ -1233,7 +1278,13 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                   <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{ev.evaluator_name}</td>
-                    <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">{ev.final_score != null ? ev.final_score.toFixed(2) : "—"}</td>
+                    <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">
+                      {ev.nota_final_combinada != null
+                        ? ev.nota_final_combinada.toFixed(2)
+                        : ev.final_score != null
+                        ? <span title="Nota parcial — falta auto-avaliação">{ev.final_score.toFixed(2)}*</span>
+                        : "—"}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge color={ev.status === "completed" ? "blue" : "gray"}>
                         {ev.status === "completed" ? "Avaliado" : "Pendente"}
@@ -1249,6 +1300,10 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                     <td className="px-4 py-3 whitespace-nowrap">
                       {ev.calibrated
                         ? <Badge color="violet">🎯 Calibrado</Badge>
+                        : ev.adherence_pct != null
+                        ? (ev.calibragem_necessaria
+                            ? <Badge color="amber">⚠️ Calibrar ({ev.adherence_pct}%)</Badge>
+                            : <Badge color="green">✅ Não necessária ({ev.adherence_pct}%)</Badge>)
                         : <Badge color="gray">—</Badge>}
                       {ev.calibrated && ev.calibrated_at && (
                         <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
@@ -1273,6 +1328,14 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                           className="text-xs font-semibold px-2.5 py-1 rounded bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 transition-all">
                           👁️ Ver
                         </button>
+                        {/* Ver Ciência */}
+                        {ev.id && (
+                          <button onClick={() => setCienciaViewId(ev.id)}
+                            title="Ver ciência (notas, calibragem e comentários) sem precisar do link do colaborador"
+                            className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
+                            📄 Ciência
+                          </button>
+                        )}
                         {/* Calibrar */}
                         <button
                           onClick={() => ev.id ? openCalib(ev) : alert("Avaliação do gestor ainda não foi submetida.")}
@@ -1333,13 +1396,15 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       )}
 
       {/* ── Modal Ver Avaliação (leitura — gestor + auto-aval) ── */}
+      <CienciaViewModal reviewId={cienciaViewId} onClose={() => setCienciaViewId(null)} token={token} />
+
       <ModalWrapper open={viewModal.open} onClose={() => setViewModal({ open: false, item: null })} title={`Avaliação — ${viewModal.item?.employee_name ?? ""}`}>
         {viewDetailLoading ? (
           <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : viewDetail ? (
           <div className="space-y-5">
             {/* Cabeçalho resumo */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
               <div className="bg-gray-50 dark:bg-gray-700/40 rounded-lg p-2.5">
                 <p className="text-xs text-gray-400 mb-0.5">Colaborador</p>
                 <p className="font-semibold text-gray-800 dark:text-gray-100 text-xs leading-tight">{viewDetail.employee?.name ?? "—"}</p>
@@ -1355,6 +1420,10 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               <div className="bg-violet-50 dark:bg-violet-900/20 rounded-lg p-2.5">
                 <p className="text-xs text-violet-500 dark:text-violet-400 mb-0.5">Nota Auto-Aval.</p>
                 <p className="font-bold text-violet-700 dark:text-violet-300 text-lg">{viewDetail.self_eval?.final_score != null ? Number(viewDetail.self_eval.final_score).toFixed(2) : "—"}</p>
+              </div>
+              <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-2.5">
+                <p className="text-xs text-blue-500 dark:text-blue-400 mb-0.5">Nota Final (média)</p>
+                <p className="font-bold text-blue-700 dark:text-blue-300 text-lg">{viewDetail.nota_final_combinada != null ? Number(viewDetail.nota_final_combinada).toFixed(2) : "—"}</p>
               </div>
             </div>
 
@@ -1376,6 +1445,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                   <div>
                     <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${cfg.badge}`}>{cfg.icon} {cfg.labelText}</span>
                     <p className="text-xs text-gray-400 mt-1">Fórmula: (menor nota ÷ maior nota) × 100</p>
+                    {!(viewDetail.calibration_history?.length > 0) && (
+                      viewDetail.calibragem_necessaria
+                        ? <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-1">⚠️ Calibragem manual recomendada (aderência ≤50%)</p>
+                        : <p className="text-xs font-semibold text-green-600 dark:text-green-400 mt-1">✅ Calibragem não necessária (aderência ≥51%)</p>
+                    )}
                   </div>
                 </div>
               );
@@ -1752,6 +1826,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
   const [sending,    setSending]    = useState(false);
   const [sendResult, setSendResult] = useState<{ estimated: number; no_email: number; created: number } | null>(null);
   const [sendError,  setSendError]  = useState("");
+  const [cienciaViewId, setCienciaViewId] = useState<string | null>(null);
 
   // ── Estado do modal de envio de auto-avaliações ──────────────────────────────
   const [selfEvalModal,  setSelfEvalModal]  = useState(false);
@@ -1946,18 +2021,24 @@ function TabCiclo({ companies }: { companies: any[] }) {
               <table className="w-full min-w-[900px]">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Calibragem", "Ciência"].map(h => (
+                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Calibragem", "Ciência", "Ações"].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {historyList.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum colaborador avaliado neste ciclo.</td></tr>}
+                  {historyList.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum colaborador avaliado neste ciclo.</td></tr>}
                   {historyList.map(ev => (
                     <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{ev.evaluator_name}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">{ev.final_score != null ? ev.final_score.toFixed(2) : "—"}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">
+                        {ev.nota_final_combinada != null
+                          ? ev.nota_final_combinada.toFixed(2)
+                          : ev.final_score != null
+                          ? <span title="Nota parcial — falta auto-avaliação">{ev.final_score.toFixed(2)}*</span>
+                          : "—"}
+                      </td>
                       <td className="px-4 py-3">
                         <Badge color={ev.status === "completed" ? "blue" : "gray"}>{ev.status === "completed" ? "Avaliado" : "Pendente"}</Badge>
                       </td>
@@ -1969,7 +2050,13 @@ function TabCiclo({ companies }: { companies: any[] }) {
                           : <Badge color="red">Não enviada</Badge>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {ev.calibrated ? <Badge color="violet">🎯 Calibrado</Badge> : <Badge color="gray">—</Badge>}
+                        {ev.calibrated
+                          ? <Badge color="violet">🎯 Calibrado</Badge>
+                          : ev.adherence_pct != null
+                          ? (ev.calibragem_necessaria
+                              ? <Badge color="amber">⚠️ Calibrar ({ev.adherence_pct}%)</Badge>
+                              : <Badge color="green">✅ Não necessária ({ev.adherence_pct}%)</Badge>)
+                          : <Badge color="gray">—</Badge>}
                         {ev.calibrated && ev.calibrated_at && (
                           <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
                         )}
@@ -1981,6 +2068,15 @@ function TabCiclo({ companies }: { companies: any[] }) {
                             {new Date(ev.acknowledged_at).toLocaleString("pt-BR")}
                             {ev.acknowledged_via === "presencial" ? " · presencial" : ev.acknowledged_via === "email" ? " · e-mail" : ""}
                           </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {ev.id && (
+                          <button onClick={() => setCienciaViewId(ev.id)}
+                            title="Ver ciência (notas, calibragem e comentários) sem precisar do link do colaborador"
+                            className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
+                            📄 Ciência
+                          </button>
                         )}
                       </td>
                     </tr>
@@ -2324,6 +2420,8 @@ function TabCiclo({ companies }: { companies: any[] }) {
       </ModalWrapper>
 
       {/* ── Modal: Criar Ciclo ────────────────────────────────────────────────── */}
+      <CienciaViewModal reviewId={cienciaViewId} onClose={() => setCienciaViewId(null)} token={token} />
+
       <ModalWrapper open={createModal} onClose={() => setCreateModal(false)} title="Criar Novo Ciclo de Avaliação">
         <div className="space-y-4">
           <div>
