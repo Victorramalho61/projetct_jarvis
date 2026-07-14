@@ -1750,13 +1750,13 @@ function TabCiclo({ companies }: { companies: any[] }) {
   const [sendModal,  setSendModal]  = useState(false);
   const [sendTarget, setSendTarget] = useState<"all" | string>("all"); // "all" ou token_id
   const [sending,    setSending]    = useState(false);
-  const [sendResult, setSendResult] = useState<{ sent: number; no_email: number; created: number } | null>(null);
+  const [sendResult, setSendResult] = useState<{ estimated: number; no_email: number; created: number } | null>(null);
   const [sendError,  setSendError]  = useState("");
 
   // ── Estado do modal de envio de auto-avaliações ──────────────────────────────
   const [selfEvalModal,  setSelfEvalModal]  = useState(false);
   const [selfEvalSending, setSelfEvalSending] = useState(false);
-  const [selfEvalResult, setSelfEvalResult] = useState<{ sent: number; no_email: number; created: number } | null>(null);
+  const [selfEvalResult, setSelfEvalResult] = useState<{ estimated: number; no_email: number; created: number } | null>(null);
   const [selfEvalError,  setSelfEvalError]  = useState("");
   // Tokens de auto-avaliação
   const [selfEvalTokens, setSelfEvalTokens] = useState<any[]>([]);
@@ -1806,7 +1806,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
     setSelfEvalSending(true); setSelfEvalError("");
     try {
       const r = await apiFetch<any>("/api/performance/admin/cycle/send-self-evaluation-tokens", { token, method: "POST" });
-      setSelfEvalResult({ sent: r.sent_emails, no_email: r.no_email_count, created: r.tokens_created });
+      setSelfEvalResult({ estimated: r.destinatarios_estimados, no_email: r.no_email_count, created: r.tokens_criados });
       await loadSelfEvalTokens();
     } catch (e: any) {
       setSelfEvalError(e?.message || "Erro ao enviar auto-avaliações.");
@@ -1886,10 +1886,10 @@ function TabCiclo({ companies }: { companies: any[] }) {
     try {
       if (sendTarget === "all") {
         const r = await apiFetch<any>("/api/performance/admin/cycle/send-tokens", { token, method: "POST" });
-        setSendResult({ sent: r.sent_emails, no_email: r.no_email_count, created: r.tokens_created });
+        setSendResult({ estimated: r.destinatarios_estimados, no_email: r.no_email_count, created: r.tokens_criados });
       } else {
         await apiFetch(`/api/performance/admin/cycle/tokens/${sendTarget}/resend`, { token, method: "POST" });
-        setSendResult({ sent: 1, no_email: 0, created: 0 });
+        setSendResult({ estimated: 1, no_email: 0, created: 0 });
       }
       load();
     } catch (e: any) {
@@ -2297,9 +2297,12 @@ function TabCiclo({ companies }: { companies: any[] }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
                 </svg>
               </div>
-              <p className="text-3xl font-black text-green-700 dark:text-green-400">{sendResult.sent}</p>
+              <p className="text-3xl font-black text-green-700 dark:text-green-400">{sendResult.estimated}</p>
               <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-                e-mail{sendResult.sent !== 1 ? "s" : ""} enviado{sendResult.sent !== 1 ? "s" : ""} com sucesso
+                envio{sendResult.estimated !== 1 ? "s" : ""} iniciado{sendResult.estimated !== 1 ? "s" : ""} em segundo plano
+              </p>
+              <p className="text-xs text-green-600/70 dark:text-green-400/70 mt-1">
+                Os e-mails são enviados com pausa entre cada um (evita bloqueio do provedor) — confira o progresso na lista de formulários em instantes.
               </p>
             </div>
             {sendResult.no_email > 0 && (
@@ -2433,9 +2436,12 @@ function TabCiclo({ companies }: { companies: any[] }) {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <p className="text-3xl font-black text-violet-700 dark:text-violet-400">{selfEvalResult.sent}</p>
+              <p className="text-3xl font-black text-violet-700 dark:text-violet-400">{selfEvalResult.estimated}</p>
               <p className="text-sm text-violet-600 dark:text-violet-400 font-medium">
-                e-mail{selfEvalResult.sent !== 1 ? "s" : ""} enviado{selfEvalResult.sent !== 1 ? "s" : ""} com sucesso
+                envio{selfEvalResult.estimated !== 1 ? "s" : ""} iniciado{selfEvalResult.estimated !== 1 ? "s" : ""} em segundo plano
+              </p>
+              <p className="text-xs text-violet-600/70 dark:text-violet-400/70 mt-1">
+                Os envios são espaçados entre si (evita bloqueio do provedor) — confira o progresso na lista em instantes.
               </p>
             </div>
             {selfEvalResult.no_email > 0 && (

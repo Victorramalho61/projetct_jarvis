@@ -1,9 +1,10 @@
 import logging
+import time
 import uuid
 from datetime import date
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from auth import require_role
@@ -15,6 +16,31 @@ _logger = logging.getLogger(__name__)
 
 _PERF_ROLES = ("admin", "rh", "gerente", "coordenador_supervisor")
 _RH_ADMIN = ("admin", "rh")
+
+# Pausa entre envios em massa — evita rajada que o Office 365 trata como abuso e bloqueia.
+EMAIL_PACING_SECONDS = 1.5
+
+
+def _send_evaluation_tokens_background(to_send: list[dict], cycle_id: str, actor: str) -> None:
+    from services.email import send_evaluation_token_email
+
+    sent_emails = 0
+    for i, item in enumerate(to_send):
+        if i > 0:
+            time.sleep(EMAIL_PACING_SECONDS)
+        ok = send_evaluation_token_email(
+            evaluator_name=item["evaluator_name"], evaluator_email=item["evaluator_email"],
+            employee_name=item["employee_name"], employee_cargo=item["employee_cargo"],
+            company_name=item["company_name"], branch_name=item["branch_name"],
+            cycle_name=item["cycle_name"], token=item["token"], frontend_url=item["frontend_url"],
+        )
+        if ok:
+            sent_emails += 1
+    log_action(
+        "cycle", cycle_id, "send_tokens_background", None,
+        {"sent_emails": sent_emails, "total": len(to_send)},
+        actor, None,
+    )
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -182,6 +208,7 @@ def send_tokens(
     cycle_id: str,
     body: SendTokensBody,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
     db = get_supabase()
@@ -205,11 +232,9 @@ def send_tokens(
 
     evaluators = query.execute().data
 
-    sent_emails = 0
     no_email_count = 0
     tokens_created = 0
 
-    from services.email import send_evaluation_token_email
     from collections import defaultdict as _dd
 
     # Pre-fetch subordinados e tokens existentes para eliminar N+1 queries
@@ -232,17 +257,18 @@ def send_tokens(
         for _t in _tok_rows:
             _existing_tok_map[(_t["evaluator_id"], _t["employee_id"])] = _t["token"]
 
+    to_send: list[dict] = []
+
     for ev in evaluators:
         subs_list = _subs_by_mgr.get(ev["id"], [])
         if not subs_list:
             continue
-        subs = type("_R", (), {"data": subs_list})()
 
         branch_name  = ev.get("performance_branches",  {}).get("name", "") if isinstance(ev.get("performance_branches"),  dict) else ""
         company_name = ev.get("performance_companies", {}).get("name", "") if isinstance(ev.get("performance_companies"), dict) else ""
 
         # Um token por par (avaliador × subordinado) — formulário pré-vinculado
-        for emp in subs.data:
+        for emp in subs_list:
             _cached_tok = _existing_tok_map.get((ev["id"], emp["id"]))
             if _cached_tok:
                 token_value = _cached_tok
@@ -260,30 +286,32 @@ def send_tokens(
                     continue
                 tokens_created += 1
 
-            # Enviar e-mail apenas para avaliadores com e-mail corporativo
+            # Enviar e-mail apenas para avaliadores com e-mail corporativo — feito em
+            # background (com pacing) logo abaixo, pra não estourar limite do Office 365
+            # nem segurar a resposta HTTP em ciclos com muitos colaboradores.
             if ev.get("has_corporate_email") and ev.get("email"):
-                ok = send_evaluation_token_email(
-                    evaluator_name=ev["name"],
-                    evaluator_email=ev["email"],
-                    employee_name=emp["name"],
-                    employee_cargo=emp.get("cargo", ""),
-                    company_name=company_name,
-                    branch_name=branch_name,
-                    cycle_name=cycle_name,
-                    token=token_value,
-                    frontend_url=frontend_url,
-                )
-                if ok:
-                    sent_emails += 1
+                to_send.append({
+                    "evaluator_name": ev["name"], "evaluator_email": ev["email"],
+                    "employee_name": emp["name"], "employee_cargo": emp.get("cargo", ""),
+                    "company_name": company_name, "branch_name": branch_name,
+                    "cycle_name": cycle_name, "token": token_value, "frontend_url": frontend_url,
+                })
             else:
                 no_email_count += 1
 
+    background_tasks.add_task(_send_evaluation_tokens_background, to_send, cycle_id, current_user["username"])
+
     log_action(
         "cycle", cycle_id, "send_tokens", None,
-        {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created},
+        {"tokens_created": tokens_created, "destinatarios_estimados": len(to_send), "no_email_count": no_email_count},
         current_user["username"], request,
     )
-    return {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created}
+    return {
+        "status": "iniciado",
+        "tokens_criados": tokens_created,
+        "destinatarios_estimados": len(to_send),
+        "sem_email": no_email_count,
+    }
 
 
 @router.post("/cycles/{cycle_id}/resend-token/{evaluator_id}")

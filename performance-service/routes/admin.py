@@ -7,7 +7,7 @@ import uuid as uuid_mod
 from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -19,6 +19,9 @@ router = APIRouter(prefix="/api/performance/admin")
 _logger = logging.getLogger(__name__)
 
 _RH_ADMIN = ("admin", "rh")
+
+# Pausa entre envios em massa — evita rajada que o Office 365 trata como abuso e bloqueia.
+EMAIL_PACING_SECONDS = 1.5
 
 # ── Cache simples em memória (TTL 120 s) ───────────────────────────────────────
 # Evita repetir queries idênticas em acessos simultâneos ao dashboard.
@@ -1575,13 +1578,32 @@ def reopen_current_cycle(
     return {"ok": True, "status": "open", "is_open": True}
 
 
+def _send_evaluation_batches_background(manager_batches: list[dict], cycle_id: str, cycle_name: str, frontend_url: str, actor: str) -> None:
+    from services.email import send_evaluation_batch_email
+
+    sent_emails = 0
+    for i, mb in enumerate(manager_batches):
+        if i > 0:
+            time.sleep(EMAIL_PACING_SECONDS)
+        ok = send_evaluation_batch_email(
+            evaluator_name=mb["evaluator_name"], evaluator_email=mb["evaluator_email"],
+            employees=mb["employees"], cycle_name=cycle_name, frontend_url=frontend_url,
+        )
+        if ok:
+            sent_emails += 1
+    log_action(
+        "cycle", cycle_id, "send_tokens_background", None,
+        {"sent_emails": sent_emails, "total": len(manager_batches)},
+        actor, None,
+    )
+
+
 @router.post("/cycle/send-tokens")
 def send_tokens_current_cycle(
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
-    from services.email import send_evaluation_batch_email
-
     db = get_supabase()
     s = get_settings()
     frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
@@ -1625,7 +1647,7 @@ def send_tokens_current_cycle(
         cos = db.table("performance_companies").select("id,name").in_("id", list(company_ids)).execute().data
         companies_map = {c["id"]: c["name"] for c in cos}
 
-    sent_emails = no_email_count = tokens_created = 0
+    no_email_count = tokens_created = 0
 
     # Pre-fetch reviews e tokens para eliminar N+1 queries
     _emp_ids_eval = [e["id"] for e in employees_to_eval]
@@ -1691,23 +1713,25 @@ def send_tokens_current_cycle(
             "token": token_value,
         })
 
-    # Enviar um e-mail por gestor com todos os colaboradores pendentes
-    for manager_id, emp_list in manager_batches.items():
-        mgr = managers_map[manager_id]
-        ok = send_evaluation_batch_email(
-            evaluator_name=mgr["name"],
-            evaluator_email=mgr["email"],
-            employees=emp_list,
-            cycle_name=cycle["name"],
-            frontend_url=frontend_url,
-        )
-        if ok:
-            sent_emails += 1
+    # Enviar um e-mail por gestor com todos os colaboradores pendentes — em background
+    # (com pacing) pra não estourar limite do Office 365 nem segurar a resposta HTTP.
+    batches_for_bg = [
+        {"evaluator_name": managers_map[mid]["name"], "evaluator_email": managers_map[mid]["email"], "employees": emp_list}
+        for mid, emp_list in manager_batches.items()
+    ]
+    background_tasks.add_task(
+        _send_evaluation_batches_background, batches_for_bg, cycle["id"], cycle["name"], frontend_url, current_user["username"],
+    )
 
     log_action("cycle", cycle["id"], "send_tokens", None,
-               {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created},
+               {"tokens_created": tokens_created, "destinatarios_estimados": len(batches_for_bg), "no_email_count": no_email_count},
                current_user["username"], request)
-    return {"sent_emails": sent_emails, "no_email_count": no_email_count, "tokens_created": tokens_created}
+    return {
+        "status": "iniciado",
+        "tokens_criados": tokens_created,
+        "destinatarios_estimados": len(batches_for_bg),
+        "sem_email": no_email_count,
+    }
 
 
 @router.get("/cycle/tokens")
@@ -1830,13 +1854,43 @@ def resend_cycle_token(
     return {"ok": ok}
 
 
+def _send_self_evaluation_tokens_background(to_send: list[dict], cycle_id: str, cycle_name: str, frontend_url: str, actor: str) -> None:
+    from services.email import send_self_evaluation_email
+
+    db = get_supabase()
+    sent_emails = 0
+    for i, item in enumerate(to_send):
+        if i > 0:
+            time.sleep(EMAIL_PACING_SECONDS)
+        channel_ok = False
+        if item["channel"] == "email":
+            channel_ok = send_self_evaluation_email(
+                employee_name=item["employee_name"], employee_email=item["employee_email"],
+                cycle_name=cycle_name, token=item["token"], frontend_url=frontend_url,
+                company_name=item["company_name"],
+            )
+        elif item["channel"] == "whatsapp":
+            from services.whatsapp import send_self_evaluation_whatsapp
+            channel_ok = send_self_evaluation_whatsapp(
+                employee_name=item["employee_name"], phone=item["whatsapp_phone"],
+                token=item["token"], cycle_name=cycle_name, frontend_url=frontend_url,
+            )
+        if channel_ok:
+            sent_emails += 1
+            db.table("performance_self_evaluation_tokens").update({
+                "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+                "resend_count": item["resend_count"] + 1,
+            }).eq("id", item["tok_id"]).execute()
+    log_action("self_eval_tokens", cycle_id, "send_background", None,
+               {"sent": sent_emails, "total": len(to_send)}, actor, None)
+
+
 @router.post("/cycle/send-self-evaluation-tokens")
 def send_self_evaluation_tokens(
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
 ) -> dict:
-    from services.email import send_self_evaluation_email
-
     db = get_supabase()
     s = get_settings()
     frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
@@ -1852,8 +1906,8 @@ def send_self_evaluation_tokens(
         raise HTTPException(404, detail="Nenhum colaborador ativo encontrado")
 
     tokens_created = 0
-    sent_emails = 0
     no_email_count = 0
+    to_send: list[dict] = []
 
     # Pre-fetch tokens e empresas para eliminar N+1 queries
     _emp_ids_self = [e["id"] for e in employees]
@@ -1894,48 +1948,37 @@ def send_self_evaluation_tokens(
             tok_id = tok_res.data[0]["id"]
             tokens_created += 1
 
-        channel_ok = False
+        # Envio de fato feito em background (com pacing) logo abaixo — não bloqueia
+        # a resposta HTTP nem estoura limite de rajada do Office 365.
+        existing_resend_count = existing_tok.data[0].get("resend_count", 0) if existing_tok.data else 0
         if emp.get("has_corporate_email") and emp.get("email"):
             company_name = _companies_map_self.get(emp.get("company_id", ""), "")
-            channel_ok = send_self_evaluation_email(
-                employee_name=emp["name"],
-                employee_email=emp["email"],
-                cycle_name=cycle["name"],
-                token=tok_val,
-                frontend_url=frontend_url,
-                company_name=company_name,
-            )
-            if channel_ok:
-                sent_emails += 1
+            to_send.append({
+                "channel": "email", "employee_name": emp["name"], "employee_email": emp["email"],
+                "company_name": company_name, "token": tok_val, "tok_id": tok_id,
+                "resend_count": existing_resend_count,
+            })
         elif emp.get("whatsapp_phone"):
-            from services.whatsapp import send_self_evaluation_whatsapp
-            channel_ok = send_self_evaluation_whatsapp(
-                employee_name=emp["name"],
-                phone=emp["whatsapp_phone"],
-                token=tok_val,
-                cycle_name=cycle["name"],
-                frontend_url=frontend_url,
-            )
-            if channel_ok:
-                sent_emails += 1
+            to_send.append({
+                "channel": "whatsapp", "employee_name": emp["name"], "whatsapp_phone": emp["whatsapp_phone"],
+                "token": tok_val, "tok_id": tok_id, "resend_count": existing_resend_count,
+            })
         else:
             no_email_count += 1
 
-        if channel_ok:
-            db.table("performance_self_evaluation_tokens").update({
-                "sent_at": datetime.now(tz=timezone.utc).isoformat(),
-                "resend_count": (existing_tok.data[0].get("resend_count", 0) + 1) if existing_tok.data else 1,
-            }).eq("id", tok_id).execute()
+    background_tasks.add_task(
+        _send_self_evaluation_tokens_background, to_send, cycle["id"], cycle["name"], frontend_url, current_user["username"],
+    )
 
     _cache_invalidate_prefix("dashboard:")
     log_action("self_eval_tokens", cycle["id"], "send", None,
-               {"sent": sent_emails, "no_email": no_email_count, "created": tokens_created},
+               {"tokens_created": tokens_created, "destinatarios_estimados": len(to_send), "no_email_count": no_email_count},
                current_user["username"], request)
     return {
-        "ok": True,
-        "sent_emails": sent_emails,
+        "status": "iniciado",
+        "destinatarios_estimados": len(to_send),
         "no_email_count": no_email_count,
-        "tokens_created": tokens_created,
+        "tokens_criados": tokens_created,
     }
 
 
