@@ -2394,13 +2394,17 @@ def list_evaluations(
     # ── Self-eval status ──────────────────────────────────────────────────────────
     self_eval_reviews = (
         db.table("performance_reviews")
-        .select("employee_id,status")
+        .select("employee_id,status,final_score")
         .eq("cycle_id", cycle["id"])
         .eq("is_self_evaluation", True)
         .execute()
         .data
     )
     self_eval_map: dict[str, str] = {se["employee_id"]: se.get("status", "pending") for se in self_eval_reviews if se.get("employee_id")}
+    self_final_score_map: dict[str, float] = {
+        se["employee_id"]: se["final_score"] for se in self_eval_reviews
+        if se.get("employee_id") and se.get("final_score") is not None
+    }
 
     self_eval_tokens_raw = (
         db.table("performance_self_evaluation_tokens")
@@ -2464,11 +2468,27 @@ def list_evaluations(
             or emp_map.get(emp_id, {}).get("manager_id")
         )
         evaluator = emp_map.get(evaluator_id or "", {})
+
+        manager_score = r.get("final_score") if r else None
+        self_score = self_final_score_map.get(emp_id)
+        adherence_pct = None
+        nota_final_combinada = None
+        if manager_score is not None and self_score is not None:
+            lo, hi = min(manager_score, self_score), max(manager_score, self_score)
+            adherence_pct = round((lo / hi) * 100, 1) if hi else None
+            nota_final_combinada = round((manager_score + self_score) / 2, 2)
+
         result.append({
             "id": rid,
             "employee_name": emp_name,
             "evaluator_name": evaluator.get("name", ""),
-            "final_score": r.get("final_score") if r else None,
+            "final_score": manager_score,
+            "self_final_score": self_score,
+            "nota_final_combinada": nota_final_combinada,
+            "adherence_pct": adherence_pct,
+            # >=51% -> calibragem considerada concluida automaticamente (nao exige acao do RH);
+            # <=50% -> precisa de calibragem manual, a menos que o RH ja tenha calibrado.
+            "calibragem_necessaria": adherence_pct is not None and adherence_pct <= 50 and not is_calibrated,
             "status": manager_status,
             "submitted_at": r.get("submitted_at") if r else None,
             "employee_id": emp_id,
@@ -2638,14 +2658,16 @@ def get_evaluation_detail(
     self_map = _build_self_indicator_map(db, self_rev_data["id"] if self_rev_data else None)
     indicators = _merge_indicator_matrix(manager_map, self_map)
 
-    # Aderência geral (notas finais)
+    # Aderência geral (notas finais) e nota final combinada (média avaliação + auto-avaliação)
     overall_adherence_index = None
     overall_adherence_label = None
+    nota_final_combinada = None
     mgr_final = r.get("final_score")
     self_final = self_rev_data.get("final_score") if self_rev_data else None
     if mgr_final and self_final:
         lo, hi = min(float(mgr_final), float(self_final)), max(float(mgr_final), float(self_final))
         overall_adherence_index = round((lo / hi) * 100, 1) if hi else None
+        nota_final_combinada = round((float(mgr_final) + float(self_final)) / 2, 2)
         if overall_adherence_index is not None:
             overall_adherence_label = (
                 "alinhado" if overall_adherence_index >= 80
@@ -2653,17 +2675,20 @@ def get_evaluation_detail(
                 else "desalinhamento"
             )
 
+    calibration_history = _calibration_history_for_review(db, review_id)
     return {
         "review": r,
         "employee": emp_data,
         "evaluator": ev_data,
         "indicators": indicators,
         "self_eval": self_rev_data,
-        "calibration_history": _calibration_history_for_review(db, review_id),
+        "calibration_history": calibration_history,
         "observations": r.get("observations"),
         "self_observations": self_rev_data.get("observations") if self_rev_data else None,
         "overall_adherence_index": overall_adherence_index,
         "overall_adherence_label": overall_adherence_label,
+        "nota_final_combinada": nota_final_combinada,
+        "calibragem_necessaria": overall_adherence_index is not None and overall_adherence_index <= 50 and not calibration_history,
     }
 
 
@@ -2717,11 +2742,13 @@ def get_evaluation_detail_by_employee(
 
     overall_adherence_index = None
     overall_adherence_label = None
+    nota_final_combinada = None
     mgr_final = r.get("final_score") if r else None
     self_final = self_rev_data.get("final_score") if self_rev_data else None
     if mgr_final and self_final:
         lo, hi = min(float(mgr_final), float(self_final)), max(float(mgr_final), float(self_final))
         overall_adherence_index = round((lo / hi) * 100, 1) if hi else None
+        nota_final_combinada = round((float(mgr_final) + float(self_final)) / 2, 2)
         if overall_adherence_index is not None:
             overall_adherence_label = (
                 "alinhado" if overall_adherence_index >= 80
@@ -2729,18 +2756,42 @@ def get_evaluation_detail_by_employee(
                 else "desalinhamento"
             )
 
+    calibration_history = _calibration_history_for_review(db, r["id"]) if r else []
     return {
         "review": r,
         "employee": emp_data,
         "evaluator": ev_data,
         "indicators": indicators,
         "self_eval": self_rev_data,
-        "calibration_history": _calibration_history_for_review(db, r["id"]) if r else [],
+        "calibration_history": calibration_history,
         "observations": r.get("observations") if r else None,
         "self_observations": self_rev_data.get("observations") if self_rev_data else None,
         "overall_adherence_index": overall_adherence_index,
         "overall_adherence_label": overall_adherence_label,
+        "nota_final_combinada": nota_final_combinada,
+        "calibragem_necessaria": overall_adherence_index is not None and overall_adherence_index <= 50 and not calibration_history,
     }
+
+
+@router.get("/evaluations/{review_id}/ciencia-view")
+def get_ciencia_view_for_rh(
+    review_id: str,
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """Mesma tela que o colaborador vê ao dar ciência (notas, comentários, calibração),
+    mas acessível direto pelo RH sem precisar do link/token do colaborador."""
+    from services.ciencia import build_ciencia_payload
+
+    try:
+        uuid_mod.UUID(review_id)
+    except ValueError:
+        raise HTTPException(400, detail="review_id inválido")
+
+    db = get_supabase()
+    payload = build_ciencia_payload(db, review_id)
+    if payload is None:
+        raise HTTPException(404, detail="Avaliação não encontrada")
+    return payload
 
 
 # ── Calibração v2 (por indicador) ─────────────────────────────────────────────
