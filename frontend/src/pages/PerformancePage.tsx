@@ -1048,6 +1048,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   // Filtros client-side de calibragem/ciência (não disparam reload da lista)
   const [calibFilter, setCalibFilter] = useState<"" | "yes" | "no">("");
   const [ackFilter, setAckFilter] = useState<"" | "yes" | "no">("");
+  const [selfEvalFilter, setSelfEvalFilter] = useState<"" | "yes" | "no">("");
 
   useEffect(() => {
     apiFetch<any>("/api/performance/admin/cycle/status", { token })
@@ -1068,7 +1069,8 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
   const visibleList = list.filter(ev =>
     (calibFilter === "" || (calibFilter === "yes" ? ev.calibrated : !ev.calibrated)) &&
-    (ackFilter === "" || (ackFilter === "yes" ? ev.acknowledged : !ev.acknowledged))
+    (ackFilter === "" || (ackFilter === "yes" ? ev.acknowledged : !ev.acknowledged)) &&
+    (selfEvalFilter === "" || (selfEvalFilter === "yes" ? ev.self_eval_status === "completed" : ev.self_eval_status !== "completed"))
   );
 
   function openCalib(item: any) {
@@ -1249,6 +1251,12 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <option value="">Ciência: Todas</option>
           <option value="yes">Ciência dada</option>
           <option value="no">Ciência pendente</option>
+        </select>
+        <select value={selfEvalFilter} onChange={e => setSelfEvalFilter(e.target.value as "" | "yes" | "no")}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+          <option value="">Auto-Aval.: Todas</option>
+          <option value="yes">Concluídas</option>
+          <option value="no">Não concluídas</option>
         </select>
         <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value }))}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
