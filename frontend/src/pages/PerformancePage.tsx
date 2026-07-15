@@ -1049,6 +1049,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [calibFilter, setCalibFilter] = useState<"" | "yes" | "no">("");
   const [ackFilter, setAckFilter] = useState<"" | "yes" | "no">("");
   const [selfEvalFilter, setSelfEvalFilter] = useState<"" | "yes" | "no">("");
+  const [adherenceFilter, setAdherenceFilter] = useState<"" | "needs" | "ok">("");
 
   useEffect(() => {
     apiFetch<any>("/api/performance/admin/cycle/status", { token })
@@ -1070,7 +1071,8 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const visibleList = list.filter(ev =>
     (calibFilter === "" || (calibFilter === "yes" ? ev.calibrated : !ev.calibrated)) &&
     (ackFilter === "" || (ackFilter === "yes" ? ev.acknowledged : !ev.acknowledged)) &&
-    (selfEvalFilter === "" || (selfEvalFilter === "yes" ? ev.self_eval_status === "completed" : ev.self_eval_status !== "completed"))
+    (selfEvalFilter === "" || (selfEvalFilter === "yes" ? ev.self_eval_status === "completed" : ev.self_eval_status !== "completed")) &&
+    (adherenceFilter === "" || (ev.adherence_pct != null && (adherenceFilter === "needs" ? ev.calibragem_necessaria : !ev.calibragem_necessaria)))
   );
 
   function openCalib(item: any) {
@@ -1258,6 +1260,12 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
           <option value="yes">Concluídas</option>
           <option value="no">Não concluídas</option>
         </select>
+        <select value={adherenceFilter} onChange={e => setAdherenceFilter(e.target.value as "" | "needs" | "ok")}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+          <option value="">Aderência: Todas</option>
+          <option value="needs">⚠️ Precisa calibrar (≤50%)</option>
+          <option value="ok">✅ Não necessária (≥51%)</option>
+        </select>
         <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value }))}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Todas as empresas</option>
@@ -1275,13 +1283,13 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             <table className="w-full min-w-[980px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Calibragem", "Ciência", "Ações"].map(h => (
+                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Calibragem", "Ciência", "Ações"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {visibleList.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
+                {visibleList.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
                 {visibleList.map(ev => (
                   <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
@@ -1306,12 +1314,15 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         : <Badge color="red">Não enviada</Badge>}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      {ev.calibrated
-                        ? <Badge color="violet">🎯 Calibrado</Badge>
-                        : ev.adherence_pct != null
+                      {ev.adherence_pct != null
                         ? (ev.calibragem_necessaria
                             ? <Badge color="amber">⚠️ Calibrar ({ev.adherence_pct}%)</Badge>
                             : <Badge color="green">✅ Não necessária ({ev.adherence_pct}%)</Badge>)
+                        : <Badge color="gray">— sem dados</Badge>}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {ev.calibrated
+                        ? <Badge color="violet">🎯 Calibrado</Badge>
                         : <Badge color="gray">—</Badge>}
                       {ev.calibrated && ev.calibrated_at && (
                         <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
@@ -2029,13 +2040,13 @@ function TabCiclo({ companies }: { companies: any[] }) {
               <table className="w-full min-w-[900px]">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Calibragem", "Ciência", "Ações"].map(h => (
+                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Calibragem", "Ciência", "Ações"].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {historyList.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum colaborador avaliado neste ciclo.</td></tr>}
+                  {historyList.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">Nenhum colaborador avaliado neste ciclo.</td></tr>}
                   {historyList.map(ev => (
                     <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                       <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
@@ -2058,12 +2069,15 @@ function TabCiclo({ companies }: { companies: any[] }) {
                           : <Badge color="red">Não enviada</Badge>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {ev.calibrated
-                          ? <Badge color="violet">🎯 Calibrado</Badge>
-                          : ev.adherence_pct != null
+                        {ev.adherence_pct != null
                           ? (ev.calibragem_necessaria
                               ? <Badge color="amber">⚠️ Calibrar ({ev.adherence_pct}%)</Badge>
                               : <Badge color="green">✅ Não necessária ({ev.adherence_pct}%)</Badge>)
+                          : <Badge color="gray">— sem dados</Badge>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {ev.calibrated
+                          ? <Badge color="violet">🎯 Calibrado</Badge>
                           : <Badge color="gray">—</Badge>}
                         {ev.calibrated && ev.calibrated_at && (
                           <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
