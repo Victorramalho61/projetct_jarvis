@@ -26,9 +26,40 @@ git reset --hard origin/main
 
 NEW_HEAD=$(git rev-parse HEAD)
 
-docker compose up -d --build
-
 echo "Deployed: ${PREV_HEAD:0:7} -> ${NEW_HEAD:0:7}"
+
+# ── Restart seletivo: só reconstrói os serviços cujos diretórios mudaram ──
+# Evita derrubar a stack inteira (Kong, Supabase, todos os microsserviços)
+# quando o commit só toca um serviço. Diretório de build == nome do serviço
+# no docker-compose.yml para todos os itens abaixo.
+KNOWN_SERVICES=(frontend core-service monitoring-service freshservice-service
+                moneypenny-service agents-service expenses-service performance-service
+                fiscal-service financeiro-service hermes-service cards-service
+                experiencia-service support-service monitor-agent)
+
+CHANGED_FILES=$(git diff --name-only "$PREV_HEAD" "$NEW_HEAD" 2>/dev/null || echo "")
+
+SERVICES_TO_REBUILD=()
+for svc in "${KNOWN_SERVICES[@]}"; do
+    if echo "$CHANGED_FILES" | grep -q "^${svc}/"; then
+        SERVICES_TO_REBUILD+=("$svc")
+    fi
+done
+
+# Mudança fora de qualquer diretório de serviço conhecido (docker-compose.yml,
+# volumes/, scripts/, etc.) — não dá pra saber com segurança o que foi afetado,
+# reinicia tudo. docs/ é ignorado (não afeta containers).
+PATTERN=$(IFS='|'; echo "${KNOWN_SERVICES[*]}")
+OUTSIDE_KNOWN=$(echo "$CHANGED_FILES" | grep -vE "^(${PATTERN})/" | grep -vE "^(docs/|README)" || true)
+
+if [ -n "$OUTSIDE_KNOWN" ] || [ ${#SERVICES_TO_REBUILD[@]} -eq 0 ]; then
+    echo ">>> Mudança fora de serviços conhecidos (ou nenhum serviço alterado) — reiniciando a stack inteira"
+    echo "    Nota: volumes/api/kong.yml está no .gitignore — mudanças lá exigem 'docker compose restart kong' manual, não são detectadas aqui."
+    docker compose up -d --build
+else
+    echo ">>> Reiniciando apenas: ${SERVICES_TO_REBUILD[*]}"
+    docker compose up -d --build --no-deps "${SERVICES_TO_REBUILD[@]}"
+fi
 
 echo ">>> Aguardando containers (15s)..."
 sleep 15
