@@ -431,7 +431,7 @@ def list_reviews(
         if emp.data:
             manager_id = emp.data[0]["id"]
             # Busca subordinados diretos
-            subs = db.table("performance_employees").select("id").eq("manager_id", manager_id).execute()
+            subs = db.table("performance_employees").select("id").eq("manager_id", manager_id).eq("active", True).execute()
             sub_ids = [s["id"] for s in subs.data] if subs.data else []
             if sub_ids:
                 query = query.in_("employee_id", sub_ids)

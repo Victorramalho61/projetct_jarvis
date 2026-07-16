@@ -1176,6 +1176,7 @@ def create_employee(
         raise HTTPException(500, detail="Erro ao cadastrar colaborador")
     emp = result.data[0]
     log_action("employee", emp["id"], "create", None, emp, current_user["username"], request)
+    _cache_invalidate_prefix("dashboard:")
     return _emp_out(emp)
 
 
@@ -1227,6 +1228,7 @@ def update_employee(
         raise HTTPException(500, detail="Erro ao atualizar colaborador")
     new = result.data[0]
     log_action("employee", employee_id, "update", old, new, current_user["username"], request)
+    _cache_invalidate_prefix("dashboard:")
     return _emp_out(new)
 
 
@@ -1262,7 +1264,7 @@ async def import_employees(
     branches_all = db.table("performance_branches").select("*").execute().data
     existing_cpfs = {
         e["cpf"]: True
-        for e in db.table("performance_employees").select("cpf").execute().data
+        for e in db.table("performance_employees").select("cpf").eq("active", True).execute().data
         if e.get("cpf")
     }
     NIVEL_MAP = {

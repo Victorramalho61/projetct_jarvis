@@ -760,7 +760,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     if (!confirm(`Desativar "${it.name}"? Ele não aparecerá mais na lista.`)) return;
     setSaving(true);
     try {
-      await apiFetch(`/api/performance/admin/employees/${it.id}`, { token, method: "PUT", json: { active: false } });
+      await apiFetch(`/api/performance/admin/employees/${it.id}`, { token, method: "PUT", json: { ...it, active: false } });
       closeModal(); loadEmployees();
     } catch (e: any) { setFormErr(e instanceof ApiError ? e.message : "Erro ao desativar."); }
     finally { setSaving(false); }
