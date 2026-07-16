@@ -1138,13 +1138,19 @@ def create_employee(
         raise HTTPException(400, detail="CPF é obrigatório para todos os colaboradores")
     cpf_clean = _validate_cpf(body.cpf)
 
-    # Verificar CPF duplicado
+    # Verificar CPF duplicado — inclusive entre inativos, pois a constraint
+    # uq_matricula_company não é parcial e rejeitaria o INSERT de qualquer forma.
     if cpf_clean:
-        dup_cpf = db_dup = get_supabase() if False else None  # lazy init
         db = get_supabase()
-        dup = db.table("performance_employees").select("id,name").eq("cpf", cpf_clean).eq("active", True).execute()
+        dup = db.table("performance_employees").select("id,name,active").eq("cpf", cpf_clean).execute()
         if dup.data:
-            raise HTTPException(400, detail=f"CPF já cadastrado para: {dup.data[0]['name']}")
+            existing = dup.data[0]
+            if existing["active"]:
+                raise HTTPException(400, detail=f"CPF já cadastrado para: {existing['name']}")
+            raise HTTPException(
+                409,
+                detail=f"CPF já pertence ao colaborador inativo \"{existing['name']}\". Reative o cadastro em vez de criar um novo.",
+            )
     else:
         db = get_supabase()
 
