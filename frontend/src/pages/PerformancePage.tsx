@@ -625,7 +625,7 @@ function TabIndicadores() {
 type Employee = {
   id: string; name: string; matricula: string; cargo: string;
   level: string; manager_id?: string; manager_name?: string;
-  email?: string; branch_id: string; company_id: string;
+  email?: string; branch_id: string; company_id: string; active?: boolean;
 };
 
 const LEVEL_LABELS: Record<string, string> = {
@@ -657,6 +657,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
   const [selBranch, setSelBranch] = useState("");
   const [selLevel, setSelLevel] = useState("");
   const [selManager, setSelManager] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; item: Partial<Employee & { active?: boolean }> | null }>({ open: false, item: null });
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState("");
@@ -695,6 +696,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     setLoading(true);
     const params = new URLSearchParams({ company_id: selCompany });
     if (selBranch) params.set("branch_id", selBranch);
+    if (showInactive) params.set("include_inactive", "true");
     apiFetch<Employee[]>(`/api/performance/admin/employees?${params}`, { token })
       .then(setEmployees).catch(() => setEmployees([]))
       .finally(() => setLoading(false));
@@ -715,7 +717,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     return true;
   });
 
-  useEffect(() => { loadEmployees(); }, [token, selCompany, selBranch]);
+  useEffect(() => { loadEmployees(); }, [token, selCompany, selBranch, showInactive]);
 
   function openCreate() {
     setModal({ open: true, item: { company_id: selCompany, branch_id: selBranch, level: "administrativo", active: true } });
@@ -754,15 +756,20 @@ function TabHierarquia({ companies }: { companies: any[] }) {
     finally { setSaving(false); }
   }
 
-  async function handleDeactivate() {
+  async function handleToggleActive() {
     const it = modal.item!;
     if (!it.id) return;
-    if (!confirm(`Desativar "${it.name}"? Ele não aparecerá mais na lista.`)) return;
+    const activating = it.active === false;
+    const verb = activating ? "Reativar" : "Desativar";
+    const confirmMsg = activating
+      ? `Reativar "${it.name}"? Ele voltará a aparecer nas listas e ciclos ativos.`
+      : `Desativar "${it.name}"? Ele não aparecerá mais na lista.`;
+    if (!confirm(confirmMsg)) return;
     setSaving(true);
     try {
-      await apiFetch(`/api/performance/admin/employees/${it.id}`, { token, method: "PUT", json: { ...it, active: false } });
+      await apiFetch(`/api/performance/admin/employees/${it.id}`, { token, method: "PUT", json: { ...it, active: activating } });
       closeModal(); loadEmployees();
-    } catch (e: any) { setFormErr(e instanceof ApiError ? e.message : "Erro ao desativar."); }
+    } catch (e: any) { setFormErr(e instanceof ApiError ? e.message : `Erro ao ${verb.toLowerCase()}.`); }
     finally { setSaving(false); }
   }
 
@@ -843,6 +850,13 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             {managers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         )}
+        {selCompany && (
+          <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 cursor-pointer select-none px-1">
+            <input type="checkbox" checked={showInactive} onChange={e => setShowInactive(e.target.checked)}
+              className="rounded border-gray-300 dark:border-gray-600 text-[#00694E] focus:ring-[#00694E]" />
+            Mostrar inativos
+          </label>
+        )}
         <div className="flex-1" />
         {selCompany && (
           <>
@@ -882,15 +896,15 @@ function TabHierarquia({ companies }: { companies: any[] }) {
             <table className="w-full min-w-[640px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Nome", "Matrícula", "Cargo", "Nível", "Gestor Direto", "E-mail", ""].map(h => (
+                  {["Nome", "Matrícula", "Cargo", "Nível", "Gestor Direto", "E-mail", "Status", ""].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {filteredEmployees.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">{employees.length === 0 ? "Nenhum colaborador encontrado." : "Nenhum colaborador corresponde aos filtros."}</td></tr>}
+                {filteredEmployees.length === 0 && <tr><td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-400">{employees.length === 0 ? "Nenhum colaborador encontrado." : "Nenhum colaborador corresponde aos filtros."}</td></tr>}
                 {filteredEmployees.map(emp => (
-                  <tr key={emp.id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                  <tr key={emp.id} className={`border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors ${emp.active === false ? "opacity-60" : ""}`}>
                     <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{emp.name}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{emp.matricula}</td>
                     <td className="px-4 py-3 text-sm text-gray-500 max-w-[140px] truncate">{emp.cargo}</td>
@@ -898,6 +912,9 @@ function TabHierarquia({ companies }: { companies: any[] }) {
                     <td className="px-4 py-3 text-sm text-gray-500">{emp.manager_name || "—"}</td>
                     <td className="px-4 py-3 text-center">
                       {emp.email ? <span className="text-green-600 text-base" title={emp.email}>✓</span> : <span className="text-gray-300 text-base">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Badge color={emp.active === false ? "gray" : "green"}>{emp.active === false ? "Inativo" : "Ativo"}</Badge>
                     </td>
                     <td className="px-4 py-3 text-right">
                       <button onClick={() => openEdit(emp)} className="text-xs text-[#00694E] hover:underline dark:text-emerald-400">Editar</button>
@@ -997,9 +1014,13 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           </div>
           {modal.item?.id && (
             <div className="pt-1 border-t border-gray-100 dark:border-gray-700">
-              <button onClick={handleDeactivate} disabled={saving}
-                className="w-full py-2 text-xs font-semibold text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-50">
-                🗑 Desativar colaborador
+              <button onClick={handleToggleActive} disabled={saving}
+                className={`w-full py-2 text-xs font-semibold rounded-lg transition-all disabled:opacity-50 ${
+                  modal.item?.active === false
+                    ? "text-green-600 hover:text-green-700 dark:text-green-400 dark:hover:text-green-300 hover:bg-green-50 dark:hover:bg-green-900/20"
+                    : "text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20"
+                }`}>
+                {modal.item?.active === false ? "♻️ Reativar colaborador" : "🗑 Desativar colaborador"}
               </button>
             </div>
           )}

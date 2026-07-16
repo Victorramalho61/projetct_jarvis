@@ -1025,9 +1025,12 @@ def list_employees(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
     company_id: str | None = None,
     branch_id: str | None = None,
+    include_inactive: bool = False,
 ) -> list[dict]:
     db = get_supabase()
-    q = db.table("performance_employees").select("*").eq("active", True)
+    q = db.table("performance_employees").select("*")
+    if not include_inactive:
+        q = q.eq("active", True)
     if company_id:
         q = q.eq("company_id", company_id)
     if branch_id:
