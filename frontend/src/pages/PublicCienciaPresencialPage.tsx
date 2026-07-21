@@ -360,7 +360,7 @@ export default function PublicCienciaPresencialPage() {
                         <div className="px-5 pb-3 -mt-1 space-y-1.5">
                           <div className="bg-amber-50 dark:bg-amber-900/20 rounded-lg px-3 py-2 border-l-2 border-amber-400 dark:border-amber-600">
                             <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">
-                              🟧 RH realizou a calibragem desta nota
+                              🟧 Esta nota passou por Análise RH
                             </p>
                             {s.calibrated_justification && (
                               <p className="text-xs text-amber-800 dark:text-amber-300 italic leading-relaxed">"{s.calibrated_justification}"</p>
@@ -460,7 +460,7 @@ export default function PublicCienciaPresencialPage() {
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-amber-100 dark:border-amber-900/40 overflow-hidden">
                   <div className="bg-amber-50 dark:bg-amber-900/20 px-5 py-3">
                     <h3 className="text-sm font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                      🟧 Comentário do RH (calibragem)
+                      🟧 Comentário do RH (Análise RH)
                     </h3>
                   </div>
                   <div className="px-5 py-4">

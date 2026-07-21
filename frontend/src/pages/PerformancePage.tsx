@@ -277,7 +277,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
                   onClick={() => openDrilldown("pending-self-eval")} />
               );
             })()}
-            <StatCard label="Calibrações" value={`${stats.calibrations_count ?? 0}`} color="blue"
+            <StatCard label="Análises RH" value={`${stats.calibrations_count ?? 0}`} color="blue"
               onClick={() => openDrilldown("calibrated")} />
           </div>
           {stats.indicator_averages?.length > 0 && (
@@ -393,15 +393,15 @@ function TabDashboard({ companies }: { companies: any[] }) {
         )}
       </ModalWrapper>
 
-      {/* Drilldown: Calibrações */}
-      <ModalWrapper open={drilldown === "calibrated"} onClose={() => setDrilldown(null)} title="Avaliações em Calibração">
+      {/* Drilldown: Análises RH */}
+      <ModalWrapper open={drilldown === "calibrated"} onClose={() => setDrilldown(null)} title="Avaliações em Análise RH">
         {drilldownLoading ? (
           <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-4">Nenhuma avaliação em fase de calibração.</p>
+          <p className="text-sm text-gray-500 text-center py-4">Nenhuma avaliação em fase de Análise RH.</p>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} avaliação{drilldownData.length !== 1 ? "ões" : ""} calibrada{drilldownData.length !== 1 ? "s" : ""}</p>
+            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} avaliação{drilldownData.length !== 1 ? "ões" : ""} analisada{drilldownData.length !== 1 ? "s" : ""} pelo RH</p>
             {drilldownData.map((ev: any, i: number) => (
               <div key={i} className="flex items-center justify-between border border-blue-100 dark:border-blue-900/30 rounded-lg px-4 py-3 bg-blue-50/30 dark:bg-blue-900/10">
                 <div>
@@ -410,7 +410,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
                 </div>
                 <div className="text-right">
                   <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{ev.final_score != null ? Number(ev.final_score).toFixed(2) : "—"}</span>
-                  <p className="text-xs text-gray-400">Nota calibrada</p>
+                  <p className="text-xs text-gray-400">Nota após Análise RH</p>
                 </div>
               </div>
             ))}
@@ -1054,9 +1054,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [novaAvalFor,     setNovaAvalFor]     = useState<string | null>(null);
   const [novaSelfAvalFor, setNovaSelfAvalFor] = useState<string | null>(null);
 
-  // Link presencial (copy)
-  const [copiedLink, setCopiedLink] = useState<string | null>(null);
-
   // Envio de e-mail de auto-avaliação individual
 
   // Ver Avaliação (leitura — gestor + auto-aval)
@@ -1071,6 +1068,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [ackFilter, setAckFilter] = useState<"" | "yes" | "no">("");
   const [selfEvalFilter, setSelfEvalFilter] = useState<"" | "yes" | "no">("");
   const [adherenceFilter, setAdherenceFilter] = useState<"" | "needs" | "ok">("");
+  const [itemDiscrepancyFilter, setItemDiscrepancyFilter] = useState<"" | "yes" | "no">("");
 
   useEffect(() => {
     apiFetch<any>("/api/performance/admin/cycle/status", { token })
@@ -1093,7 +1091,8 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
     (calibFilter === "" || (calibFilter === "yes" ? ev.calibrated : !ev.calibrated)) &&
     (ackFilter === "" || (ackFilter === "yes" ? ev.acknowledged : !ev.acknowledged)) &&
     (selfEvalFilter === "" || (selfEvalFilter === "yes" ? ev.self_eval_status === "completed" : ev.self_eval_status !== "completed")) &&
-    (adherenceFilter === "" || (ev.adherence_pct != null && (adherenceFilter === "needs" ? ev.calibragem_necessaria : !ev.calibragem_necessaria)))
+    (adherenceFilter === "" || (ev.adherence_pct != null && (adherenceFilter === "needs" ? ev.calibragem_necessaria : !ev.calibragem_necessaria))) &&
+    (itemDiscrepancyFilter === "" || (itemDiscrepancyFilter === "yes" ? (ev.itens_discrepantes ?? 0) > 0 : (ev.itens_discrepantes ?? 0) === 0))
   );
 
   function openCalib(item: any) {
@@ -1133,6 +1132,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
     if (!calibDetail?.indicators) return;
     const next: Record<string, { new_score: string; justification: string }> = {};
     for (const ind of calibDetail.indicators) {
+      if (!ind.needs_calibration) continue;
       next[ind.id] = {
         new_score: String(ind.manager_score),
         justification: "Nota mantida pelo RH — aderência ≥ 80% entre avaliação e auto-avaliação.",
@@ -1191,14 +1191,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       loadList();
     } catch (e: any) { alert(e instanceof ApiError ? e.message : "Erro ao criar nova auto-avaliação."); }
     finally { setNovaSelfAvalFor(null); }
-  }
-
-  function handleCopyPresentialLink() {
-    const url = `${window.location.origin}/auto-avaliacao-presencial`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopiedLink(url);
-      setTimeout(() => setCopiedLink(null), 2500);
-    }).catch(() => {});
   }
 
   async function handleExportCSV() {
@@ -1265,9 +1257,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         </select>
         <select value={calibFilter} onChange={e => setCalibFilter(e.target.value as "" | "yes" | "no")}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
-          <option value="">Calibragem: Todas</option>
-          <option value="yes">Calibradas</option>
-          <option value="no">Não calibradas</option>
+          <option value="">Análise RH: Todas</option>
+          <option value="yes">Analisadas</option>
+          <option value="no">Não analisadas</option>
         </select>
         <select value={ackFilter} onChange={e => setAckFilter(e.target.value as "" | "yes" | "no")}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
@@ -1284,8 +1276,14 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         <select value={adherenceFilter} onChange={e => setAdherenceFilter(e.target.value as "" | "needs" | "ok")}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Aderência: Todas</option>
-          <option value="needs">⚠️ Precisa calibrar (≤50%)</option>
+          <option value="needs">⚠️ Precisa de Análise RH (≤50%)</option>
           <option value="ok">✅ Não necessária (≥51%)</option>
+        </select>
+        <select value={itemDiscrepancyFilter} onChange={e => setItemDiscrepancyFilter(e.target.value as "" | "yes" | "no")}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
+          <option value="">Discrepância por item: Todas</option>
+          <option value="yes">⚠️ Com item ≥50%</option>
+          <option value="no">Sem item ≥50%</option>
         </select>
         <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value }))}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
@@ -1304,7 +1302,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             <table className="w-full min-w-[980px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Calibragem", "Ciência", "Ações"].map(h => (
+                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Análise RH", "Ciência", "Ações"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                   ))}
                 </tr>
@@ -1337,16 +1335,19 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                     <td className="px-4 py-3 whitespace-nowrap">
                       {ev.adherence_pct != null
                         ? (ev.calibragem_necessaria
-                            ? <Badge color="amber">⚠️ Calibrar ({ev.adherence_pct}%)</Badge>
+                            ? <Badge color="amber">⚠️ Análise RH ({ev.adherence_pct}%)</Badge>
                             : <Badge color="green">✅ Não necessária ({ev.adherence_pct}%)</Badge>)
                         : <Badge color="gray">— sem dados</Badge>}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {ev.calibrated
-                        ? <Badge color="violet">🎯 Calibrado</Badge>
+                        ? <Badge color="violet">🎯 Analisado (RH)</Badge>
                         : <Badge color="gray">—</Badge>}
                       {ev.calibrated && ev.calibrated_at && (
                         <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
+                      )}
+                      {(ev.itens_discrepantes ?? 0) > 0 && (
+                        <p className="text-[10px] font-semibold text-amber-600 mt-0.5">⚠️ {ev.itens_discrepantes} item{ev.itens_discrepantes !== 1 ? "s" : ""} ≥50%</p>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -1371,23 +1372,18 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         {/* Ver Ciência */}
                         {ev.id && (
                           <button onClick={() => setCienciaViewId(ev.id)}
-                            title="Ver ciência (notas, calibragem e comentários) sem precisar do link do colaborador"
+                            title="Ver ciência (notas, Análise RH e comentários) sem precisar do link do colaborador"
                             className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
                             📄 Ciência
                           </button>
                         )}
-                        {/* Calibrar */}
+                        {/* Análise RH */}
                         <button
                           onClick={() => ev.id ? openCalib(ev) : alert("Avaliação do gestor ainda não foi submetida.")}
-                          title="Calibrar nota"
+                          title="Fazer Análise RH"
                           className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-100 text-violet-700 hover:bg-violet-200 border border-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800 transition-all">
-                          Calibrar
+                          Análise RH
                         </button>
-                        {/* Ciência Presencial */}
-                        <a href="/ciencia-presencial" target="_blank" rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 dark:bg-green-900/20 dark:text-green-400 dark:border-green-800 transition-all">
-                          📋 Ciência
-                        </a>
                         {/* Nova Avaliação — cria token + envia e-mail ao gestor */}
                         <button
                           onClick={() => handleNewEvaluation(ev.employee_id)}
@@ -1409,13 +1405,6 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                             ? <span className="w-3 h-3 border-2 border-violet-400/30 border-t-violet-600 rounded-full animate-spin inline-block" />
                             : "✏️"}
                           Nova Auto-Aval.
-                        </button>
-                        {/* Link presencial */}
-                        <button
-                          onClick={handleCopyPresentialLink}
-                          title="Copiar link presencial de auto-avaliação para enviar via WhatsApp"
-                          className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700 transition-all">
-                          {copiedLink ? "✓ Copiado!" : "🔗 Link Presencial"}
                         </button>
                       </div>
                     </td>
@@ -1487,8 +1476,8 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                     <p className="text-xs text-gray-400 mt-1">Fórmula: (menor nota ÷ maior nota) × 100</p>
                     {!(viewDetail.calibration_history?.length > 0) && (
                       viewDetail.calibragem_necessaria
-                        ? <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-1">⚠️ Calibragem manual recomendada (aderência ≤50%)</p>
-                        : <p className="text-xs font-semibold text-green-600 dark:text-green-400 mt-1">✅ Calibragem não necessária (aderência ≥51%)</p>
+                        ? <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mt-1">⚠️ Análise RH recomendada (aderência ≤50%)</p>
+                        : <p className="text-xs font-semibold text-green-600 dark:text-green-400 mt-1">✅ Análise RH não necessária (aderência ≥51%)</p>
                     )}
                   </div>
                 </div>
@@ -1573,10 +1562,10 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               </div>
             </div>
 
-            {/* Histórico de calibrações */}
+            {/* Histórico de Análises RH */}
             {viewDetail.calibration_history?.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Calibrações</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Análises RH</p>
                 {viewDetail.calibration_history.map((c: any, i: number) => (
                   <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3 mb-2 text-xs bg-violet-50/30 dark:bg-violet-900/10">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -1603,7 +1592,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                 <button
                   onClick={() => { setViewModal({ open: false, item: null }); openCalib(viewModal.item); }}
                   className="flex-1 py-2.5 bg-violet-100 hover:bg-violet-200 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400 font-semibold rounded-lg text-sm transition-all">
-                  Ir para Calibração
+                  Ir para Análise RH
                 </button>
               )}
               <button onClick={() => setViewModal({ open: false, item: null })}
@@ -1622,8 +1611,8 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         )}
       </ModalWrapper>
 
-      {/* ── Modal Calibração por indicador ── */}
-      <ModalWrapper open={calibModal.open} onClose={() => setCalibModal({ open: false, item: null })} title={`Calibração — ${calibModal.item?.employee_name ?? ""}`}>
+      {/* ── Modal Análise RH por indicador ── */}
+      <ModalWrapper open={calibModal.open} onClose={() => setCalibModal({ open: false, item: null })} title={`Análise RH — ${calibModal.item?.employee_name ?? ""}`}>
         {calibDetailLoading ? (
           <div className="flex justify-center py-10"><div className="w-7 h-7 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : calibDetail ? (
@@ -1692,6 +1681,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               {calibDetail.indicators?.map((ind: any) => {
                 const edit = calibEdits[ind.id];
                 const isChanged = edit?.new_score !== "" && edit?.new_score !== undefined;
+                const needsCalibration = !!ind.needs_calibration;
                 const CALIB_SCORES = [
                   { v: 1, lbl: "1", sub: "NAE", cls: "border-red-400 bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300" },
                   { v: 2, lbl: "2", sub: "APE", cls: "border-amber-400 bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" },
@@ -1700,11 +1690,16 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                   { v: 5, lbl: "5", sub: "EE",  cls: "border-purple-400 bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300" },
                 ];
                 return (
-                  <div key={ind.id} className={`rounded-2xl border-2 transition-all ${isChanged ? "border-violet-300 dark:border-violet-700 bg-violet-50/30 dark:bg-violet-900/10" : "border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800"}`}>
+                  <div key={ind.id} className={`rounded-2xl border-2 transition-all ${isChanged ? "border-violet-300 dark:border-violet-700 bg-violet-50/30 dark:bg-violet-900/10" : needsCalibration ? "border-amber-300 dark:border-amber-700 bg-white dark:bg-gray-800" : "border-gray-200 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-800/60"}`}>
                     {/* Nome + descrição */}
-                    <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700">
-                      <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{ind.name}</p>
-                      {ind.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{ind.description}</p>}
+                    <div className="px-4 pt-4 pb-3 border-b border-gray-100 dark:border-gray-700 flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-sm font-bold text-gray-900 dark:text-gray-100">{ind.name}</p>
+                        {ind.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{ind.description}</p>}
+                      </div>
+                      {needsCalibration
+                        ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap">⚠️ Discrepância ≥50%</span>
+                        : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 whitespace-nowrap">✅ Não requer Análise RH</span>}
                     </div>
                     {/* Scores atuais */}
                     <div className="px-4 py-3 flex flex-wrap gap-4 text-sm border-b border-gray-100 dark:border-gray-700">
@@ -1719,7 +1714,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                       </div>
                       {ind.current_score !== ind.manager_score && (
                         <div>
-                          <span className="text-xs text-gray-400 block mb-0.5">Calibrado</span>
+                          <span className="text-xs text-gray-400 block mb-0.5">Analisado (RH)</span>
                           <span className="text-base font-bold text-violet-700">{ind.current_score}</span>
                         </div>
                       )}
@@ -1730,39 +1725,47 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         </div>
                       )}
                     </div>
-                    {/* Seletor de nova nota */}
-                    <div className="px-4 py-3">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Nova nota RH <span className="text-gray-400 font-normal normal-case">(atual: {ind.current_score} — clique para alterar)</span></p>
-                      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                        {/* Opção "Manter" */}
-                        <button
-                          type="button"
-                          onClick={() => setCalibScore(ind.id, "")}
-                          className={`col-span-3 sm:col-span-5 py-1.5 rounded-lg border-2 text-xs font-semibold transition-all ${!isChanged ? "border-gray-400 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200" : "border-gray-200 text-gray-400 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
-                          ✓ Manter nota {ind.current_score}
-                        </button>
-                        {CALIB_SCORES.map(cs => {
-                          const sel = edit?.new_score !== undefined && edit?.new_score !== "" && Number(edit?.new_score) === cs.v;
-                          return (
-                            <button key={cs.v} type="button"
-                              onClick={() => setCalibScore(ind.id, String(cs.v))}
-                              className={`flex flex-col items-center py-2 px-1 rounded-xl border-2 transition-all text-xs font-semibold ${sel ? cs.cls + " shadow-sm scale-[1.03]" : "border-gray-200 dark:border-gray-600 text-gray-500 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
-                              <span className="text-sm font-bold">{cs.sub} <span className="text-[10px] font-normal opacity-60">({cs.lbl})</span></span>
+                    {needsCalibration ? (
+                      <>
+                        {/* Seletor de nova nota */}
+                        <div className="px-4 py-3">
+                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Nova nota RH <span className="text-gray-400 font-normal normal-case">(atual: {ind.current_score} — clique para alterar)</span></p>
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                            {/* Opção "Manter" */}
+                            <button
+                              type="button"
+                              onClick={() => setCalibScore(ind.id, "")}
+                              className={`col-span-3 sm:col-span-5 py-1.5 rounded-lg border-2 text-xs font-semibold transition-all ${!isChanged ? "border-gray-400 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200" : "border-gray-200 text-gray-400 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
+                              ✓ Manter nota {ind.current_score}
                             </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    {/* Justificativa quando há mudança */}
-                    {isChanged && (
-                      <div className="px-4 pb-4">
-                        <textarea
-                          value={edit?.justification ?? ""}
-                          onChange={e => setCalibJust(ind.id, e.target.value)}
-                          rows={2}
-                          placeholder="Justificativa obrigatória para esta alteração *"
-                          className="w-full rounded-xl border border-violet-300 dark:border-violet-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100 placeholder-gray-400"
-                        />
+                            {CALIB_SCORES.map(cs => {
+                              const sel = edit?.new_score !== undefined && edit?.new_score !== "" && Number(edit?.new_score) === cs.v;
+                              return (
+                                <button key={cs.v} type="button"
+                                  onClick={() => setCalibScore(ind.id, String(cs.v))}
+                                  className={`flex flex-col items-center py-2 px-1 rounded-xl border-2 transition-all text-xs font-semibold ${sel ? cs.cls + " shadow-sm scale-[1.03]" : "border-gray-200 dark:border-gray-600 text-gray-500 hover:border-gray-300 bg-white dark:bg-gray-800"}`}>
+                                  <span className="text-sm font-bold">{cs.sub} <span className="text-[10px] font-normal opacity-60">({cs.lbl})</span></span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        {/* Justificativa quando há mudança */}
+                        {isChanged && (
+                          <div className="px-4 pb-4">
+                            <textarea
+                              value={edit?.justification ?? ""}
+                              onChange={e => setCalibJust(ind.id, e.target.value)}
+                              rows={2}
+                              placeholder="Justificativa obrigatória para esta alteração *"
+                              className="w-full rounded-xl border border-violet-300 dark:border-violet-700 bg-white dark:bg-gray-800 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100 placeholder-gray-400"
+                            />
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="px-4 py-3">
+                        <p className="text-xs text-gray-400 italic">Aderência dentro do esperado — este item não pode ser alterado na Análise RH.</p>
                       </div>
                     )}
                   </div>
@@ -1772,7 +1775,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
 
             {/* Notas gerais */}
             <div>
-              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Observações gerais da calibração (opcional)</label>
+              <label className="block text-xs font-semibold text-gray-600 dark:text-gray-400 mb-1">Observações gerais da Análise RH (opcional)</label>
               <textarea value={calibNotes} onChange={e => setCalibNotes(e.target.value)} rows={2}
                 className="w-full rounded-xl border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-violet-500 text-gray-900 dark:text-gray-100" />
             </div>
@@ -1780,7 +1783,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             {/* Histórico */}
             {calibDetail.calibration_history?.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Calibrações</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Histórico de Análises RH</p>
                 {calibDetail.calibration_history.map((c: any, i: number) => (
                   <div key={i} className="border border-gray-100 dark:border-gray-700 rounded-xl p-3 mb-2 text-xs bg-gray-50/50 dark:bg-gray-700/20">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -1806,7 +1809,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             <div className="flex gap-3 pt-1">
               <button onClick={handleCalibrate} disabled={calibSaving || Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length === 0}
                 className="flex-1 py-2.5 bg-violet-700 hover:bg-violet-800 text-white font-semibold rounded-lg text-sm disabled:opacity-60 transition-all">
-                {calibSaving ? "Salvando..." : `Salvar Calibração (${Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length} indicador${Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length !== 1 ? "es" : ""})`}
+                {calibSaving ? "Salvando..." : `Salvar Análise RH (${Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length} indicador${Object.keys(calibEdits).filter(k => calibEdits[k].new_score !== "").length !== 1 ? "es" : ""})`}
               </button>
               <button onClick={() => setCalibModal({ open: false, item: null })} className="flex-1 py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-semibold rounded-lg text-sm">Cancelar</button>
             </div>
@@ -2061,7 +2064,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
               <table className="w-full min-w-[900px]">
                 <thead>
                   <tr className="border-b border-gray-100 dark:border-gray-700">
-                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Calibragem", "Ciência", "Ações"].map(h => (
+                    {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Análise RH", "Ciência", "Ações"].map(h => (
                       <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                     ))}
                   </tr>
@@ -2092,13 +2095,13 @@ function TabCiclo({ companies }: { companies: any[] }) {
                       <td className="px-4 py-3 whitespace-nowrap">
                         {ev.adherence_pct != null
                           ? (ev.calibragem_necessaria
-                              ? <Badge color="amber">⚠️ Calibrar ({ev.adherence_pct}%)</Badge>
+                              ? <Badge color="amber">⚠️ Análise RH ({ev.adherence_pct}%)</Badge>
                               : <Badge color="green">✅ Não necessária ({ev.adherence_pct}%)</Badge>)
                           : <Badge color="gray">— sem dados</Badge>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {ev.calibrated
-                          ? <Badge color="violet">🎯 Calibrado</Badge>
+                          ? <Badge color="violet">🎯 Analisado (RH)</Badge>
                           : <Badge color="gray">—</Badge>}
                         {ev.calibrated && ev.calibrated_at && (
                           <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
@@ -2116,7 +2119,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
                       <td className="px-4 py-3">
                         {ev.id && (
                           <button onClick={() => setCienciaViewId(ev.id)}
-                            title="Ver ciência (notas, calibragem e comentários) sem precisar do link do colaborador"
+                            title="Ver ciência (notas, Análise RH e comentários) sem precisar do link do colaborador"
                             className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
                             📄 Ciência
                           </button>

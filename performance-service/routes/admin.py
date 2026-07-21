@@ -439,8 +439,8 @@ def dashboard_export(
         ("Auto-Avaliações Enviadas", dash.get("self_eval_sent", 0)),
         ("Auto-Avaliações Concluídas", dash.get("self_eval_completed", 0)),
         ("Auto-Avaliações (%)", f"{dash.get('self_eval_pct', 0)}%"),
-        ("Calibrações Realizadas", dash.get("calibrations_count", 0)),
-        ("Calibrações (%)", f"{dash.get('calibrations_pct', 0)}%"),
+        ("Análises RH Realizadas", dash.get("calibrations_count", 0)),
+        ("Análises RH (%)", f"{dash.get('calibrations_pct', 0)}%"),
     ]
     ws.append(["Indicador", "Valor"])
     for cell in ws[1]:
@@ -453,7 +453,7 @@ def dashboard_export(
 
     # ── Aba 2: Avaliações ────────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Avaliações")
-    headers2 = ["Colaborador", "Cargo", "Nível", "Empresa", "Filial", "Avaliador", "Nota Final", "Status", "Calibrado por", "Obs. Gestor"]
+    headers2 = ["Colaborador", "Cargo", "Nível", "Empresa", "Filial", "Avaliador", "Nota Final", "Status", "Analisado por (RH)", "Obs. Gestor"]
     ws2.append(headers2)
     for cell in ws2[1]:
         header_style(cell)
@@ -466,7 +466,7 @@ def dashboard_export(
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL_XLS.get(p) or _HLEVEL_LABEL_XLS.get(emp_data.get("hierarchy_level"), "")
 
-    status_label = {"pending": "Pendente", "completed": "Avaliado", "acknowledged": "Ciência Dada", "calibrated": "Calibrado"}
+    status_label = {"pending": "Pendente", "completed": "Avaliado", "acknowledged": "Ciência Dada", "calibrated": "Analisado (RH)"}
 
     for r in manager_reviews:
         emp = emp_map.get(r.get("employee_id", ""), {})
@@ -2205,7 +2205,7 @@ def export_evaluations(
         cell.alignment = Alignment(horizontal="center", vertical="center")
         cell.border = thin_border
 
-    STATUS_LABEL = {"pending": "Pendente", "completed": "Avaliado", "calibrated": "Calibrado",
+    STATUS_LABEL = {"pending": "Pendente", "completed": "Avaliado", "calibrated": "Analisado (RH)",
                     "acknowledged": "Ciência Dada"}
 
     if cycle:
@@ -2405,7 +2405,7 @@ def list_evaluations(
     # ── Self-eval status ──────────────────────────────────────────────────────────
     self_eval_reviews = (
         db.table("performance_reviews")
-        .select("employee_id,status,final_score")
+        .select("id,employee_id,status,final_score")
         .eq("cycle_id", cycle["id"])
         .eq("is_self_evaluation", True)
         .execute()
@@ -2416,6 +2416,38 @@ def list_evaluations(
         se["employee_id"]: se["final_score"] for se in self_eval_reviews
         if se.get("employee_id") and se.get("final_score") is not None
     }
+    self_review_id_by_emp: dict[str, str] = {
+        se["employee_id"]: se["id"] for se in self_eval_reviews if se.get("employee_id")
+    }
+
+    # ── Scores por indicador (gestor + auto-avaliação), em lote, para contar
+    # quantas competências têm discrepância >=50% por colaborador ────────────────
+    indicator_review_ids = review_ids + list(self_review_id_by_emp.values())
+    scores_by_review: dict[str, dict[str, float]] = {}
+    if indicator_review_ids:
+        indicator_scores_raw = (
+            db.table("performance_indicator_scores")
+            .select("review_id,indicator_id,score")
+            .in_("review_id", indicator_review_ids)
+            .execute()
+            .data
+        )
+        for s in indicator_scores_raw:
+            scores_by_review.setdefault(s["review_id"], {})[s["indicator_id"]] = float(s["score"])
+
+    def _count_discrepant_items(manager_rid: str | None, self_rid: str | None) -> int:
+        mgr_scores = scores_by_review.get(manager_rid, {}) if manager_rid else {}
+        self_scores = scores_by_review.get(self_rid, {}) if self_rid else {}
+        count = 0
+        for ind_id, m_score in mgr_scores.items():
+            s_score = self_scores.get(ind_id)
+            if s_score is None:
+                continue
+            lo, hi = min(m_score, s_score), max(m_score, s_score)
+            adh = (lo / hi) * 100 if hi else None
+            if adh is not None and adh <= 50:
+                count += 1
+        return count
 
     self_eval_tokens_raw = (
         db.table("performance_self_evaluation_tokens")
@@ -2489,6 +2521,8 @@ def list_evaluations(
             adherence_pct = round((lo / hi) * 100, 1) if hi else None
             nota_final_combinada = round((manager_score + self_score) / 2, 2)
 
+        itens_discrepantes = _count_discrepant_items(rid, self_review_id_by_emp.get(emp_id))
+
         result.append({
             "id": rid,
             "employee_name": emp_name,
@@ -2500,6 +2534,7 @@ def list_evaluations(
             # >=51% -> calibragem considerada concluida automaticamente (nao exige acao do RH);
             # <=50% -> precisa de calibragem manual, a menos que o RH ja tenha calibrado.
             "calibragem_necessaria": adherence_pct is not None and adherence_pct <= 50 and not is_calibrated,
+            "itens_discrepantes": itens_discrepantes,
             "status": manager_status,
             "submitted_at": r.get("submitted_at") if r else None,
             "employee_id": emp_id,
@@ -2594,9 +2629,12 @@ def _merge_indicator_matrix(manager_map: dict, self_map: dict) -> list[dict]:
             entry["adherence_label"] = (
                 "alinhado" if adh >= 80 else "atencao" if adh >= 60 else "desalinhamento"
             ) if adh is not None else None
+            # >=51% -> item não exige Análise RH; <=50% -> discrepância exige ação do RH neste indicador.
+            entry["needs_calibration"] = adh is not None and adh <= 50
         else:
             entry["adherence_index"] = None
             entry["adherence_label"] = None
+            entry["needs_calibration"] = False
         result.append(entry)
     return sorted(result, key=lambda x: x["name"] or "")
 
@@ -2840,12 +2878,55 @@ def calibrate_evaluation(
     rev_data = rev.data[0]
     rev_status = rev_data.get("status", "pending")
     if rev_status not in ("completed", "calibrated", "acknowledged"):
-        raise HTTPException(400, detail="Não é possível calibrar uma avaliação pendente.")
+        raise HTTPException(400, detail="Não é possível fazer Análise RH de uma avaliação pendente.")
 
     cycle_id = rev_data.get("cycle_id")
     cycle = db.table("performance_cycles").select("status").eq("id", cycle_id).execute()
     if not cycle.data or cycle.data[0]["status"] != "open":
-        raise HTTPException(400, detail="Calibração só pode ser feita com o ciclo aberto")
+        raise HTTPException(400, detail="Análise RH só pode ser feita com o ciclo aberto")
+
+    # Análise RH só pode alterar indicadores com discrepância >=50% entre gestor e
+    # auto-avaliação — recalcula server-side para não confiar só no frontend.
+    manager_scores_raw = (
+        db.table("performance_indicator_scores")
+        .select("indicator_id,score")
+        .eq("review_id", review_id)
+        .execute()
+        .data
+    )
+    manager_scores_map = {s["indicator_id"]: float(s["score"]) for s in manager_scores_raw}
+
+    self_rev = (
+        db.table("performance_reviews")
+        .select("id")
+        .eq("cycle_id", cycle_id)
+        .eq("employee_id", rev_data.get("employee_id"))
+        .eq("is_self_evaluation", True)
+        .eq("status", "completed")
+        .execute()
+        .data
+    )
+    self_review_id = self_rev[0]["id"] if self_rev else None
+    self_scores_map: dict[str, float] = {}
+    if self_review_id:
+        self_scores_raw = (
+            db.table("performance_indicator_scores")
+            .select("indicator_id,score")
+            .eq("review_id", self_review_id)
+            .execute()
+            .data
+        )
+        self_scores_map = {s["indicator_id"]: float(s["score"]) for s in self_scores_raw}
+
+    for item in body.items:
+        m_score = manager_scores_map.get(item.indicator_id)
+        s_score = self_scores_map.get(item.indicator_id)
+        if m_score is None or s_score is None:
+            raise HTTPException(400, detail=f"Indicador {item.indicator_id} não tem nota de gestor e auto-avaliação suficientes para Análise RH")
+        lo, hi = min(m_score, s_score), max(m_score, s_score)
+        adh = (lo / hi) * 100 if hi else None
+        if adh is None or adh > 50:
+            raise HTTPException(400, detail=f"Indicador {item.indicator_id} não tem discrepância >=50% entre gestor e auto-avaliação — Análise RH não é permitida neste item")
 
     try:
         # Buscar scores atuais
@@ -2872,7 +2953,7 @@ def calibrate_evaluation(
             "review_id": review_id,
             "original_score": original_final,
             "calibrated_score": original_final,  # será atualizado abaixo
-            "justification": (body.notes or "Calibração por indicador").strip(),
+            "justification": (body.notes or "Análise RH por indicador").strip(),
             "calibrated_by": current_user["username"],
             "notes": body.notes,
         }).execute()

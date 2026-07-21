@@ -298,7 +298,7 @@ def send_evaluation_token_email(
         <td style="padding:12px 18px;">
           <p style="margin:0;font-size:12px;color:{_TEXT_MUTED};line-height:1.6;">
             &#128274; As notas e comentários desta avaliação serão disponibilizados ao
-            colaborador avaliado e, no processo de calibração, ao RH.
+            colaborador avaliado e, durante a Análise RH, à equipe de RH.
           </p>
         </td>
       </tr>
@@ -432,7 +432,7 @@ def send_evaluation_batch_email(
         <td style="padding:12px 18px;">
           <p style="margin:0;font-size:12px;color:{_TEXT_MUTED};line-height:1.6;">
             &#128274; As notas e comentários de cada avaliação serão disponibilizados ao
-            respectivo colaborador avaliado e, no processo de calibração, ao RH.
+            respectivo colaborador avaliado e, durante a Análise RH, à equipe de RH.
           </p>
         </td>
       </tr>
@@ -464,19 +464,11 @@ def send_self_evaluation_email(
       Olá, <span style="color:{primary};">{employee_name}</span>!
     </p>
     <p style="margin:0 0 24px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
-      Chegou o momento da sua <strong style="color:{_TEXT_DARK};">auto-avaliação de desempenho</strong>
-      do ciclo <strong style="color:{_TEXT_DARK};">{cycle_name}</strong>.
-      Reserve alguns minutos para refletir sobre sua trajetória e registrar como você avalia
-      seu próprio desempenho neste período.
-    </p>
-
-    <p style="margin:0 0 24px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
-      A avaliação de desempenho é uma etapa importante do seu desenvolvimento profissional
-      na empresa. As respostas fornecidas aqui servirão de base para a construção do seu
-      Plano de Desenvolvimento Individual (PDI), ajudando a identificar pontos fortes e
-      oportunidades de crescimento. Por isso, contamos com a sua sinceridade e reflexão ao
-      preencher cada questão — suas percepções são fundamentais para tornarmos esse
-      processo cada vez mais justo e eficaz.
+      A auto-avaliação é uma etapa importante da sua trajetória na empresa: suas respostas
+      serão a base para a construção do seu Plano de Desenvolvimento Individual (PDI),
+      ajudando a identificar pontos fortes e oportunidades de crescimento. Por isso,
+      contamos com sua sinceridade ao preencher cada questão — suas percepções são
+      fundamentais para tornar esse processo cada vez mais tangível e eficaz.
     </p>
 
     <!-- Info box -->
@@ -486,8 +478,9 @@ def send_self_evaluation_email(
       <tr>
         <td style="padding:16px 20px;">
           <p style="margin:0;font-size:14px;color:{_TEXT_DARK};line-height:1.7;">
-            &#10003; Responda com honestidade — sua percepção é fundamental para o processo.<br/>
-            &#10003; Não há resposta certa ou errada; reflita sobre seus pontos fortes e de desenvolvimento.
+            Chegou o momento de refletir sobre sua trajetória no ciclo
+            <strong>2025/2026</strong>! Vamos lá? Clique no link abaixo e reserve alguns
+            minutinhos para registrar sua avaliação.
           </p>
         </td>
       </tr>
@@ -502,20 +495,6 @@ def send_self_evaluation_email(
           <p style="margin:0;font-size:13px;color:#92400E;line-height:1.6;">
             &#9888;&#65039; <strong>Link individual e intransferível.</strong>
             Este formulário é exclusivo para a sua auto-avaliação. Não compartilhe este link.
-          </p>
-        </td>
-      </tr>
-    </table>
-
-    <!-- Transparência sobre acesso às informações -->
-    <table width="100%" cellpadding="0" cellspacing="0" border="0"
-           style="background:#F9FAFB;border:1px solid #E5E7EB;
-                  border-radius:8px;margin:0 0 28px;">
-      <tr>
-        <td style="padding:12px 18px;">
-          <p style="margin:0;font-size:12px;color:{_TEXT_MUTED};line-height:1.6;">
-            &#128274; Suas respostas e notas serão acessadas pelo seu gestor imediato e,
-            no processo de calibração, pelo RH.
           </p>
         </td>
       </tr>
