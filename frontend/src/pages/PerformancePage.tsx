@@ -704,12 +704,20 @@ function TabHierarquia({ companies }: { companies: any[] }) {
 
   // Derivados para filtros client-side
   // Gestores relevantes = apenas quem tem pelo menos 1 subordinado no conjunto
-  // filtrado por nível (evita circular: não aplica selManager aqui)
+  // filtrado por nível (evita circular: não aplica selManager aqui).
+  // Usa manager_id/manager_name já resolvidos pelo backend (não busca o gestor
+  // dentro de `employees`, que só contém colaboradores da empresa filtrada —
+  // isso excluiria gestores cross-empresa, como um gestor que valida
+  // colaboradores de outra empresa além da sua).
   const levelFiltered = selLevel ? employees.filter(e => e.level === selLevel) : employees;
-  const relevantMgrIds = new Set(levelFiltered.map(e => (e as any).manager_id).filter(Boolean));
-  const managers = employees.filter(
-    e => (e.level === "diretoria" || e.level === "gerente" || e.level === "coordenador_supervisor") && relevantMgrIds.has(e.id)
-  );
+  const managerMap = new Map<string, string>();
+  for (const e of levelFiltered) {
+    const mgrId = (e as any).manager_id;
+    if (mgrId) managerMap.set(mgrId, (e as any).manager_name || mgrId);
+  }
+  const managers = Array.from(managerMap.entries())
+    .map(([id, name]) => ({ id, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
   const filteredEmployees = employees.filter(e => {
     if (selLevel && e.level !== selLevel) return false;
     if (selManager === "__no_manager__" && (e as any).manager_id) return false;
