@@ -28,6 +28,8 @@ from routes.management import router as management_router
 from routes.indicators import router as indicators_router
 from routes.public import router as public_router
 from routes.my import router as my_router
+from routes.action_plans import router as action_plans_router
+from routes.action_plans_public import router as action_plans_public_router
 
 
 @asynccontextmanager
@@ -38,11 +40,21 @@ async def lifespan(app: FastAPI):
         _sla_start()
     except Exception as exc:
         _logger.warning("SLA scheduler não iniciado: %s", exc)
+    try:
+        from services.action_plan_scheduler import start_action_plan_scheduler
+        await start_action_plan_scheduler()
+    except Exception as exc:
+        _logger.warning("Action Plan scheduler não iniciado: %s", exc)
     yield
     _logger.info("Performance Service shutting down")
     try:
         from services.sla_scheduler import stop as _sla_stop
         _sla_stop()
+    except Exception:
+        pass
+    try:
+        from services.action_plan_scheduler import stop_action_plan_scheduler
+        await stop_action_plan_scheduler()
     except Exception:
         pass
 
@@ -86,3 +98,5 @@ app.include_router(management_router)
 app.include_router(indicators_router)
 app.include_router(public_router)
 app.include_router(my_router)
+app.include_router(action_plans_router)
+app.include_router(action_plans_public_router)

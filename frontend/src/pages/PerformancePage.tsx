@@ -20,6 +20,7 @@ const TABS: TabDef[] = [
   { id: "gestao-rh",  label: "Gestão RH",   icon: "⚙️", roles: ["admin", "rh"] },
   { id: "ciclo",      label: "Ciclo",       icon: "🔄", roles: ["admin", "rh"] },
   { id: "avaliacoes", label: "Avaliações",  icon: "✅", roles: ["gerente", "coordenador_supervisor"] },
+  { id: "plano-acao-feedback", label: "Plano de Ação", icon: "📈", roles: ["admin", "rh"] },
   // Ciência Presencial e Auto-Aval. Presencial removidas do menu —
   // links disponíveis apenas no banner do Gestão RH para controle de distribuição
 ];
@@ -1378,13 +1379,13 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                           👁️ Ver
                         </button>
                         {/* Ver Ciência */}
-                        {ev.id && (
-                          <button onClick={() => setCienciaViewId(ev.id)}
-                            title="Ver ciência (notas, Análise RH e comentários) sem precisar do link do colaborador"
-                            className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
-                            📄 Ciência
-                          </button>
-                        )}
+                        <button
+                          onClick={() => ev.id && setCienciaViewId(ev.id)}
+                          disabled={!ev.id}
+                          title={ev.id ? "Ver ciência (notas, Análise RH e comentários) sem precisar do link do colaborador" : "Disponível após a avaliação do gestor ser submetida"}
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-violet-50 dark:disabled:hover:bg-violet-900/20">
+                          📄 Ciência
+                        </button>
                         {/* Análise RH */}
                         <button
                           onClick={() => ev.id ? openCalib(ev) : alert("Avaliação do gestor ainda não foi submetida.")}
@@ -2709,6 +2710,518 @@ function TabAvaliacoes() {
   );
 }
 
+// ─── Tab Plano de Ação - Feedback ─────────────────────────────────────────────
+
+type PAFSubTab = "alertas" | "monitoramento" | "config";
+
+function TabPlanoAcaoFeedback({ companies }: { companies: any[] }) {
+  const { token } = useAuth();
+  const [sub, setSub] = useState<PAFSubTab>("alertas");
+  const [cycles, setCycles] = useState<any[]>([]);
+  const [cycleId, setCycleId] = useState("");
+  const [indicators, setIndicators] = useState<any[]>([]);
+  const [branches, setBranches] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<any[]>("/api/performance/admin/cycles", { token }).then(cy => {
+      setCycles(cy || []);
+      setCycleId(prev => prev || (cy && cy.length > 0 ? cy[0].id : ""));
+    }).catch(() => {});
+    apiFetch<any[]>("/api/performance/indicators", { token }).then(d => setIndicators(d || [])).catch(() => setIndicators([]));
+  }, [token]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex gap-1 flex-wrap items-center bg-gray-50 dark:bg-gray-900 p-1 rounded-lg border border-gray-200 dark:border-gray-700">
+        {([
+          { id: "alertas", label: "🔔 Central de Alertas" },
+          { id: "monitoramento", label: "📊 Monitoramento" },
+          { id: "config", label: "⚙️ Config" },
+        ] as { id: PAFSubTab; label: string }[]).map(t => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-1.5 rounded-md text-sm font-semibold transition-all ${
+              sub === t.id ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+            }`}>
+            {t.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <select value={cycleId} onChange={e => setCycleId(e.target.value)}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-1.5 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+          <option value="">Selecione o ciclo</option>
+          {cycles.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+      </div>
+
+      {sub === "config" && <PAFConfig cycleId={cycleId} />}
+      {sub === "alertas" && <PAFAlertas cycleId={cycleId} />}
+      {sub === "monitoramento" && (
+        <PAFMonitoramento cycleId={cycleId} indicators={indicators} companies={companies}
+          branches={branches} setBranches={setBranches} />
+      )}
+    </div>
+  );
+}
+
+function PAFConfig({ cycleId }: { cycleId: string }) {
+  const { token } = useAuth();
+  const [startDate, setStartDate] = useState("");
+  const [phaseDates, setPhaseDates] = useState<{ phase_number: number; due_date: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    if (!cycleId) return;
+    setLoading(true);
+    apiFetch<any>(`/api/performance/action-plans/cycle-config?cycle_id=${cycleId}`, { token })
+      .then(d => { setStartDate(d.action_plan_start_date || ""); setPhaseDates(d.phase_due_dates || []); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [cycleId, token]);
+
+  async function handleSave() {
+    if (!cycleId || !startDate) return;
+    setSaving(true); setMsg("");
+    try {
+      await apiFetch("/api/performance/action-plans/cycle-config", {
+        token, method: "PUT", json: { cycle_id: cycleId, action_plan_start_date: startDate },
+      });
+      const cfg = await apiFetch<any>(`/api/performance/action-plans/cycle-config?cycle_id=${cycleId}`, { token });
+      setPhaseDates(cfg.phase_due_dates || []);
+      setMsg("✅ Data-base salva.");
+    } catch (e: any) {
+      setMsg(e instanceof ApiError ? e.message : "Erro ao salvar.");
+    } finally { setSaving(false); }
+  }
+
+  if (!cycleId) return <Card className="p-6 text-sm text-gray-500">Selecione um ciclo.</Card>;
+
+  return (
+    <Card className="p-5 space-y-4">
+      <div>
+        <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+          Data-base do acompanhamento trimestral (vale para todos os planos deste ciclo)
+        </label>
+        <div className="flex gap-2 items-center flex-wrap">
+          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]" />
+          <button onClick={handleSave} disabled={saving || !startDate}
+            className="px-4 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all disabled:opacity-50">
+            {saving ? "Salvando..." : "Salvar"}
+          </button>
+        </div>
+        {msg && <p className="text-xs mt-2 text-gray-500">{msg}</p>}
+      </div>
+      {loading ? (
+        <div className="flex justify-center py-6"><div className="w-6 h-6 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
+      ) : phaseDates.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Preview das 4 fases</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {phaseDates.map(p => (
+              <div key={p.phase_number} className="rounded-lg bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 p-3 text-center">
+                <p className="text-xs text-gray-400">Fase {p.phase_number}</p>
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{p.due_date}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function PAFAlertas({ cycleId }: { cycleId: string }) {
+  const { token } = useAuth();
+  const [data, setData] = useState<{ initial_candidates: any[]; pending_phase_send: any[]; suggested_reminders: any[] } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
+  const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set());
+  const [sending, setSending] = useState(false);
+
+  function load() {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (cycleId) params.set("cycle_id", cycleId);
+    apiFetch<any>(`/api/performance/action-plans/alerts?${params}`, { token })
+      .then(d => { setData(d); setSelectedCandidates(new Set()); setSelectedPhases(new Set()); })
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => { load(); }, [cycleId, token]);
+
+  function toggle(set: Set<string>, setSet: (s: Set<string>) => void, id: string) {
+    const next = new Set(set);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSet(next);
+  }
+
+  async function sendInitial(ids: string[]) {
+    if (!cycleId || ids.length === 0) return;
+    setSending(true);
+    try {
+      await apiFetch("/api/performance/action-plans/generate", {
+        token, method: "POST", json: { cycle_id: cycleId, employee_ids: ids },
+      });
+      load();
+    } catch {} finally { setSending(false); }
+  }
+
+  async function sendPhases(ids: string[]) {
+    if (ids.length === 0) return;
+    setSending(true);
+    try {
+      await apiFetch("/api/performance/action-plans/phases/send-batch", {
+        token, method: "POST", json: { phase_ids: ids },
+      });
+      load();
+    } catch {} finally { setSending(false); }
+  }
+
+  async function resendReminder(actionPlanId: string, phaseNumber: number) {
+    try {
+      await apiFetch(`/api/performance/action-plans/${actionPlanId}/phases/${phaseNumber}/resend`, { token, method: "POST" });
+      load();
+    } catch {}
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>;
+  if (!data) return <Card className="p-6 text-sm text-gray-500">Selecione um ciclo para ver os alertas.</Card>;
+
+  const candidates = data.initial_candidates || [];
+  const pendingPhases = data.pending_phase_send || [];
+  const reminders = data.suggested_reminders || [];
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="font-bold text-gray-900 dark:text-white">Colaboradores aptos ao plano inicial ({candidates.length})</h3>
+          <div className="flex gap-2">
+            <button disabled={sending || selectedCandidates.size === 0} onClick={() => sendInitial([...selectedCandidates])}
+              className="px-3 py-1.5 bg-[#00694E] hover:bg-[#004F3A] text-white text-xs font-semibold rounded-lg disabled:opacity-50">
+              Enviar selecionados ({selectedCandidates.size})
+            </button>
+            <button disabled={sending || candidates.length === 0} onClick={() => sendInitial(candidates.map((c: any) => c.employee_id))}
+              className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded-lg disabled:opacity-50">
+              Enviar todos
+            </button>
+          </div>
+        </div>
+        {candidates.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhum colaborador pendente.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                {["", "Colaborador", "Cargo", "Gestor", "Competências (nota 1/2)"].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {candidates.map((c: any) => (
+                  <tr key={c.employee_id} className="border-b border-gray-50 dark:border-gray-800">
+                    <td className="px-3 py-2"><input type="checkbox" checked={selectedCandidates.has(c.employee_id)}
+                      onChange={() => toggle(selectedCandidates, setSelectedCandidates, c.employee_id)} /></td>
+                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{c.name}</td>
+                    <td className="px-3 py-2 text-gray-500">{c.cargo}</td>
+                    <td className="px-3 py-2 text-gray-500">
+                      {c.manager_name || <span className="text-red-500">sem gestor/e-mail corporativo</span>}
+                    </td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-1">
+                        {(c.indicators || []).map((i: any) => (
+                          <Badge key={i.indicator_id} color={i.score <= 1 ? "red" : "amber"}>{i.name} ({i.score})</Badge>
+                        ))}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <Card className="p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="font-bold text-gray-900 dark:text-white">Fases trimestrais pendentes de envio ({pendingPhases.length})</h3>
+          <div className="flex gap-2">
+            <button disabled={sending || selectedPhases.size === 0} onClick={() => sendPhases([...selectedPhases])}
+              className="px-3 py-1.5 bg-[#00694E] hover:bg-[#004F3A] text-white text-xs font-semibold rounded-lg disabled:opacity-50">
+              Enviar selecionados ({selectedPhases.size})
+            </button>
+            <button disabled={sending || pendingPhases.length === 0} onClick={() => sendPhases(pendingPhases.map((p: any) => p.phase_id))}
+              className="px-3 py-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded-lg disabled:opacity-50">
+              Enviar todos
+            </button>
+          </div>
+        </div>
+        {pendingPhases.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhuma fase pendente de envio.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                {["", "Colaborador", "Gestor", "Fase", "Vencimento", "Atraso"].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {pendingPhases.map((p: any) => (
+                  <tr key={p.phase_id} className="border-b border-gray-50 dark:border-gray-800">
+                    <td className="px-3 py-2"><input type="checkbox" checked={selectedPhases.has(p.phase_id)}
+                      onChange={() => toggle(selectedPhases, setSelectedPhases, p.phase_id)} /></td>
+                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{p.employee_name}</td>
+                    <td className="px-3 py-2 text-gray-500">{p.manager_name}</td>
+                    <td className="px-3 py-2"><Badge color="amber">Fase {p.phase_number}/4</Badge></td>
+                    <td className="px-3 py-2 text-gray-500">{p.due_date}</td>
+                    <td className="px-3 py-2"><Badge color={p.days_overdue > 15 ? "red" : "gray"}>{p.days_overdue}d</Badge></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {reminders.length > 0 && (
+        <Card className="p-5">
+          <h3 className="font-bold text-gray-900 dark:text-white mb-3">Lembretes sugeridos ({reminders.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                {["Colaborador", "Gestor", "Fase", "Enviado há", "Lembretes", "Ação"].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-xs font-semibold uppercase text-gray-500">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {reminders.map((r: any) => (
+                  <tr key={r.phase_id} className="border-b border-gray-50 dark:border-gray-800">
+                    <td className="px-3 py-2 font-medium text-gray-800 dark:text-gray-200">{r.employee_name}</td>
+                    <td className="px-3 py-2 text-gray-500">{r.manager_name}</td>
+                    <td className="px-3 py-2"><Badge color="violet">Fase {r.phase_number}/4</Badge></td>
+                    <td className="px-3 py-2 text-gray-500">{r.days_waiting}d</td>
+                    <td className="px-3 py-2 text-gray-500">{r.reminder_count}</td>
+                    <td className="px-3 py-2">
+                      <button onClick={() => resendReminder(r.action_plan_id, r.phase_number)}
+                        className="px-2.5 py-1 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-semibold rounded-lg">
+                        Reenviar
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranches }: {
+  cycleId: string; indicators: any[]; companies: any[]; branches: any[]; setBranches: (b: any[]) => void;
+}) {
+  const { token } = useAuth();
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({
+    manager_id: "", employee_search: "", indicator_id: "", status: "",
+    phase_number: "", phase_status: "", company_id: "", branch_id: "",
+    min_progress: "", max_progress: "",
+  });
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    if (!filters.company_id) { setBranches([]); return; }
+    apiFetch<any[]>(`/api/performance/admin/branches?company_id=${filters.company_id}`, { token })
+      .then(b => setBranches(b || [])).catch(() => setBranches([]));
+  }, [filters.company_id]);
+
+  useEffect(() => {
+    setLoading(true);
+    const params = new URLSearchParams();
+    if (cycleId) params.set("cycle_id", cycleId);
+    Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, String(v)); });
+    apiFetch<any[]>(`/api/performance/action-plans/overview?${params}`, { token })
+      .then(r => setRows(r || [])).catch(() => setRows([])).finally(() => setLoading(false));
+  }, [cycleId, filters, token]);
+
+  async function handleExportCSV() {
+    try {
+      const params = new URLSearchParams();
+      if (cycleId) params.set("cycle_id", cycleId);
+      Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, String(v)); });
+      const res = await fetch(`/api/performance/action-plans/overview/export?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "plano_acao_feedback.csv"; a.click();
+      URL.revokeObjectURL(url);
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (!detailId) { setDetail(null); return; }
+    setDetailLoading(true);
+    apiFetch<any>(`/api/performance/action-plans/${detailId}/detail`, { token })
+      .then(setDetail).catch(() => setDetail(null)).finally(() => setDetailLoading(false));
+  }, [detailId, token]);
+
+  const managerOptions = Array.from(
+    new Map(rows.filter((r: any) => r.manager_id).map((r: any) => [r.manager_id, r.manager_name])).entries()
+  );
+
+  const totalPlans = rows.length;
+  const active = rows.filter((r: any) => r.status === "active").length;
+  const completed = rows.filter((r: any) => r.status === "completed").length;
+  const pendingFill = rows.filter((r: any) => r.status === "pending_manager_fill").length;
+  const avgProgress = totalPlans ? Math.round(rows.reduce((s: number, r: any) => s + (r.progress_pct || 0), 0) / totalPlans) : 0;
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        <StatCard label="Total de Planos" value={totalPlans} color="blue" />
+        <StatCard label="Ativos" value={active} color="amber" />
+        <StatCard label="Concluídos" value={completed} color="green" />
+        <StatCard label="Aguard. Preench. Inicial" value={pendingFill} color="violet" />
+        <StatCard label="Progresso Médio" value={`${avgProgress}%`} color="blue" />
+      </div>
+
+      <Card className="p-4 flex flex-wrap gap-3 items-center">
+        <select value={filters.manager_id} onChange={e => setFilters(f => ({ ...f, manager_id: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+          <option value="">Todos os gestores</option>
+          {managerOptions.map(([id, name]) => <option key={id as string} value={id as string}>{name as string}</option>)}
+        </select>
+        <input placeholder="Buscar colaborador..." value={filters.employee_search}
+          onChange={e => setFilters(f => ({ ...f, employee_search: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]" />
+        <select value={filters.indicator_id} onChange={e => setFilters(f => ({ ...f, indicator_id: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+          <option value="">Todas as competências</option>
+          {indicators.map((i: any) => <option key={i.id} value={i.id}>{i.name}</option>)}
+        </select>
+        <select value={filters.phase_number} onChange={e => setFilters(f => ({ ...f, phase_number: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+          <option value="">Todas as fases</option>
+          {[1, 2, 3, 4].map(n => <option key={n} value={n}>Fase {n}</option>)}
+        </select>
+        <select value={filters.phase_status} onChange={e => setFilters(f => ({ ...f, phase_status: e.target.value }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+          <option value="">Qualquer status de fase</option>
+          <option value="scheduled">Aguardando data</option>
+          <option value="pending_rh_send">Pendente de envio</option>
+          <option value="sent">Enviado, aguardando resposta</option>
+          <option value="completed">Respondido</option>
+        </select>
+        <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value, branch_id: "" }))}
+          className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+          <option value="">Todas as empresas</option>
+          {companies.map((c: any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+        </select>
+        {branches.length > 0 && (
+          <select value={filters.branch_id} onChange={e => setFilters(f => ({ ...f, branch_id: e.target.value }))}
+            className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]">
+            <option value="">Todas as filiais</option>
+            {branches.map((b: any) => <option key={b.id} value={b.id}>{b.name}</option>)}
+          </select>
+        )}
+        <input type="number" min={0} max={100} placeholder="% mín." value={filters.min_progress}
+          onChange={e => setFilters(f => ({ ...f, min_progress: e.target.value }))}
+          className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]" />
+        <input type="number" min={0} max={100} placeholder="% máx." value={filters.max_progress}
+          onChange={e => setFilters(f => ({ ...f, max_progress: e.target.value }))}
+          className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]" />
+        <div className="flex-1" />
+        <button onClick={handleExportCSV}
+          className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all">
+          ⬇ Exportar CSV
+        </button>
+      </Card>
+
+      <Card>
+        {loading ? (
+          <div className="flex justify-center py-12"><div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
+        ) : rows.length === 0 ? (
+          <p className="text-sm text-gray-400 p-6">Nenhum plano de ação encontrado com esses filtros.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-sm">
+              <thead><tr className="border-b border-gray-100 dark:border-gray-700">
+                {["Colaborador", "Gestor", "Status", "Fase Atual", "Progresso", "Ações"].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {rows.map((r: any) => (
+                  <tr key={r.action_plan_id} className="border-b border-gray-50 dark:border-gray-800">
+                    <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{r.employee_name}</td>
+                    <td className="px-4 py-3 text-gray-500">{r.manager_name}</td>
+                    <td className="px-4 py-3">
+                      <Badge color={r.status === "completed" ? "green" : r.status === "active" ? "blue" : "gray"}>{r.status}</Badge>
+                    </td>
+                    <td className="px-4 py-3 text-gray-500">{r.current_phase}/4</td>
+                    <td className="px-4 py-3">
+                      <div className="w-28 h-2 rounded-full bg-gray-100 dark:bg-gray-700 overflow-hidden">
+                        <div className="h-full bg-[#00694E]" style={{ width: `${r.progress_pct}%` }} />
+                      </div>
+                      <span className="text-xs text-gray-500">{r.progress_pct}%</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button onClick={() => setDetailId(r.action_plan_id)}
+                        className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
+                        👁️ Ver
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      <ModalWrapper open={!!detailId} onClose={() => setDetailId(null)} title="Detalhe do Plano de Ação">
+        {detailLoading ? (
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
+        ) : detail && (
+          <div className="space-y-4">
+            <p className="text-sm text-gray-500">{detail.employee_name} — gestor {detail.manager_name}</p>
+            {detail.items?.map((it: any) => (
+              <div key={it.indicator_id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+                <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">{it.indicator_name} (nota original {it.original_score})</p>
+                <p className="text-xs text-gray-500 mt-1">{it.plan_text || "Sem plano de ação preenchido ainda."}</p>
+                <p className="text-xs mt-1 text-[#00694E] font-semibold">{it.cumulative_pct}% concluído</p>
+              </div>
+            ))}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Histórico de fases</p>
+              {detail.phases?.map((ph: any) => (
+                <div key={ph.phase_number} className="mb-2 text-xs text-gray-500">
+                  <span className="font-semibold">Fase {ph.phase_number}</span> — {ph.status} — vencimento {ph.due_date}
+                  {ph.answers?.map((a: any, idx: number) => (
+                    <div key={idx} className="ml-3 mt-1">
+                      {a.indicator_name}: {a.result || "sem resposta"} {a.justification ? `— ${a.justification}` : ""}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </ModalWrapper>
+    </div>
+  );
+}
+
 // ─── Página Principal ─────────────────────────────────────────────────────────
 
 export default function PerformancePage() {
@@ -2723,6 +3236,21 @@ export default function PerformancePage() {
       .then(c => setCompanies(c || []))
       .catch(() => {});
   }, [token]);
+
+  // ── Badge de pendências do Plano de Ação (só RH/admin, poll a cada 30s) ──────
+  const [pafPending, setPafPending] = useState(0);
+  useEffect(() => {
+    if (!token || (role !== "admin" && role !== "rh")) return;
+    let cancelled = false;
+    function poll() {
+      apiFetch<any>("/api/performance/action-plans/notifications-summary", { token })
+        .then(d => { if (!cancelled) setPafPending(d?.total || 0); })
+        .catch(() => {});
+    }
+    poll();
+    const interval = setInterval(poll, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [token, role]);
 
   const visibleTabs = TABS.filter(t => role && t.roles.includes(role));
   const [activeTab, setActiveTab] = useState(() => visibleTabs[0]?.id ?? "dashboard");
@@ -2750,6 +3278,11 @@ export default function PerformancePage() {
             }`}>
             <span>{tab.icon}</span>
             {tab.label}
+            {tab.id === "plano-acao-feedback" && pafPending > 0 && (
+              <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold">
+                {pafPending}
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -2760,6 +3293,7 @@ export default function PerformancePage() {
       {activeTab === "gestao-rh"          && <TabGestaoRH   companies={companies} />}
       {activeTab === "ciclo"              && <TabCiclo       companies={companies} />}
       {activeTab === "avaliacoes"         && <TabAvaliacoes />}
+      {activeTab === "plano-acao-feedback" && <TabPlanoAcaoFeedback companies={companies} />}
     </div>
   );
 }
