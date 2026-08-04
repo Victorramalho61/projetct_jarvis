@@ -54,3 +54,8 @@ cloud_dump.dump
 # Scripts de análise local
 analyze_db.py
 volumes/api/kong.yml
+volumes/api/kong.yml.new
+volumes/api/kong_backups/
+
+# Logs de backup (gerado localmente, não deve ir pro git)
+backups/backup.log
