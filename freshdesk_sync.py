@@ -6,6 +6,7 @@ Uso:
 """
 
 import argparse
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
@@ -13,6 +14,9 @@ from dateutil.relativedelta import relativedelta
 
 import httpx
 import pyodbc
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ── Configuração ──────────────────────────────────────────────
 FRESHDESK_API_KEY = "1D8QeHt9G6wHzNtSHAmB"
@@ -21,8 +25,8 @@ FRESHDESK_BASE    = f"https://{FRESHDESK_DOMAIN}/api/v2"
 
 SQL_SERVER   = "10.141.0.111,1444"
 SQL_DATABASE = "BI"
-SQL_USER     = ""       # << preencher
-SQL_PASSWORD = ""       # << preencher
+SQL_USER     = os.environ.get("MSSQL_USER", "")
+SQL_PASSWORD = os.environ.get("MSSQL_PASSWORD", "")
 
 CONCURRENCY    = 5      # chamadas paralelas para buscar stats
 RATE_DELAY_S   = 0.3    # delay entre requests na search API
@@ -122,7 +126,7 @@ def _map_row(ticket: dict, stats: dict) -> dict:
 
 def _get_connection():
     conn_str = (
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
+        f"DRIVER={{SQL Server}};"
         f"SERVER={SQL_SERVER};"
         f"DATABASE={SQL_DATABASE};"
         f"UID={SQL_USER};"

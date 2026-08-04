@@ -1509,6 +1509,7 @@ Após isso: `_get_ndd_token(company_id)` em `nfse_fetcher.py` auto-renova usando
 - **ERP Benner**: SQL Server `10.141.0.111:1444`, banco `BennerSistemaCorporativo`, user `usr_jarvis_read`
 - **Benner RH**: SQL Server `10.141.0.111:1444`, banco configurado via `SQL_SERVER_BENNER_HR_DB`, user `usr_jarvis_read`
 - **Freshservice**: `voetur1.freshservice.com`, autenticação via API key
+- **Freshdesk Omni**: `voeturomni.freshdesk.com` (API — login em `voeturomni.myfreshworks.com`), autenticação via API key (`FRESHDESK_API_KEY`). Relatório mensal ACCIONA: ver `docs/relatorio-acciona-freshdesk.md`
 - **WhatsApp**: Evolution API (instâncias `voetur` e `voetur-support`)
 - **SMTP**: `smtp.office365.com`, `noreply@voetur.com.br`
 - **NDD Digital**: `spaceportalprod.e-datacenter.nddigital.com.br` — portal fiscal NFe/CTe/NFSe; OAuth2 PKCE via `ndd-identity-space-gateway`; token TTL 1800s + refresh automático

@@ -11,6 +11,8 @@ Antes de executar qualquer pedido, aplique o **token-efficiency** mode:
 
 Documentação completa do projeto em `docs/arquitetura.md`.
 
+Relatório mensal ACCIONA (Freshdesk Omni) — extração + análise: `docs/relatorio-acciona-freshdesk.md`.
+
 ## Regras de desenvolvimento
 
 - **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas nos 7 serviços.
