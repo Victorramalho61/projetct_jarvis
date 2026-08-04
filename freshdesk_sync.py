@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Configuração ──────────────────────────────────────────────
-FRESHDESK_API_KEY = "1D8QeHt9G6wHzNtSHAmB"
+FRESHDESK_API_KEY = os.environ.get("FRESHDESK_API_KEY", "")
 FRESHDESK_DOMAIN  = "voeturomni.freshdesk.com"
 FRESHDESK_BASE    = f"https://{FRESHDESK_DOMAIN}/api/v2"
 
