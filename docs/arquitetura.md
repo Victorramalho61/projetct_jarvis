@@ -18,6 +18,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e dez módulos:
 | Financeiro | financeiro-service | 8011 | Conciliação e analytics financeiro via ERP Benner (MSSQL read-only) |
 | Cofre de Cartões | cards-service | 8012 | Solicitação e aprovação de cartões corporativos com criptografia Fernet |
 | Aval. Experiência | experiencia-service | 8013 | Avaliações de 45/90 dias — sync Benner, e-mail ao gestor, assinatura digital |
+| Status das Vagas de RH | rh-service | 8014 | Gestão de vagas/processos de admissão — dashboard, upload de planilha, impressão de formulário |
 
 ### Serviços suspensos (❌ não sobem automaticamente)
 
@@ -60,8 +61,10 @@ Browser
         │                                     │     └─► support-service:8007
         │                                     ├─ /api/cards/*
         │                                     │     └─► cards-service:8012
-        │                                     └─ /api/experiencia/*
-        │                                           └─► experiencia-service:8013
+        │                                     ├─ /api/experiencia/*
+        │                                     │     └─► experiencia-service:8013
+        │                                     └─ /api/rh/*
+        │                                           └─► rh-service:8014
         └─ / ──────────────────────────────► SPA React (nginx serve estático)
 
 Inter-serviço (Docker app_net):
@@ -955,6 +958,22 @@ erDiagram
 | GET | `/api/performance/admin/audit-log` | rh/admin | trilha de auditoria |
 | GET | `/api/performance/health` | público | healthcheck |
 | GET | `/api/performance/ready` | público | readiness |
+
+### rh-service:8014
+
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/api/rh/health`, `/api/rh/ready` | público | healthcheck |
+| GET | `/api/rh/dashboard` | admin/rh | KPIs + breakdowns (filtros: período, empresa, status, tipo de vaga/contrato, nível, hierarquia, etapa, seção, analista, requisitante, cargo, busca `q`) |
+| GET | `/api/rh/vagas` | admin/rh | lista paginada — mesmos filtros + busca por candidato/cargo/nº requisição |
+| POST | `/api/rh/vagas/iniciar` | admin/rh | cria o processo (draft) e gera `numero_requisicao` automático |
+| GET/PATCH/DELETE | `/api/rh/vagas/{id}` | admin/rh | detalhe (autosave por campo) / exclui |
+| GET | `/api/rh/vagas/template` | admin/rh | baixa .xlsx modelo com dropdowns das listas atuais |
+| POST | `/api/rh/vagas/import` | admin/rh | upload multipart .xlsx — upsert por nº de requisição, grava auditoria em `rh_uploads` |
+| GET | `/api/rh/uploads/ultimo`, `/api/rh/uploads` | admin/rh | auditoria de uploads (quem/quando/contadores) |
+| GET/POST/PATCH/DELETE | `/api/rh/lookups/{tipo}` | admin/rh | CRUD das listas (empresas, cargos, hierarquias, etapas do processo, etc.) |
+
+Tabelas (`rh_*`, `migrations/001_rh_schema.sql` + `002_rh_pipeline.sql`): `rh_vagas` (processo de admissão), `rh_uploads` (auditoria), `rh_etapas_processo` (pipeline ordenado de 16 etapas com seção responsável) e 12 tabelas de lista suspensa seedadas com os valores oficiais da planilha `Controle de Vagas - BSB.xlsx` (empresas com prefixo de numeração, cargos com nível padrão, etc.). Automação: selecionar cargo autopreenche nível; selecionar etapa autopreenche seção e, nas etapas "Concluído"/"Cancelado", o status da vaga.
 
 ---
 

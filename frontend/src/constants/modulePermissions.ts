@@ -21,4 +21,5 @@ export const MODULE_PERMISSIONS: ModulePermission[] = [
   { id: "cartoes",       label: "Cofre de Cartões",      navId: "cartoes" },
   { id: "financeiro",    label: "Financeiro",            navId: "financeiro" },
   { id: "experiencia",   label: "Aval. de Experiência",  navId: "experiencia" },
+  { id: "rh",            label: "Recursos Humanos",      navId: "rh" },
 ];

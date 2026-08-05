@@ -46,6 +46,10 @@ const CartaoPage = lazyWithReload(() => import("./pages/CartaoPage"));
 const FinanceiroPage = lazyWithReload(() => import("./pages/FinanceiroPage"));
 const ExperienciaPage = lazyWithReload(() => import("./pages/ExperienciaPage"));
 const PublicExperienciaPage = lazyWithReload(() => import("./pages/PublicExperienciaPage"));
+const RhPage = lazyWithReload(() => import("./pages/RhPage"));
+const RhVagasPage = lazyWithReload(() => import("./pages/RhVagasPage"));
+const RhFormularioPrintPage = lazyWithReload(() => import("./pages/RhFormularioPrintPage"));
+const RhRelatorioPrintPage = lazyWithReload(() => import("./pages/RhRelatorioPrintPage"));
 
 export default function App() {
   return (
@@ -70,6 +74,22 @@ export default function App() {
           <Route path="/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
           <Route path="/desempenho/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
           <Route path="/experiencia/avaliar/:token" element={<PublicExperienciaPage />} />
+          <Route
+            path="/rh/vagas/:id/imprimir"
+            element={
+              <ProtectedRoute>
+                <RhFormularioPrintPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/rh/relatorio"
+            element={
+              <ProtectedRoute>
+                <RhRelatorioPrintPage />
+              </ProtectedRoute>
+            }
+          />
           <Route path="/plano-acao/:token" element={<PublicActionPlanPage />} />
           <Route path="/desempenho/plano-acao/:token" element={<PublicActionPlanPage />} />
           <Route path="/plano-acao/checkin/:token" element={<PublicActionPlanCheckinPage />} />
@@ -108,6 +128,8 @@ export default function App() {
             <Route path="/cartoes" element={<CartaoPage />} />
             <Route path="/financeiro" element={<FinanceiroPage />} />
             <Route path="/experiencia" element={<ExperienciaPage />} />
+            <Route path="/rh" element={<RhPage />} />
+            <Route path="/rh/vagas" element={<RhVagasPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
