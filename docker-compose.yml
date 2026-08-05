@@ -16,8 +16,8 @@ services:
     image: supabase/postgres:15.1.1.78
     restart: unless-stopped
     logging: *logging
-    mem_limit: 2000m   # shared_buffers=512MB + overhead → ~900 MB; limite aumentado em 2026-06-24
-    memswap_limit: 2500m  # 500 MB extra de swap como válvula de segurança contra OOM
+    mem_limit: 4000m   # shared_buffers=512MB + overhead; limite aumentado em 2026-08-05 (estava em 91.9% de uso, sem margem p/ novo módulo)
+    memswap_limit: 4500m  # 500 MB extra de swap como válvula de segurança contra OOM
     cpus: "1.5"        # era 1.0 — queries de agregação fiscal beneficiam do CPU extra
     healthcheck:
       test: pg_isready -U postgres -h localhost
@@ -28,6 +28,7 @@ services:
     # Tuning aplicado em 2026-05-25 para Jarvis com 10 GB RAM host / 468 MB banco
     # Hardening 2026-05-28: max_connections 100→200, work_mem ajustado
     # Tuning I/O 2026-06-24: shared_buffers 256→512MB, checkpoint_timeout 5→10min, mem_limit 1.5→2GB
+    # Ajuste 2026-08-05: mem_limit 2→4GB, memswap_limit 2.5→4.5GB (sem margem antes de subir novo módulo; host tinha 11.7GB livres)
     command:
       - postgres
       - -c
