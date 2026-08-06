@@ -163,6 +163,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "experiencia", label: "Aval. de Experiência", path: "/experiencia",         icon: "chart",     roles: ["admin", "rh"] },
   { id: "rh",          label: "Recursos Humanos",     path: "/rh",                  icon: "users",     roles: ["admin", "rh"] },
   { id: "rh-vagas",    label: "Vagas",                path: "/rh/vagas",            icon: "clipboard", roles: ["admin", "rh"], sub: true },
+  { id: "rh-assinatura", label: "Assinatura Automatizada", path: "/rh/assinatura",  icon: "shield",    roles: ["admin", "rh"], sub: true },
 ];
 
 export default function AppLayout() {

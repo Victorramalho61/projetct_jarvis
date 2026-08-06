@@ -49,6 +49,7 @@ const ExperienciaPage = lazyWithReload(() => import("./pages/ExperienciaPage"));
 const PublicExperienciaPage = lazyWithReload(() => import("./pages/PublicExperienciaPage"));
 const RhPage = lazyWithReload(() => import("./pages/RhPage"));
 const RhVagasPage = lazyWithReload(() => import("./pages/RhVagasPage"));
+const RhAssinaturaPage = lazyWithReload(() => import("./pages/RhAssinaturaPage"));
 const RhFormularioPrintPage = lazyWithReload(() => import("./pages/RhFormularioPrintPage"));
 const RhRelatorioPrintPage = lazyWithReload(() => import("./pages/RhRelatorioPrintPage"));
 
@@ -134,6 +135,7 @@ export default function App() {
             <Route path="/experiencia" element={<ExperienciaPage />} />
             <Route path="/rh" element={<RhPage />} />
             <Route path="/rh/vagas" element={<RhVagasPage />} />
+            <Route path="/rh/assinatura" element={<RhAssinaturaPage />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

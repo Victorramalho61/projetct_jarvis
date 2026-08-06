@@ -24,6 +24,8 @@ from routes.dashboard import router as dashboard_router
 from routes.vagas import router as vagas_router
 from routes.lookups import router as lookups_router
 from routes.uploads import router as uploads_router
+from routes.assinatura import router as assinatura_router
+from routes.webhook_d4sign import router as webhook_d4sign_router
 
 
 app = FastAPI(title="Jarvis RH Service")
@@ -62,3 +64,5 @@ app.include_router(dashboard_router)
 app.include_router(vagas_router)
 app.include_router(lookups_router)
 app.include_router(uploads_router)
+app.include_router(assinatura_router)
+app.include_router(webhook_d4sign_router)

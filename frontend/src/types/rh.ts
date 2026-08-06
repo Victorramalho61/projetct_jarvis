@@ -135,3 +135,47 @@ export type ImportResultado = {
   linhas_com_erro: number;
   erros: { linha: number | null; motivo: string }[];
 };
+
+// ── Fase 2 — assinatura eletrônica via D4Sign ────────────────────────────
+
+export type PapelSignatario = "solicitante" | "rh" | "depto_pessoal" | "diretoria";
+
+export const PAPEIS_SIGNATARIO: { papel: PapelSignatario; label: string }[] = [
+  { papel: "solicitante", label: "Solicitante" },
+  { papel: "rh", label: "Recursos Humanos" },
+  { papel: "depto_pessoal", label: "Departamento Pessoal" },
+  { papel: "diretoria", label: "Diretoria" },
+];
+
+export type SignatarioForm = {
+  papel: PapelSignatario;
+  nome: string;
+  email: string;
+  cargo: string;
+};
+
+export type SignatarioRegistro = SignatarioForm & {
+  status: "pendente" | "assinado";
+  assinado_em?: string;
+};
+
+export type StatusAssinatura = "PRE_ENVIO" | "ENVIADO" | "PARCIAL" | "EM_ALTERACAO" | "CONCLUIDO";
+
+export type AssinaturaRegistro = {
+  id?: string;
+  vaga_id?: string;
+  status: StatusAssinatura;
+  signatarios: SignatarioRegistro[];
+  aditivo_de_id?: string | null;
+  tipo_aditivo?: "CANCELAMENTO" | "ALTERACAO" | null;
+  justificativa_aditivo?: string | null;
+  documento_assinado?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AssinaturaStatusResponse = {
+  configurado: boolean;
+  atual: AssinaturaRegistro;
+  aditivos: AssinaturaRegistro[];
+};
