@@ -1,4 +1,3 @@
-import { useNavigate } from "react-router-dom";
 import type { Vaga } from "../../types/rh";
 
 type Props = {
@@ -35,7 +34,6 @@ function SlaBadge({ vaga }: { vaga: Vaga }) {
 }
 
 export default function VagasTable({ vagas, total, page, pageSize, onPageChange, onSelect, loading }: Props) {
-  const navigate = useNavigate();
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -83,7 +81,7 @@ export default function VagasTable({ vagas, total, page, pageSize, onPageChange,
                 <td className="px-4 py-2.5">{v.responsavel ?? "—"}</td>
                 <td className="px-4 py-2.5 text-right">
                   <button
-                    onClick={(e) => { e.stopPropagation(); navigate(`/rh/vagas/${v.id}/imprimir`); }}
+                    onClick={(e) => { e.stopPropagation(); window.open(`/rh/vagas/${v.id}/imprimir`, "_blank"); }}
                     className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline whitespace-nowrap"
                   >
                     Imprimir

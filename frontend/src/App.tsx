@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./context/AuthContext";
 import { ThemeProvider } from "./context/ThemeContext";
@@ -56,6 +57,9 @@ export default function App() {
     <ThemeProvider>
     <BrowserRouter>
       <AuthProvider>
+        <Suspense fallback={
+          <div className="flex min-h-screen items-center justify-center text-sm text-gray-400">Carregando...</div>
+        }>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/solicitar-acesso" element={<RequestAccessPage />} />
@@ -134,6 +138,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        </Suspense>
       </AuthProvider>
     </BrowserRouter>
     </ThemeProvider>

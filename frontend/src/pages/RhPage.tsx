@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -23,7 +22,6 @@ const STATUS_CORES: Record<string, string> = {
 
 export default function RhPage() {
   const { token } = useAuth();
-  const navigate = useNavigate();
   const { lookups } = useRhLookups(token);
   const [filtros, setFiltros] = useState<VagasFiltros>({});
   const [data, setData] = useState<DashboardData | null>(null);
@@ -43,7 +41,7 @@ export default function RhPage() {
 
   function handleImprimir() {
     const qs = filtrosToQueryString(filtros);
-    navigate(`/rh/relatorio${qs ? `?${qs}` : ""}`);
+    window.open(`/rh/relatorio${qs ? `?${qs}` : ""}`, "_blank");
   }
 
   return (

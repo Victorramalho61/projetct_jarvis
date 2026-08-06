@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { apiFetch, ApiError } from "../../lib/api";
 import type { RhLookups } from "../../hooks/useRhLookups";
 import type { Vaga } from "../../types/rh";
@@ -34,7 +33,6 @@ function LookupSelect({
 }
 
 export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved }: Props) {
-  const navigate = useNavigate();
   const [vaga, setVaga] = useState<Vaga | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,7 +92,7 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => navigate(`/rh/vagas/${vaga.id}/imprimir`)}
+              onClick={() => window.open(`/rh/vagas/${vaga.id}/imprimir`, "_blank")}
               className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
             >
               Imprimir formulário
