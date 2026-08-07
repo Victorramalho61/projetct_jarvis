@@ -121,8 +121,8 @@ html.dark .kpi-na-badge {
 .chart-tooltip__sub   { font-size: 11px; color: #64748b; margin-top: 4px; }
 
 /* ── Recharts contraste em tema escuro (eixos/tooltip padrão) ────────────── */
-.recharts-cartesian-axis-tick-value { fill: #4b5563; }
-html.dark .recharts-cartesian-axis-tick-value { fill: #cbd5e1; }
+.recharts-cartesian-axis-tick-value, .recharts-cartesian-axis-tick-value tspan { fill: #4b5563 !important; }
+html.dark .recharts-cartesian-axis-tick-value, html.dark .recharts-cartesian-axis-tick-value tspan { fill: #cbd5e1 !important; }
 .recharts-default-tooltip {
   background: #ffffff !important;
   border-color: #e5e7eb !important;
