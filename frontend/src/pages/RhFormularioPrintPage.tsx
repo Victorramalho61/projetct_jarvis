@@ -41,6 +41,7 @@ export default function RhFormularioPrintPage() {
         @media print {
           .no-print { display: none !important; }
           body { background: white; }
+          .quebra-pagina { break-before: page; page-break-before: always; }
         }
       `}</style>
 
@@ -114,7 +115,7 @@ export default function RhFormularioPrintPage() {
             {vaga.tipo_vaga === "SUBSTITUIÇÃO" && vaga.justificativa && `: ${vaga.justificativa}`}
           </div>
 
-          <SectionTitle>CUSTOS DA ADMISSÃO (Documento emitido pelo Departamento Pessoal, anexo a este documento).</SectionTitle>
+          <SectionTitle>CUSTOS DA ADMISSÃO (detalhamento completo na página 2).</SectionTitle>
           <Row cols={[
             { label: "Candidato(a) Aprovado(a)", value: vaga.candidato ?? "—", span: 2 },
             { label: "Data de Início", value: fmtData(vaga.data_admissao) },
@@ -140,9 +141,74 @@ export default function RhFormularioPrintPage() {
           <div className="flex items-center justify-between px-4 py-2 text-[10px]">
             <span>Tempo de retenção: 5 anos</span>
             <span>Anexo 01 v08</span>
-            <span>Página 1 de 1</span>
+            <span>Página 1 de 2</span>
           </div>
         </div>
+
+        {vaga.calculo_detalhado && (
+          <div className="quebra-pagina border border-black text-[12px] leading-tight mt-6 print:mt-0">
+            <div className="flex items-center justify-between border-b border-black px-4 py-3">
+              <div className="text-2xl font-bold tracking-tight" style={{ color: "#0f766e" }}>
+                GRUPO<br /><span className="text-xl">VOETUR</span>
+              </div>
+              <div className="text-center flex-1">
+                <p className="text-base font-bold">CUSTOS DA ADMISSÃO — DETALHAMENTO DO CÁLCULO</p>
+              </div>
+              <div className="text-right text-[10px] leading-tight">
+                <p>Referente à Requisição:</p>
+                <p className="font-bold">{vaga.numero_requisicao ?? "—"}</p>
+              </div>
+            </div>
+
+            <table className="w-full text-[12px]">
+              <tbody>
+                {[
+                  ["Salário", vaga.calculo_detalhado.salario],
+                  ["Vale transporte", vaga.calculo_detalhado.vale_transporte],
+                  ["Vale alimentação/refeição", vaga.calculo_detalhado.vale_alimentacao],
+                  ["13º Salário + 1/3 férias", vaga.calculo_detalhado.provisao_13_ferias],
+                  ["Férias", vaga.calculo_detalhado.ferias],
+                  ["INSS", vaga.calculo_detalhado.inss],
+                  ["FGTS", vaga.calculo_detalhado.fgts],
+                  ["FGTS Multa Rescisória", vaga.calculo_detalhado.fgts_multa],
+                  ["INSS sobre 13º e férias", vaga.calculo_detalhado.inss_13_ferias],
+                  ["Seguro de Vida", vaga.calculo_detalhado.seguro_vida],
+                  ["Plano de Saúde", vaga.calculo_detalhado.plano_saude],
+                  ["Uniforme completo", vaga.calculo_detalhado.uniforme],
+                  ["Crachá e Cordão Voetur", vaga.calculo_detalhado.cracha_cordao],
+                  ["ASO", vaga.calculo_detalhado.aso],
+                  ["Taxa Administrativa", vaga.calculo_detalhado.taxa_administrativa],
+                ].map(([label, valor]) => (
+                  <tr key={label as string} className="border-b border-black">
+                    <td className="px-4 py-1">{label}</td>
+                    <td className="px-4 py-1 text-right">{fmtMoeda(valor as number)}</td>
+                  </tr>
+                ))}
+                <tr className="border-b border-black bg-gray-200 font-bold">
+                  <td className="px-4 py-1.5">Custo Total</td>
+                  <td className="px-4 py-1.5 text-right">{fmtMoeda(vaga.calculo_detalhado.custo_total)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <SectionTitle>VALIDAÇÃO DOS CÁLCULOS (preenchimento obrigatório)</SectionTitle>
+            <div className="px-4 py-8 text-center">
+              <p className="mb-2 text-[11px]">
+                O Departamento Pessoal declara ter revisado e validado os cálculos acima, enviados pelo RH.
+              </p>
+              <div className="mx-auto mt-8 w-2/3 border-t border-black pt-1 font-semibold">
+                Departamento Pessoal — Assinatura/Carimbo
+              </div>
+              <p className="mt-2">Data: _____/_____/_____</p>
+            </div>
+
+            <div className="flex items-center justify-between px-4 py-2 text-[10px]">
+              <span>Tempo de retenção: 5 anos</span>
+              <span>Anexo 01 v08</span>
+              <span>Página 2 de 2</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -33,7 +33,8 @@ _SELECT = (
     "rh_etapas_processo(nome,ordem), "
     "rh_secoes(nome), "
     "rh_modalidades(nome), "
-    "rh_analistas(nome)"
+    "rh_analistas(nome), "
+    "rh_perfis_calculo(nome)"
 )
 
 
@@ -86,16 +87,18 @@ def _serialize(v: dict) -> dict:
     v["secao"] = (v.pop("rh_secoes", None) or {}).get("nome")
     v["modalidade"] = (v.pop("rh_modalidades", None) or {}).get("nome")
     v["responsavel"] = (v.pop("rh_analistas", None) or {}).get("nome")
+    v["perfil_calculo"] = (v.pop("rh_perfis_calculo", None) or {}).get("nome")
 
     v["dias_corridos"] = _dias_corridos({**v, "rh_status_vaga": status, "data_recebimento": v.get("data_recebimento"), "data_admissao": v.get("data_admissao")})
     v["sla_ok"] = _sla_ok({**v, "rh_status_vaga": status})
     return v
 
 
-# ── Automação: cargo->nível, etapa->seção/status ─────────────────────────────
+# ── Automação: cargo->nível, etapa->seção/status, salário->custo total ──────
 
-def _apply_automacao(sb, payload: dict) -> dict:
+def _apply_automacao(sb, payload: dict, current: Optional[dict] = None) -> dict:
     payload = dict(payload)
+    current = current or {}
 
     if payload.get("cargo_id") and "nivel_id" not in payload:
         cargo = sb.table("rh_cargos").select("nivel_padrao_id").eq("id", payload["cargo_id"]).single().execute()
@@ -113,6 +116,49 @@ def _apply_automacao(sb, payload: dict) -> dict:
             if status.data:
                 payload["status_id"] = status.data["id"]
 
+    # Auto-sugestão de perfil de cálculo (sempre editável) quando empresa/
+    # alocação mudam e a vaga ainda não tem perfil escolhido
+    if (
+        ("empresa_id" in payload or "alocacao_id" in payload)
+        and "perfil_calculo_id" not in payload
+        and not current.get("perfil_calculo_id")
+    ):
+        from services.calculadora import sugerir_perfil
+
+        empresa_id = payload.get("empresa_id", current.get("empresa_id"))
+        alocacao_id = payload.get("alocacao_id", current.get("alocacao_id"))
+        tipo_contrato_id = payload.get("tipo_contrato_id", current.get("tipo_contrato_id"))
+
+        def _nome(tabela, item_id):
+            if not item_id:
+                return None
+            r = sb.table(tabela).select("nome").eq("id", item_id).single().execute()
+            return (r.data or {}).get("nome")
+
+        perfis = sb.table("rh_perfis_calculo").select("id,nome").execute().data or []
+        sugestao = sugerir_perfil(
+            perfis,
+            _nome("rh_empresas", empresa_id),
+            _nome("rh_alocacoes", alocacao_id),
+            _nome("rh_tipos_contrato", tipo_contrato_id),
+        )
+        if sugestao:
+            payload["perfil_calculo_id"] = sugestao
+
+    # Cálculo de custo total — snapshot, recalculado só quando salário ou
+    # perfil de cálculo mudam (fica congelado depois, mesmo se o perfil for
+    # editado na tela de Listas)
+    perfil_calculo_id = payload.get("perfil_calculo_id", current.get("perfil_calculo_id"))
+    salario = payload.get("salario", current.get("salario"))
+    if perfil_calculo_id and salario is not None and ("salario" in payload or "perfil_calculo_id" in payload):
+        from services.calculadora import calcular_custo
+
+        perfil = sb.table("rh_perfis_calculo").select("*").eq("id", perfil_calculo_id).single().execute()
+        if perfil.data:
+            detalhado = calcular_custo(perfil.data, salario)
+            payload["custo_total"] = detalhado["custo_total"]
+            payload["calculo_detalhado"] = detalhado
+
     return payload
 
 
@@ -129,6 +175,7 @@ _FILTER_COLS = [
 def listar_vagas(
     q: Optional[str] = Query(None, description="Busca por candidato, cargo ou nº de requisição"),
     status_id: Optional[list[str]] = Query(None),
+    ano: Optional[list[int]] = Query(None, description="Filtra por ano de data_recebimento — múltiplos anos não-contíguos"),
     data_inicio: Optional[str] = Query(None),
     data_fim: Optional[str] = Query(None),
     empresa_id: Optional[str] = Query(None),
@@ -164,6 +211,10 @@ def listar_vagas(
 
     resp = query.execute()
     rows = [_serialize(r) for r in (resp.data or [])]
+
+    if ano:
+        anos_str = {str(a) for a in ano}
+        rows = [r for r in rows if (r.get("data_recebimento") or "")[:4] in anos_str]
 
     if q:
         q_lower = q.lower()
@@ -231,12 +282,14 @@ def detalhe_vaga(vaga_id: str, user=Depends(_require_rh)):
 @router.patch("/{vaga_id}")
 def editar_vaga(vaga_id: str, payload: dict, user=Depends(_require_rh)):
     sb = get_supabase()
-    existente = sb.table("rh_vagas").select("id").eq("id", vaga_id).execute()
+    existente = sb.table("rh_vagas").select(
+        "id,salario,perfil_calculo_id,empresa_id,alocacao_id,tipo_contrato_id"
+    ).eq("id", vaga_id).execute()
     if not existente.data:
         raise HTTPException(status_code=404, detail="Vaga não encontrada")
 
     payload = {k: v for k, v in payload.items() if k not in ("id", "created_at", "created_by")}
-    payload = _apply_automacao(sb, payload)
+    payload = _apply_automacao(sb, payload, current=existente.data[0])
     payload["updated_at"] = datetime.utcnow().isoformat()
     payload["updated_by"] = user.get("id")
 

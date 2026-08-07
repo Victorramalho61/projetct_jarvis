@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     d4sign_template_uuid: str = ""
     d4sign_template_aditivo_uuid: str = ""
 
+    # SMTP — relatório semanal (Fase 3 do módulo de RH)
+    smtp_host: str = "smtp.office365.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    frontend_url: str = "https://jarvis.voetur.com.br"
+
     model_config = {"env_file": ".env"}
 
     @property

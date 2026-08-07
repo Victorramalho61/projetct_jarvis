@@ -17,6 +17,7 @@ export function filtrosToQueryString(filtros: VagasFiltros, extra?: Record<strin
   if (filtros.cargo_id) params.set("cargo_id", filtros.cargo_id);
   if (filtros.modalidade_id) params.set("modalidade_id", filtros.modalidade_id);
   (filtros.status_id ?? []).forEach((id) => params.append("status_id", id));
+  (filtros.ano ?? []).forEach((a) => params.append("ano", String(a)));
   if (extra) {
     Object.entries(extra).forEach(([k, v]) => params.set(k, String(v)));
   }

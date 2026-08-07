@@ -2,12 +2,50 @@ import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../../lib/api";
 import type { RhLookups } from "../../hooks/useRhLookups";
 import type { Vaga } from "../../types/rh";
+import DetalhamentoCalculoModal from "./DetalhamentoCalculoModal";
 
 const FIELD_CLASS =
   "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
 const LABEL_CLASS = "mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300";
 
 const CARGA_HORARIA_OPCOES = ["180h", "220h", "12x36", "Outros"];
+
+const CAMPOS_OBRIGATORIOS: { campo: keyof Vaga; label: string }[] = [
+  { campo: "empresa_id", label: "Empresa" },
+  { campo: "data_recebimento", label: "Data de recebimento" },
+  { campo: "centro_custo", label: "Centro de custo" },
+  { campo: "hierarquia_id", label: "Hierarquia" },
+  { campo: "alocacao_id", label: "Alocação real" },
+  { campo: "uf", label: "UF" },
+  { campo: "requisitante_id", label: "Requisitante" },
+  { campo: "data_aprovacao_diretoria", label: "Data de aprovação da diretoria" },
+  { campo: "cargo_id", label: "Cargo" },
+  { campo: "nivel_id", label: "Nível" },
+  { campo: "tipo_contrato_id", label: "Tipo de contrato" },
+  { campo: "modalidade_id", label: "Modalidade" },
+  { campo: "carga_horaria", label: "Carga horária" },
+  { campo: "horario_trabalho", label: "Horário de trabalho" },
+  { campo: "salario", label: "Salário" },
+  { campo: "perfil_calculo_id", label: "Perfil de cálculo" },
+  { campo: "tipo_vaga_id", label: "Tipo de vaga" },
+  { campo: "justificativa", label: "Justificativa" },
+  { campo: "etapa_atual_id", label: "Etapa atual" },
+  { campo: "secao_id", label: "Seção responsável" },
+  { campo: "status_id", label: "Status da vaga" },
+  { campo: "responsavel_id", label: "Analista responsável" },
+  { campo: "sla_alvo_dias", label: "SLA alvo" },
+  { campo: "candidato", label: "Candidato(a) aprovado(a)" },
+  { campo: "data_admissao", label: "Data de admissão" },
+];
+
+function validarObrigatorios(vaga: Vaga): string[] {
+  return CAMPOS_OBRIGATORIOS
+    .filter(({ campo }) => {
+      const v = vaga[campo];
+      return v === null || v === undefined || v === "";
+    })
+    .map(({ label }) => label);
+}
 
 type Props = {
   vagaId: string;
@@ -17,8 +55,8 @@ type Props = {
   onSaved: () => void;
 };
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div><label className={LABEL_CLASS}>{label}</label>{children}</div>;
+function Field({ label, children, obrigatorio = true }: { label: string; children: React.ReactNode; obrigatorio?: boolean }) {
+  return <div><label className={LABEL_CLASS}>{label}{obrigatorio && <span className="text-red-500"> *</span>}</label>{children}</div>;
 }
 
 function LookupSelect({
@@ -38,6 +76,9 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [faltando, setFaltando] = useState<string[] | null>(null);
+  const [salvoOk, setSalvoOk] = useState(false);
+  const [detalhamentoAberto, setDetalhamentoAberto] = useState(false);
 
   useEffect(() => {
     apiFetch<Vaga>(`/api/rh/vagas/${vagaId}`, { token })
@@ -58,6 +99,16 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
       setError(e instanceof ApiError ? e.message : "Erro ao salvar.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function handleSalvar() {
+    if (!vaga) return;
+    const missing = validarObrigatorios(vaga);
+    setFaltando(missing.length ? missing : null);
+    setSalvoOk(missing.length === 0);
+    if (missing.length === 0) {
+      setTimeout(() => setSalvoOk(false), 3000);
     }
   }
 
@@ -104,6 +155,16 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
         <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6 space-y-6">
           {error && (
             <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
+          )}
+          {faltando && (
+            <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+              <strong>Faltam campos obrigatórios:</strong> {faltando.join(", ")}
+            </div>
+          )}
+          {salvoOk && (
+            <div className="rounded-lg border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-3 py-2 text-sm text-green-700 dark:text-green-300">
+              Tudo certo — todos os campos obrigatórios estão preenchidos.
+            </div>
           )}
 
           <section>
@@ -167,9 +228,31 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
               <Field label="Horário de trabalho">
                 <input value={vaga.horario_trabalho ?? ""} placeholder="Ex: 8h às 18h" onChange={(e) => setVaga({ ...vaga, horario_trabalho: e.target.value })} onBlur={(e) => patch({ horario_trabalho: e.target.value })} className={FIELD_CLASS} />
               </Field>
-              <Field label="Salário">
-                <input type="number" step="0.01" value={vaga.salario ?? ""} onChange={(e) => setVaga({ ...vaga, salario: Number(e.target.value) })} onBlur={(e) => patch({ salario: Number(e.target.value) })} className={FIELD_CLASS} />
+              <Field label="Perfil de cálculo (autosugerido, editável)">
+                <LookupSelect value={vaga.perfil_calculo_id} onChange={(v) => patch({ perfil_calculo_id: v })} options={lookups["perfis-calculo"]} />
               </Field>
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Salário">
+                  <input type="number" step="0.01" value={vaga.salario ?? ""} onChange={(e) => setVaga({ ...vaga, salario: Number(e.target.value) })} onBlur={(e) => patch({ salario: Number(e.target.value) })} className={FIELD_CLASS} />
+                </Field>
+                <Field label="Custo total" obrigatorio={false}>
+                  <input
+                    readOnly
+                    value={vaga.custo_total != null ? vaga.custo_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—"}
+                    className={`${FIELD_CLASS} bg-gray-100 dark:bg-gray-800 font-semibold`}
+                  />
+                </Field>
+              </div>
+              {vaga.calculo_detalhado && (
+                <div className="sm:col-span-2">
+                  <button
+                    onClick={() => setDetalhamentoAberto(true)}
+                    className="text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Ver detalhamento do cálculo
+                  </button>
+                </div>
+              )}
             </div>
           </section>
 
@@ -234,11 +317,20 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
               </div>
             )}
           </div>
-          <button onClick={onClose} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            Fechar
-          </button>
+          <div className="flex gap-2">
+            <button onClick={handleSalvar} className="rounded-lg border border-blue-600 px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20">
+              Salvar
+            </button>
+            <button onClick={onClose} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              Fechar
+            </button>
+          </div>
         </div>
       </div>
+
+      {detalhamentoAberto && vaga.calculo_detalhado && (
+        <DetalhamentoCalculoModal detalhamento={vaga.calculo_detalhado} onClose={() => setDetalhamentoAberto(false)} />
+      )}
     </div>
   );
 }

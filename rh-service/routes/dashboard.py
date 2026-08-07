@@ -18,10 +18,18 @@ def _require_rh(user=Depends(require_role(*_ROLES))):
     return user
 
 
+@router.post("/relatorio-semanal/enviar-agora")
+def enviar_relatorio_semanal_agora(user=Depends(_require_rh)):
+    from services.relatorio_semanal import gerar_e_enviar
+    ok = gerar_e_enviar()
+    return {"ok": ok}
+
+
 @router.get("")
 def dashboard(
     q: Optional[str] = Query(None),
     status_id: Optional[list[str]] = Query(None),
+    ano: Optional[list[int]] = Query(None),
     data_inicio: Optional[str] = Query(None),
     data_fim: Optional[str] = Query(None),
     empresa_id: Optional[str] = Query(None),
@@ -57,6 +65,10 @@ def dashboard(
     resp = query.execute()
     rows = [_serialize(r) for r in (resp.data or [])]
 
+    if ano:
+        anos_str = {str(a) for a in ano}
+        rows = [r for r in rows if (r.get("data_recebimento") or "")[:4] in anos_str]
+
     if q:
         q_lower = q.lower()
         rows = [
@@ -78,6 +90,43 @@ def dashboard(
     sla_medio_dias = round(sum(dias_validos) / len(dias_validos), 1) if dias_validos else None
 
     atrasadas = [r for r in abertas if r.get("sla_ok") is False]
+
+    # SLA estourado (já passou do prazo) e estourando (faltam <=3 dias, ainda no prazo)
+    sla_estourado = [r for r in atrasadas]
+    sla_estourando = []
+    for r in abertas:
+        dias = r.get("dias_corridos")
+        alvo = r.get("sla_alvo_dias")
+        if dias is None or not alvo or r.get("sla_ok") is False:
+            continue
+        if alvo - dias <= 3:
+            sla_estourando.append(r)
+
+    def _resumo_alerta(r):
+        return {
+            "id": r.get("id"), "numero_requisicao": r.get("numero_requisicao"),
+            "cargo": r.get("cargo"), "empresa": r.get("empresa"),
+            "responsavel": r.get("responsavel"), "dias_corridos": r.get("dias_corridos"),
+            "sla_alvo_dias": r.get("sla_alvo_dias"), "etapa_atual": r.get("etapa_atual"),
+        }
+
+    # Vagas por analista
+    por_analista_map: dict[str, dict] = {}
+    for r in rows:
+        nome = r.get("responsavel") or "NÃO INFORMADO"
+        item = por_analista_map.setdefault(nome, {
+            "analista": nome, "total": 0, "abertas": 0, "concluidas": 0,
+            "canceladas": 0, "congeladas": 0,
+        })
+        item["total"] += 1
+        if r.get("status_em_aberto"):
+            item["abertas"] += 1
+        if r.get("status_concluido"):
+            item["concluidas"] += 1
+        if r.get("status") == "CANCELADO":
+            item["canceladas"] += 1
+        if r.get("status") == "CONGELADO":
+            item["congeladas"] += 1
 
     por_status = Counter(r.get("status") or "NÃO INFORMADO" for r in rows)
     por_empresa = Counter(r.get("empresa") or "NÃO INFORMADO" for r in rows)
@@ -118,4 +167,7 @@ def dashboard(
             {"mes": mes, **vals} for mes, vals in sorted(tendencia.items())
         ],
         "funil_etapas": funil_etapas,
+        "por_analista": sorted(por_analista_map.values(), key=lambda x: -x["total"]),
+        "sla_estourado": [_resumo_alerta(r) for r in sla_estourado],
+        "sla_estourando": [_resumo_alerta(r) for r in sla_estourando],
     }

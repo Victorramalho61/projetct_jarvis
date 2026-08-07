@@ -59,6 +59,35 @@ export default function RhPage() {
         </button>
       </div>
 
+      {!loading && ((data?.sla_estourado.length ?? 0) > 0 || (data?.sla_estourando.length ?? 0) > 0) && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {(data?.sla_estourado.length ?? 0) > 0 && (
+            <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
+              <p className="mb-2 text-sm font-bold text-red-700 dark:text-red-300">
+                ⚠ SLA estourado ({data?.sla_estourado.length})
+              </p>
+              <ul className="space-y-1 text-xs text-red-800 dark:text-red-300">
+                {data?.sla_estourado.slice(0, 5).map((a) => (
+                  <li key={a.id}>{a.numero_requisicao} — {a.cargo} ({a.responsavel ?? "sem analista"}) — {a.dias_corridos}/{a.sla_alvo_dias} dias</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {(data?.sla_estourando.length ?? 0) > 0 && (
+            <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
+              <p className="mb-2 text-sm font-bold text-amber-700 dark:text-amber-300">
+                ⏳ SLA estourando em até 3 dias ({data?.sla_estourando.length})
+              </p>
+              <ul className="space-y-1 text-xs text-amber-800 dark:text-amber-300">
+                {data?.sla_estourando.slice(0, 5).map((a) => (
+                  <li key={a.id}>{a.numero_requisicao} — {a.cargo} ({a.responsavel ?? "sem analista"}) — {a.dias_corridos}/{a.sla_alvo_dias} dias</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
       <FiltrosBar lookups={lookups} value={filtros} onChange={setFiltros} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
@@ -139,6 +168,39 @@ export default function RhPage() {
       <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
         <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Funil de etapas do processo</h3>
         <EtapaFunnelChart data={data?.funil_etapas ?? []} />
+      </div>
+
+      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+        <h3 className="mb-2 text-sm font-semibold text-gray-700 dark:text-gray-300">Vagas por analista</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+              <tr>
+                <th className="px-3 py-2">Analista</th>
+                <th className="px-3 py-2 text-right">Total</th>
+                <th className="px-3 py-2 text-right">Abertas</th>
+                <th className="px-3 py-2 text-right">Concluídas</th>
+                <th className="px-3 py-2 text-right">Canceladas</th>
+                <th className="px-3 py-2 text-right">Congeladas</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+              {(data?.por_analista ?? []).map((a) => (
+                <tr key={a.analista}>
+                  <td className="px-3 py-2">{a.analista}</td>
+                  <td className="px-3 py-2 text-right font-semibold">{a.total}</td>
+                  <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">{a.abertas}</td>
+                  <td className="px-3 py-2 text-right text-green-600 dark:text-green-400">{a.concluidas}</td>
+                  <td className="px-3 py-2 text-right text-red-600 dark:text-red-400">{a.canceladas}</td>
+                  <td className="px-3 py-2 text-right text-gray-500">{a.congeladas}</td>
+                </tr>
+              ))}
+              {(!data?.por_analista || data.por_analista.length === 0) && (
+                <tr><td colSpan={6} className="px-3 py-6 text-center text-gray-400">Sem dados para os filtros atuais.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

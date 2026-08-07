@@ -8,18 +8,58 @@ export type LookupItem = {
   prefixo_requisicao?: string;
   nivel_padrao_id?: string;
   secao_responsavel_id?: string;
+  vale_transporte?: number;
+  vale_alimentacao?: number;
+  seguro_vida?: number;
+  plano_saude?: number;
+  uniforme?: number;
+  cracha_cordao?: number;
+  aso?: number;
+  insalubridade?: number;
+  periculosidade?: number;
+  aparelhos_eletronicos?: number;
+  outros_creditos?: number;
+  taxa_administrativa?: number;
+  pct_inss?: number;
+  pct_fgts?: number;
+  pct_multa_fgts?: number;
 };
 
 export type LookupTipo =
   | "empresas" | "ufs" | "alocacoes" | "tipos-contrato" | "tipos-vaga"
   | "cargos" | "niveis" | "hierarquias" | "secoes" | "status"
-  | "modalidades" | "analistas" | "requisitantes" | "etapas";
+  | "modalidades" | "analistas" | "requisitantes" | "etapas" | "perfis-calculo";
 
 export const LOOKUP_TIPOS: LookupTipo[] = [
   "empresas", "ufs", "alocacoes", "tipos-contrato", "tipos-vaga",
   "cargos", "niveis", "hierarquias", "secoes", "status",
-  "modalidades", "analistas", "requisitantes", "etapas",
+  "modalidades", "analistas", "requisitantes", "etapas", "perfis-calculo",
 ];
+
+export type PerfilCalculo = LookupItem;
+
+export type CalculoDetalhado = {
+  salario: number;
+  vale_transporte: number;
+  vale_alimentacao: number;
+  provisao_13_ferias: number;
+  ferias: number;
+  inss: number;
+  fgts: number;
+  fgts_multa: number;
+  inss_13_ferias: number;
+  seguro_vida: number;
+  plano_saude: number;
+  uniforme: number;
+  cracha_cordao: number;
+  aso: number;
+  taxa_administrativa: number;
+  insalubridade_informativo: number;
+  periculosidade_informativo: number;
+  aparelhos_eletronicos_informativo: number;
+  outros_creditos_informativo: number;
+  custo_total: number;
+};
 
 export type Vaga = {
   id: string;
@@ -64,6 +104,10 @@ export type Vaga = {
   modalidade_id: string | null;
   modalidade: string | null;
   salario: number | null;
+  perfil_calculo_id: string | null;
+  perfil_calculo: string | null;
+  custo_total: number | null;
+  calculo_detalhado: CalculoDetalhado | null;
   dias_corridos: number | null;
   sla_ok: boolean | null;
   created_at: string;
@@ -73,6 +117,7 @@ export type Vaga = {
 export type VagasFiltros = {
   q?: string;
   status_id?: string[];
+  ano?: number[];
   data_inicio?: string;
   data_fim?: string;
   empresa_id?: string;
@@ -113,6 +158,23 @@ export type DashboardData = {
   top_cargos: { cargo: string; total: number }[];
   tendencia_mensal: { mes: string; abertas: number; concluidas: number }[];
   funil_etapas: { etapa: string; ordem: number; total: number }[];
+  por_analista: {
+    analista: string; total: number; abertas: number;
+    concluidas: number; canceladas: number; congeladas: number;
+  }[];
+  sla_estourado: AlertaSla[];
+  sla_estourando: AlertaSla[];
+};
+
+export type AlertaSla = {
+  id: string;
+  numero_requisicao: string | null;
+  cargo: string | null;
+  empresa: string | null;
+  responsavel: string | null;
+  dias_corridos: number | null;
+  sla_alvo_dias: number | null;
+  etapa_atual: string | null;
 };
 
 export type UploadInfo = {

@@ -1,5 +1,9 @@
+import { useEffect } from "react";
 import type { RhLookups } from "../../hooks/useRhLookups";
 import type { VagasFiltros } from "../../types/rh";
+
+const ANO_ATUAL = new Date().getFullYear();
+const ANOS_DISPONIVEIS = [ANO_ATUAL, ANO_ATUAL - 1, ANO_ATUAL - 2, ANO_ATUAL - 3];
 
 const FIELD_CLASS =
   "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
@@ -32,8 +36,39 @@ export default function FiltrosBar({ lookups, value, onChange, showSearch = true
     onChange({ ...value, [key]: v || undefined });
   }
 
+  useEffect(() => {
+    if (value.ano === undefined) {
+      onChange({ ...value, ano: [ANO_ATUAL] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">Ano:</label>
+        {ANOS_DISPONIVEIS.map((a) => {
+          const ativo = (value.ano ?? []).includes(a);
+          return (
+            <button
+              key={a}
+              onClick={() => {
+                const atual = value.ano ?? [];
+                const next = ativo ? atual.filter((x) => x !== a) : [...atual, a];
+                onChange({ ...value, ano: next.length ? next : undefined });
+              }}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                ativo
+                  ? "border-emerald-600 bg-emerald-600 text-white"
+                  : "border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+              }`}
+            >
+              {a}
+            </button>
+          );
+        })}
+      </div>
+
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {showSearch && (
           <div className="col-span-2 sm:col-span-3 lg:col-span-2">

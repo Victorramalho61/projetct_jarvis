@@ -33,6 +33,12 @@ LOOKUP_CONFIG: dict[str, dict[str, Any]] = {
     "analistas":     {"table": "rh_analistas",        "name_col": "nome",  "extra": [],                     "fk_col": "responsavel_id"},
     "requisitantes": {"table": "rh_requisitantes",    "name_col": "nome",  "extra": [],                     "fk_col": "requisitante_id"},
     "etapas":        {"table": "rh_etapas_processo",  "name_col": "nome",  "extra": ["ordem", "secao_responsavel_id"], "fk_col": "etapa_atual_id"},
+    "perfis-calculo": {"table": "rh_perfis_calculo",  "name_col": "nome",  "extra": [
+        "vale_transporte", "vale_alimentacao", "seguro_vida", "plano_saude",
+        "uniforme", "cracha_cordao", "aso", "insalubridade", "periculosidade",
+        "aparelhos_eletronicos", "outros_creditos", "taxa_administrativa",
+        "pct_inss", "pct_fgts", "pct_multa_fgts", "fgts_base_com_provisoes",
+    ], "fk_col": "perfil_calculo_id"},
 }
 
 

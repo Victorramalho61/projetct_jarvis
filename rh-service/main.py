@@ -1,5 +1,6 @@
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
 from fastapi import FastAPI, Request
@@ -28,7 +29,24 @@ from routes.assinatura import router as assinatura_router
 from routes.webhook_d4sign import router as webhook_d4sign_router
 
 
-app = FastAPI(title="Jarvis RH Service")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _logger.info("RH Service starting up")
+    try:
+        from services.scheduler import start as _start
+        _start()
+    except Exception as exc:
+        _logger.warning("Scheduler não iniciado: %s", exc)
+    yield
+    _logger.info("RH Service shutting down")
+    try:
+        from services.scheduler import stop as _stop
+        _stop()
+    except Exception:
+        pass
+
+
+app = FastAPI(title="Jarvis RH Service", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 

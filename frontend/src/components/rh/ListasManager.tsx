@@ -9,7 +9,26 @@ const LABELS: Record<LookupTipo, string> = {
   cargos: "Cargos", niveis: "Níveis", hierarquias: "Hierarquias",
   secoes: "Seções", status: "Status da vaga", modalidades: "Modalidades de contratação",
   analistas: "Analistas (R&S)", requisitantes: "Requisitantes", etapas: "Etapas do processo",
+  "perfis-calculo": "Perfis de Cálculo (custos de admissão)",
 };
+
+const CAMPOS_PERFIL_CALCULO: { campo: string; label: string }[] = [
+  { campo: "vale_transporte", label: "Vale transporte (R$/mês)" },
+  { campo: "vale_alimentacao", label: "Vale alimentação (R$/mês)" },
+  { campo: "seguro_vida", label: "Seguro de vida (R$/mês)" },
+  { campo: "plano_saude", label: "Plano de saúde (R$/mês)" },
+  { campo: "uniforme", label: "Uniforme (R$/mês)" },
+  { campo: "cracha_cordao", label: "Crachá e cordão (R$/mês)" },
+  { campo: "aso", label: "ASO (R$/mês)" },
+  { campo: "taxa_administrativa", label: "Taxa administrativa (R$/mês)" },
+  { campo: "pct_inss", label: "INSS (%)" },
+  { campo: "pct_fgts", label: "FGTS (%)" },
+  { campo: "pct_multa_fgts", label: "Multa FGTS (%)" },
+  { campo: "insalubridade", label: "Insalubridade — informativo (R$)" },
+  { campo: "periculosidade", label: "Periculosidade — informativo (R$)" },
+  { campo: "aparelhos_eletronicos", label: "Aparelhos eletrônicos — informativo (R$)" },
+  { campo: "outros_creditos", label: "Outros créditos — informativo (R$)" },
+];
 
 const FIELD_CLASS =
   "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";
@@ -131,10 +150,41 @@ export default function ListasManager({ token, lookups, onReload }: Props) {
             </>
           )}
 
-          <button onClick={handleAdd} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
-            Adicionar
-          </button>
+          {tipo !== "perfis-calculo" && (
+            <button onClick={handleAdd} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              Adicionar
+            </button>
+          )}
         </div>
+
+        {tipo === "perfis-calculo" && (
+          <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-800 p-3">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+              {CAMPOS_PERFIL_CALCULO.map((c) => (
+                <div key={c.campo}>
+                  <label className="mb-1 block text-[10px] text-gray-500 dark:text-gray-400">{c.label}</label>
+                  <input
+                    type="number" step="0.01"
+                    value={novoExtra[c.campo] ?? ""}
+                    onChange={(e) => setNovoExtra({ ...novoExtra, [c.campo]: e.target.value })}
+                    className={FIELD_CLASS}
+                  />
+                </div>
+              ))}
+            </div>
+            <label className="mt-3 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
+              <input
+                type="checkbox"
+                checked={novoExtra.fgts_base_com_provisoes === "true"}
+                onChange={(e) => setNovoExtra({ ...novoExtra, fgts_base_com_provisoes: String(e.target.checked) })}
+              />
+              Base do FGTS inclui 13º/férias (marcar quando o % de FGTS for reduzido, ex: 2% em vez de 8%)
+            </label>
+            <button onClick={handleAdd} className="mt-3 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+              Adicionar perfil
+            </button>
+          </div>
+        )}
 
         {error && (
           <div className="mb-3 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-300">{error}</div>
@@ -151,6 +201,11 @@ export default function ListasManager({ token, lookups, onReload }: Props) {
                 )}
                 {tipo === "etapas" && (
                   <span className="ml-2 text-xs text-gray-400">#{item.ordem}</span>
+                )}
+                {tipo === "perfis-calculo" && (
+                  <span className="ml-2 text-xs text-gray-400">
+                    INSS {item.pct_inss}% · FGTS {item.pct_fgts}%
+                  </span>
                 )}
               </span>
               <button onClick={() => handleDelete(item)} className="text-xs text-red-600 dark:text-red-400 hover:underline">
