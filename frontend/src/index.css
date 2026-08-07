@@ -120,6 +120,22 @@ html.dark .kpi-na-badge {
 .chart-tooltip__value { font-size: 14px; font-weight: 600; color: #f1f5f9; font-family: var(--font-mono); }
 .chart-tooltip__sub   { font-size: 11px; color: #64748b; margin-top: 4px; }
 
+/* ── Recharts contraste em tema escuro (eixos/tooltip padrão) ────────────── */
+.recharts-cartesian-axis-tick-value { fill: #4b5563; }
+html.dark .recharts-cartesian-axis-tick-value { fill: #cbd5e1; }
+.recharts-default-tooltip {
+  background: #ffffff !important;
+  border-color: #e5e7eb !important;
+  color: #111827 !important;
+}
+html.dark .recharts-default-tooltip {
+  background: #1f2937 !important;
+  border-color: #374151 !important;
+  color: #f1f5f9 !important;
+}
+html.dark .recharts-tooltip-item { color: #f1f5f9 !important; }
+html.dark .recharts-tooltip-label { color: #cbd5e1 !important; }
+
 /* ── Donut legenda lateral ────────────────────────────────────────────────── */
 .donut-wrapper { display: flex; align-items: center; gap: 18px; }
 .donut-legend  { display: flex; flex-direction: column; gap: 7px; flex: 1; }

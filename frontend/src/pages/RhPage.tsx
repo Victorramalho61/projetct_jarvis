@@ -192,7 +192,7 @@ export default function RhPage() {
                   <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">{a.abertas}</td>
                   <td className="px-3 py-2 text-right text-green-600 dark:text-green-400">{a.concluidas}</td>
                   <td className="px-3 py-2 text-right text-red-600 dark:text-red-400">{a.canceladas}</td>
-                  <td className="px-3 py-2 text-right text-gray-500">{a.congeladas}</td>
+                  <td className="px-3 py-2 text-right text-gray-500 dark:text-gray-400">{a.congeladas}</td>
                 </tr>
               ))}
               {(!data?.por_analista || data.por_analista.length === 0) && (

@@ -16,6 +16,7 @@ def gerar_e_enviar():
     sb = get_supabase()
     resp = sb.table("rh_vagas").select(_SELECT).execute()
     rows = [_serialize(r) for r in (resp.data or [])]
+    rows = [r for r in rows if (r.get("data_recebimento") or "")[:4] >= "2026"]
 
     abertas = [r for r in rows if r.get("status_em_aberto")]
     concluidas_total = [r for r in rows if r.get("status_concluido")]
