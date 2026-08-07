@@ -164,6 +164,8 @@ export type DashboardData = {
   }[];
   sla_estourado: AlertaSla[];
   sla_estourando: AlertaSla[];
+  abertas_lista: AlertaSla[];
+  canceladas_congeladas_lista: AlertaSla[];
 };
 
 export type AlertaSla = {
@@ -175,6 +177,7 @@ export type AlertaSla = {
   dias_corridos: number | null;
   sla_alvo_dias: number | null;
   etapa_atual: string | null;
+  status: string | null;
 };
 
 export type UploadInfo = {

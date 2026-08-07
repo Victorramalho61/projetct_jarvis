@@ -7,10 +7,16 @@ import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../lib/api";
 import { useRhLookups } from "../hooks/useRhLookups";
 import { filtrosToQueryString } from "../lib/rhFilters";
-import type { DashboardData, VagasFiltros } from "../types/rh";
+import type { AlertaSla, DashboardData, VagasFiltros } from "../types/rh";
 import KPICard from "../components/expenses/KPICard";
 import FiltrosBar from "../components/rh/FiltrosBar";
 import EtapaFunnelChart from "../components/rh/EtapaFunnelChart";
+import AlertaSlaTile from "../components/rh/AlertaSlaTile";
+import ClickableTileWrapper from "../components/rh/ClickableTileWrapper";
+import DrillDownVagasModal from "../components/rh/DrillDownVagasModal";
+import VagaFormModal from "../components/rh/VagaFormModal";
+
+type DrillDown = { titulo: string; itens: AlertaSla[] };
 
 const STATUS_CORES: Record<string, string> = {
   "EM ANDAMENTO": "#3b82f6",
@@ -26,6 +32,8 @@ export default function RhPage() {
   const [filtros, setFiltros] = useState<VagasFiltros>({});
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
+  const [vagaAberta, setVagaAberta] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -59,45 +67,37 @@ export default function RhPage() {
         </button>
       </div>
 
-      {!loading && ((data?.sla_estourado.length ?? 0) > 0 || (data?.sla_estourando.length ?? 0) > 0) && (
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {(data?.sla_estourado.length ?? 0) > 0 && (
-            <div className="rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-4">
-              <p className="mb-2 text-sm font-bold text-red-700 dark:text-red-300">
-                ⚠ SLA estourado ({data?.sla_estourado.length})
-              </p>
-              <ul className="space-y-1 text-xs text-red-800 dark:text-red-300">
-                {data?.sla_estourado.slice(0, 5).map((a) => (
-                  <li key={a.id}>{a.numero_requisicao} — {a.cargo} ({a.responsavel ?? "sem analista"}) — {a.dias_corridos}/{a.sla_alvo_dias} dias</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {(data?.sla_estourando.length ?? 0) > 0 && (
-            <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
-              <p className="mb-2 text-sm font-bold text-amber-700 dark:text-amber-300">
-                ⏳ SLA estourando em até 3 dias ({data?.sla_estourando.length})
-              </p>
-              <ul className="space-y-1 text-xs text-amber-800 dark:text-amber-300">
-                {data?.sla_estourando.slice(0, 5).map((a) => (
-                  <li key={a.id}>{a.numero_requisicao} — {a.cargo} ({a.responsavel ?? "sem analista"}) — {a.dias_corridos}/{a.sla_alvo_dias} dias</li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <AlertaSlaTile
+          titulo="SLA Estourado"
+          quantidade={data?.sla_estourado.length ?? 0}
+          variante="estourado"
+          onClick={() => setDrillDown({ titulo: "SLA Estourado", itens: data?.sla_estourado ?? [] })}
+        />
+        <AlertaSlaTile
+          titulo="SLA Estourando em até 3 dias"
+          quantidade={data?.sla_estourando.length ?? 0}
+          variante="estourando"
+          onClick={() => setDrillDown({ titulo: "SLA Estourando em até 3 dias", itens: data?.sla_estourando ?? [] })}
+        />
+      </div>
 
       <FiltrosBar lookups={lookups} value={filtros} onChange={setFiltros} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-7">
         <KPICard title="Total" value={String(kpis?.total ?? "—")} loading={loading} accentColor="blue" />
-        <KPICard title="Abertas" value={String(kpis?.abertas ?? "—")} loading={loading} accentColor="blue" />
+        <ClickableTileWrapper onClick={() => setDrillDown({ titulo: "Vagas Abertas", itens: data?.abertas_lista ?? [] })}>
+          <KPICard title="Abertas" value={String(kpis?.abertas ?? "—")} loading={loading} accentColor="blue" />
+        </ClickableTileWrapper>
         <KPICard title="Concluídas" value={String(kpis?.concluidas_periodo ?? "—")} loading={loading} accentColor="green" />
         <KPICard title="SLA médio (dias)" value={kpis?.sla_medio_dias != null ? String(kpis.sla_medio_dias) : "—"} loading={loading} accentColor="teal" />
         <KPICard title="% no prazo" value={kpis?.pct_no_prazo != null ? `${kpis.pct_no_prazo}%` : "—"} loading={loading} accentColor="violet" />
-        <KPICard title="Atrasadas" value={String(kpis?.atrasadas ?? "—")} loading={loading} accentColor="amber" />
-        <KPICard title="Canceladas/Congeladas" value={String((kpis?.canceladas ?? 0) + (kpis?.congeladas ?? 0))} loading={loading} accentColor="red" />
+        <ClickableTileWrapper onClick={() => setDrillDown({ titulo: "Vagas Atrasadas", itens: data?.sla_estourado ?? [] })}>
+          <KPICard title="Atrasadas" value={String(kpis?.atrasadas ?? "—")} loading={loading} accentColor="amber" />
+        </ClickableTileWrapper>
+        <ClickableTileWrapper onClick={() => setDrillDown({ titulo: "Canceladas / Congeladas", itens: data?.canceladas_congeladas_lista ?? [] })}>
+          <KPICard title="Canceladas/Congeladas" value={String((kpis?.canceladas ?? 0) + (kpis?.congeladas ?? 0))} loading={loading} accentColor="red" />
+        </ClickableTileWrapper>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -187,8 +187,8 @@ export default function RhPage() {
             <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
               {(data?.por_analista ?? []).map((a) => (
                 <tr key={a.analista}>
-                  <td className="px-3 py-2">{a.analista}</td>
-                  <td className="px-3 py-2 text-right font-semibold">{a.total}</td>
+                  <td className="px-3 py-2 text-gray-700 dark:text-gray-300">{a.analista}</td>
+                  <td className="px-3 py-2 text-right font-semibold text-gray-900 dark:text-gray-100">{a.total}</td>
                   <td className="px-3 py-2 text-right text-blue-600 dark:text-blue-400">{a.abertas}</td>
                   <td className="px-3 py-2 text-right text-green-600 dark:text-green-400">{a.concluidas}</td>
                   <td className="px-3 py-2 text-right text-red-600 dark:text-red-400">{a.canceladas}</td>
@@ -202,6 +202,28 @@ export default function RhPage() {
           </table>
         </div>
       </div>
+
+      {drillDown && (
+        <DrillDownVagasModal
+          titulo={drillDown.titulo}
+          itens={drillDown.itens}
+          onClose={() => setDrillDown(null)}
+          onAbrirVaga={(id) => setVagaAberta(id)}
+        />
+      )}
+
+      {vagaAberta && (
+        <VagaFormModal
+          vagaId={vagaAberta}
+          lookups={lookups}
+          token={token}
+          onClose={() => setVagaAberta(null)}
+          onSaved={() => {
+            const qs = filtrosToQueryString(filtros);
+            apiFetch<DashboardData>(`/api/rh/dashboard${qs ? `?${qs}` : ""}`, { token }).then(setData);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -108,6 +108,7 @@ def dashboard(
             "cargo": r.get("cargo"), "empresa": r.get("empresa"),
             "responsavel": r.get("responsavel"), "dias_corridos": r.get("dias_corridos"),
             "sla_alvo_dias": r.get("sla_alvo_dias"), "etapa_atual": r.get("etapa_atual"),
+            "status": r.get("status"),
         }
 
     # Vagas por analista
@@ -170,4 +171,6 @@ def dashboard(
         "por_analista": sorted(por_analista_map.values(), key=lambda x: -x["total"]),
         "sla_estourado": [_resumo_alerta(r) for r in sla_estourado],
         "sla_estourando": [_resumo_alerta(r) for r in sla_estourando],
+        "abertas_lista": [_resumo_alerta(r) for r in abertas],
+        "canceladas_congeladas_lista": [_resumo_alerta(r) for r in canceladas + congeladas],
     }
