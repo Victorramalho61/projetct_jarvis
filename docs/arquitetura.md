@@ -1112,6 +1112,43 @@ Get-ScheduledTask -TaskName "Jarvis-Docker-Startup"
 
 ---
 
+### 2026-08-10 — Rate-limit por IP colidindo entre usuários (Kong + slowapi)
+
+**Problema:** durante o disparo em massa de avaliações/auto-avaliações do performance-service, usuários reais recebiam 429 em lote. Causa em duas camadas:
+1. `limiter.py` de todos os serviços usava `get_remote_address` (slowapi) — atrás do Kong, todo request chega com o mesmo IP de proxy, então o rate-limit por IP colapsava num único bucket compartilhado por todos os usuários.
+2. Kong não confiava no hop do nginx (`KONG_TRUSTED_IPS` nunca configurado) e sobrescrevia `X-Forwarded-For` com o IP interno do proxy — mesmo corrigindo o `key_func`, o header real nunca chegava no serviço.
+3. `performance-service/routes/public.py` tinha ainda um bloqueio anti-brute-force *hardcoded* (`ip = request.client.host`) nas rotas presenciais (`ciencia-presencial`, `auto-avaliacao-presencial`) — 3 erros de digitação de **qualquer** colaborador bloqueava todo mundo por 5 min.
+
+**Fix:**
+- `limiter.py` (replicado nos 10 serviços ativos, exceto `cards-service` que já tinha solução por `user_id`): `get_real_ip()` lê `X-Forwarded-For` com fallback pro `client.host`.
+- `docker-compose.yml`: `KONG_TRUSTED_IPS: "172.18.0.0/16"` — confia na rede interna Docker, preserva o `X-Forwarded-For` setado pelo nginx.
+- `public.py`: as 3 rotas presenciais passam a usar `get_real_ip()` no bloqueio anti-brute-force também.
+
+### 2026-08-10 — Troca de gestor não propagava pra token de avaliação já criado
+
+**Problema:** ao trocar o `manager_id` de um colaborador em Gestão RH, o token de avaliação (`performance_evaluation_tokens`) já criado no ciclo aberto mantinha o `evaluator_id` antigo (snapshot da criação). A tela do ciclo mostrava o gestor errado, e "Reenviar" mandava e-mail pra quem já tinha sido notificado, não pro novo gestor. Causou 3 incidentes reportados + 6 casos latentes (auditados e corrigidos manualmente via `UPDATE`).
+
+**Fix:** `update_employee` (`PUT /api/performance/admin/employees/{id}`) agora propaga a troca de `manager_id` pro `evaluator_id` de qualquer token pendente (não usado, não invalidado) do ciclo aberto — sem disparar e-mail, só corrige o destinatário pra próxima ação do RH.
+
+### 2026-08-10 — 500 (URI too long) em `/admin/evaluations`
+
+**Problema:** a tela "Gestão RH" (todas as avaliações do ciclo) retornava 500 — PostgREST recusa URLs com `.in_()` de centenas de UUIDs ("414 URI too long", mas o cliente Python mascarava como 500). Frontend engolia o erro e mostrava lista vazia, sem indicar falha.
+
+**Fix:** aplicado o helper `_chunks()` (lotes de 150 IDs, já usado em outras rotas) nas 5 queries `.in_()` de `list_evaluations` (`GET /admin/evaluations`).
+
+### 2026-08-10 — Calibragem ("Análise RH") agora considera divergência por item
+
+**Antes:** `calibragem_necessaria` só olhava a aderência **geral** (nota final gestor vs. auto-avaliação) ≤50%. Um colaborador podia ter aderência geral de 66-79% (ok) mas 1-6 competências individuais com divergência ≤50% entre si, sem nunca cair pra Análise RH.
+
+**Fix:** `calibragem_necessaria` (nas 3 rotas que a calculam: `list_evaluations`, `evaluations/{id}/detail`, `evaluations/detail`) agora é `true` se a aderência geral ≤50% **ou** qualquer item/indicador individual tiver aderência ≤50% (`needs_calibration` já computado por item em `_merge_indicator_matrix`), e ainda não calibrado.
+
+### 2026-08-10 — Dashboard: gráfico por empresa + drilldown de auto-avaliação agrupado
+
+- `GET /api/performance/admin/dashboard` ganhou o campo `by_company` (avaliações e auto-avaliações completadas, agregadas por `company_id` do colaborador). Substituiu o gráfico "Médias por Indicador" no frontend por "Avaliações e Auto-Avaliações Realizadas — por Empresa" (cor fixa por empresa, ordem VTC → Viagens → demais).
+- `GET /api/performance/admin/dashboard/pending-self-eval` passou a agrupar por gestor (mesmo padrão de `pending-evaluators`), em vez de lista plana — o drilldown "Colaboradores Pendentes de Auto-Avaliação" ganhou expandir/colapsar por gestor.
+
+---
+
 ## Módulo Gastos TI — expenses-service:8006
 
 Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorporativo`).

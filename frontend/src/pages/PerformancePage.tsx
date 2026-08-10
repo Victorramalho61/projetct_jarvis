@@ -446,24 +446,55 @@ function TabDashboard({ companies }: { companies: any[] }) {
         )}
       </ModalWrapper>
 
-      {/* Drilldown: Auto-avaliações pendentes */}
-      <ModalWrapper open={drilldown === "pending-self-eval"} onClose={() => setDrilldown(null)} title="Colaboradores Pendentes de Auto-Avaliação">
+      {/* Drilldown: Auto-avaliações pendentes — agrupado por gestor */}
+      <ModalWrapper open={drilldown === "pending-self-eval"}
+        onClose={() => { setDrilldown(null); setExpandedManagers(new Set()); }}
+        title="Colaboradores Pendentes de Auto-Avaliação">
         {drilldownLoading ? (
           <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-violet-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
           <p className="text-sm text-gray-500 text-center py-4">Todos os colaboradores concluíram a auto-avaliação! 🎉</p>
         ) : (
-          <div className="space-y-1">
-            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} colaborador{drilldownData.length !== 1 ? "es" : ""} pendente{drilldownData.length !== 1 ? "s" : ""}</p>
-            {drilldownData.map((emp: any, i: number) => (
-              <div key={i} className="flex items-center justify-between border border-gray-100 dark:border-gray-700 rounded-lg px-4 py-2.5">
-                <div>
-                  <p className="font-semibold text-gray-900 dark:text-white text-sm">{emp.employee_name}</p>
-                  <p className="text-xs text-gray-400">{emp.employee_cargo} · {emp.hierarchy_level}{emp.branch_name ? ` · ${emp.branch_name}` : ""}</p>
+          <div className="space-y-2">
+            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} gestor{drilldownData.length !== 1 ? "es" : ""} — clique para expandir</p>
+            {drilldownData.map((mgr: any, i: number) => {
+              const isOpen = expandedManagers.has(i);
+              const count = mgr.pending_employees?.length ?? 0;
+              return (
+                <div key={i} className="border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                  <button onClick={() => setExpandedManagers(prev => { const n = new Set(prev); isOpen ? n.delete(i) : n.add(i); return n; })}
+                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-4 h-4 text-violet-600 dark:text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-900 dark:text-white text-sm truncate">{mgr.manager_name}</p>
+                        {mgr.manager_email && <p className="text-xs text-gray-400 truncate">{mgr.manager_email}</p>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-violet-100 dark:bg-violet-900/30 text-violet-700 dark:text-violet-400">{count} pendente{count !== 1 ? "s" : ""}</span>
+                      <svg className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="m9 6 6 6-6 6" /></svg>
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30 px-4 py-3 space-y-2">
+                      {mgr.pending_employees?.map((emp: any, j: number) => (
+                        <div key={j} className="flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" />
+                            <span className="text-gray-700 dark:text-gray-300 font-medium truncate">{emp.employee_name}</span>
+                            <span className="text-gray-400 truncate">— {emp.employee_cargo}</span>
+                          </div>
+                          <span className="text-gray-400 flex-shrink-0 ml-2">{emp.hierarchy_level}{emp.branch_name ? ` · ${emp.branch_name}` : ""}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <Badge color="violet">⏳ Pendente</Badge>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </ModalWrapper>
@@ -1359,14 +1390,14 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
         <select value={adherenceFilter} onChange={e => setAdherenceFilter(e.target.value as "" | "needs" | "ok")}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Aderência: Todas</option>
-          <option value="needs">⚠️ Precisa de Análise RH (≤50%)</option>
-          <option value="ok">✅ Não necessária (≥51%)</option>
+          <option value="needs">⚠️ Precisa de Análise RH (geral ≤50% ou item ≤50%)</option>
+          <option value="ok">✅ Não necessária</option>
         </select>
         <select value={itemDiscrepancyFilter} onChange={e => setItemDiscrepancyFilter(e.target.value as "" | "yes" | "no")}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
           <option value="">Discrepância por item: Todas</option>
-          <option value="yes">⚠️ Com item ≥50%</option>
-          <option value="no">Sem item ≥50%</option>
+          <option value="yes">⚠️ Com item ≤50%</option>
+          <option value="no">Sem item ≤50%</option>
         </select>
         <select value={filters.company_id} onChange={e => setFilters(f => ({ ...f, company_id: e.target.value }))}
           className="rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-800 dark:text-gray-200">
@@ -1430,7 +1461,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         <p className="text-[10px] text-gray-400 mt-0.5">{new Date(ev.calibrated_at).toLocaleDateString("pt-BR")}</p>
                       )}
                       {(ev.itens_discrepantes ?? 0) > 0 && (
-                        <p className="text-[10px] font-semibold text-amber-600 mt-0.5">⚠️ {ev.itens_discrepantes} item{ev.itens_discrepantes !== 1 ? "s" : ""} ≥50%</p>
+                        <p className="text-[10px] font-semibold text-amber-600 mt-0.5">⚠️ {ev.itens_discrepantes} item{ev.itens_discrepantes !== 1 ? "s" : ""} ≤50%</p>
                       )}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -1781,7 +1812,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         {ind.description && <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{ind.description}</p>}
                       </div>
                       {needsCalibration
-                        ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap">⚠️ Discrepância ≥50%</span>
+                        ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap">⚠️ Discrepância ≤50%</span>
                         : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400 whitespace-nowrap">✅ Não requer Análise RH</span>}
                     </div>
                     {/* Scores atuais */}

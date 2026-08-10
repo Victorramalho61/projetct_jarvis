@@ -348,7 +348,7 @@ def dashboard_pending_self_eval(
     company_id: str | None = None,
     branch_id: str | None = None,
 ) -> list[dict]:
-    """Colaboradores que ainda não concluíram a auto-avaliação."""
+    """Colaboradores que ainda não concluíram a auto-avaliação, agrupados por gestor."""
     db = get_supabase()
     if not cycle_id:
         cycle = _get_current_cycle(db)
@@ -356,7 +356,7 @@ def dashboard_pending_self_eval(
     if not cycle_id:
         return []
 
-    emp_q = db.table("performance_employees").select("id,name,cargo,hierarchy_level,performance_branches(name),performance_companies(name)").eq("active", True)
+    emp_q = db.table("performance_employees").select("id,name,cargo,hierarchy_level,manager_id,performance_branches(name),performance_companies(name)").eq("active", True)
     if company_id:
         emp_q = emp_q.eq("company_id", company_id)
     if branch_id:
@@ -382,20 +382,40 @@ def dashboard_pending_self_eval(
         p = emp_data.get("perfil") or ""
         return _PERFIL_LABEL.get(p) or _HLEVEL_LABEL.get(emp_data.get("hierarchy_level"), "")
 
-    result = []
+    pending_by_manager: dict[str, list[dict]] = {}
     for emp in employees:
-        if emp["id"] not in completed_self:
-            branch = emp.get("performance_branches") or {}
-            company = emp.get("performance_companies") or {}
-            result.append({
-                "employee_id": emp["id"],
-                "employee_name": emp["name"],
-                "employee_cargo": emp.get("cargo", ""),
-                "hierarchy_level": _level_str(emp),
-                "branch_name": branch.get("name", "") if isinstance(branch, dict) else "",
-                "company_name": company.get("name", "") if isinstance(company, dict) else "",
-            })
-    return sorted(result, key=lambda x: x["employee_name"])
+        if emp["id"] in completed_self:
+            continue
+        branch = emp.get("performance_branches") or {}
+        company = emp.get("performance_companies") or {}
+        mgr_id = emp.get("manager_id") or "__no_manager__"
+        pending_by_manager.setdefault(mgr_id, []).append({
+            "employee_id": emp["id"],
+            "employee_name": emp["name"],
+            "employee_cargo": emp.get("cargo", ""),
+            "hierarchy_level": _level_str(emp),
+            "branch_name": branch.get("name", "") if isinstance(branch, dict) else "",
+            "company_name": company.get("name", "") if isinstance(company, dict) else "",
+        })
+
+    if not pending_by_manager:
+        return []
+
+    mgr_ids = [mid for mid in pending_by_manager if mid != "__no_manager__"]
+    managers_map: dict[str, dict] = {}
+    if mgr_ids:
+        mgrs = db.table("performance_employees").select("id,name,email").in_("id", mgr_ids).execute().data
+        managers_map = {m["id"]: m for m in mgrs}
+
+    result = []
+    for mgr_id, pending_emps in pending_by_manager.items():
+        mgr = managers_map.get(mgr_id, {})
+        result.append({
+            "manager_name": mgr.get("name", "Sem gestor definido"),
+            "manager_email": mgr.get("email", ""),
+            "pending_employees": sorted(pending_emps, key=lambda x: x["employee_name"]),
+        })
+    return sorted(result, key=lambda x: x["manager_name"])
 
 
 @router.get("/dashboard/export")
@@ -2732,9 +2752,13 @@ def list_evaluations(
             "self_final_score": self_score,
             "nota_final_combinada": nota_final_combinada,
             "adherence_pct": adherence_pct,
-            # >=51% -> calibragem considerada concluida automaticamente (nao exige acao do RH);
-            # <=50% -> precisa de calibragem manual, a menos que o RH ja tenha calibrado.
-            "calibragem_necessaria": adherence_pct is not None and adherence_pct <= 50 and not is_calibrated,
+            # Calibragem manual necessaria se a aderencia geral for <=50% OU se
+            # algum item/competencia individual tiver aderencia <=50% (mesmo com
+            # aderencia geral ok, a media pode mascarar divergencia pontual).
+            "calibragem_necessaria": (
+                ((adherence_pct is not None and adherence_pct <= 50) or itens_discrepantes > 0)
+                and not is_calibrated
+            ),
             "itens_discrepantes": itens_discrepantes,
             "status": manager_status,
             "submitted_at": r.get("submitted_at") if r else None,
@@ -2926,6 +2950,7 @@ def get_evaluation_detail(
             )
 
     calibration_history = _calibration_history_for_review(db, review_id)
+    has_item_discrepancy = any(ind.get("needs_calibration") for ind in indicators)
     return {
         "review": r,
         "employee": emp_data,
@@ -2938,7 +2963,10 @@ def get_evaluation_detail(
         "overall_adherence_index": overall_adherence_index,
         "overall_adherence_label": overall_adherence_label,
         "nota_final_combinada": nota_final_combinada,
-        "calibragem_necessaria": overall_adherence_index is not None and overall_adherence_index <= 50 and not calibration_history,
+        "calibragem_necessaria": (
+            ((overall_adherence_index is not None and overall_adherence_index <= 50) or has_item_discrepancy)
+            and not calibration_history
+        ),
     }
 
 
@@ -3007,6 +3035,7 @@ def get_evaluation_detail_by_employee(
             )
 
     calibration_history = _calibration_history_for_review(db, r["id"]) if r else []
+    has_item_discrepancy = any(ind.get("needs_calibration") for ind in indicators)
     return {
         "review": r,
         "employee": emp_data,
@@ -3019,7 +3048,10 @@ def get_evaluation_detail_by_employee(
         "overall_adherence_index": overall_adherence_index,
         "overall_adherence_label": overall_adherence_label,
         "nota_final_combinada": nota_final_combinada,
-        "calibragem_necessaria": overall_adherence_index is not None and overall_adherence_index <= 50 and not calibration_history,
+        "calibragem_necessaria": (
+            ((overall_adherence_index is not None and overall_adherence_index <= 50) or has_item_discrepancy)
+            and not calibration_history
+        ),
     }
 
 
