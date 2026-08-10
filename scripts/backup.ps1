@@ -141,7 +141,22 @@ if ($ERRORS.Count -gt 0) {
     exit 1
 } else {
     log "Concluido - ${totalMB}MB em ${elapsed}min"
+
+    # ── Upload OneDrive (Backup/jarvis_dump_YYYYMMDD, diario 30d + copia mensal dia 1) ──
+    log "OneDrive: enviando dumps..."
+    Push-Location "E:\claudecode\claudecode"
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $oneDriveOutput = & docker compose run --rm -v "${BACKUP_PATH}:/backup:ro" moneypenny-service `
+        python /app/scripts/upload_backup_onedrive.py /backup $TIMESTAMP 2>$null
+    $oneDriveOk = $LASTEXITCODE -eq 0
+    $ErrorActionPreference = $prevEAP
+    Pop-Location
+    $oneDriveOutput | ForEach-Object { log "  [onedrive] $_" }
+    if ($oneDriveOk) { log "OneDrive: ok" } else { log "OneDrive: FALHOU (backup local esta OK, so o envio pro OneDrive falhou)" }
+
     log "=========================================="
-    send-email "[Jarvis] Backup OK $TIMESTAMP" "Backup OK em ${elapsed}min.`nTotal: ${totalMB}MB`n`nArquivos:`n$files`n`nPasta: $BACKUP_PATH"
+    $oneDriveMsg = if ($oneDriveOk) { "OneDrive: enviado com sucesso." } else { "OneDrive: FALHOU (ver log) - backup local esta intacto em $BACKUP_PATH." }
+    send-email "[Jarvis] Backup OK $TIMESTAMP" "Backup OK em ${elapsed}min.`nTotal: ${totalMB}MB`n$oneDriveMsg`n`nArquivos:`n$files`n`nPasta: $BACKUP_PATH"
     exit 0
 }

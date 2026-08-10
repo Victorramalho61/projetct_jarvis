@@ -1,133 +1,130 @@
 # Jarvis — Backup e Restauração
 
+> Script real em produção: `scripts/backup.ps1` (PowerShell, roda no Windows Server). O antigo `scripts/backup.sh` (bash) não é usado — mantido apenas para referência histórica.
+
 ## O que é salvo
 
-| Item | Método | Arquivo gerado |
-|---|---|---|
-| PostgreSQL | `pg_dump` (SQL completo) | `postgres_TIMESTAMP.sql.gz` |
-| Evolution API | `tar.gz` do volume Docker | `evolution_TIMESTAMP.tar.gz` |
-| Storage (opcional) | `tar.gz` do volume Docker | `storage_TIMESTAMP.tar.gz` |
+| Item | Método | Arquivo gerado | Retenção |
+|---|---|---|---|
+| `performance_reviews.fiscal_documents` | `pg_dump -Fc -Z9` (custom format) | `fiscal_documents_TIMESTAMP.dump` | 7 dias |
+| Resto do banco `postgres` (exclui `fiscal_documents`) | `pg_dump -Fc -Z9` | `postgres_main_TIMESTAMP.dump` | 30 dias |
+| Banco `evolution` (WhatsApp) | `pg_dump -Fc -Z9` | `evolution_db_TIMESTAMP.dump` | 30 dias |
+
+Local: `E:\claudecode\claudecode\backups\{TIMESTAMP}\` (TIMESTAMP = `yyyyMMdd_HHmmss`).
+
+Cada dump é gerado dentro do container `jarvis-db-1` (`docker exec`) e copiado pro host via `docker cp` — evita corromper binário custom-format ao passar pelo pipe do PowerShell.
 
 ---
 
-## Configuração
+## Agendamento
 
-```bash
-cp .env.backup.example .env.backup
-# edite .env.backup conforme necessário
+Task Scheduler do Windows: `Jarvis-Docker-Startup`-like task roda `scripts/backup.ps1` diariamente às **01:00**. Ver/ajustar:
+```powershell
+Get-ScheduledTask -TaskName "*backup*"
 ```
 
-Variáveis disponíveis:
+Credenciais SMTP (notificação por e-mail ao final) em `scripts/.env.backup` (não versionado — copiar de `scripts/.env.backup.example`).
 
-| Variável | Padrão | Descrição |
-|---|---|---|
-| `BACKUP_DIR` | `/opt/jarvis/backups` | Diretório de destino |
-| `RETENTION_DAYS` | `7` | Dias de retenção (rotação automática) |
-| `BACKUP_STORAGE` | `false` | Incluir volume de storage |
+## Executar manualmente
+
+```powershell
+powershell -ExecutionPolicy Bypass -File "E:\claudecode\claudecode\scripts\backup.ps1"
+```
+
+Log: `E:\claudecode\claudecode\backups\backup.log`.
 
 ---
 
-## Executar backup
+## Upload para OneDrive (2026-08-10)
 
-```bash
-bash scripts/backup.sh
+Além da cópia local, todo backup bem-sucedido é enviado automaticamente pro OneDrive do Victor (`grupovoetur-my.sharepoint.com/personal/victor_ramalho_voetur_com_br`), via Microsoft Graph API (app do Moneypenny, escopo `Files.ReadWrite` — delegado, usa o token OAuth já conectado em `connected_accounts`).
+
+**Estrutura no OneDrive:**
+```
+Documents/Backup/jarvis_dump_{YYYYMMDD}/       ← diário, retenção 30 dias (apaga pastas mais antigas)
+Documents/Backup/jarvis_dump_mensal_{YYYYMM}/  ← cópia extra no dia 1 de cada mês, sem rotação automática
 ```
 
-Saída esperada:
+**Como funciona:** `scripts/backup.ps1` chama, após os 3 dumps locais concluírem:
+```powershell
+docker compose run --rm -v "<pasta_do_backup>:/backup:ro" moneypenny-service `
+  python /app/scripts/upload_backup_onedrive.py /backup <TIMESTAMP>
 ```
-[2026-04-29 03:00:00] Iniciando backup Jarvis → /opt/jarvis/backups/20260429_030000
-[2026-04-29 03:00:02] PostgreSQL: iniciando pg_dump...
-[2026-04-29 03:00:15] PostgreSQL: 48M — ok
-[2026-04-29 03:00:15] Evolution API: copiando volume jarvis_evolution_data...
-[2026-04-29 03:00:18] Evolution: 2.1M — ok
-[2026-04-29 03:00:18] Rotação: removendo backups com mais de 7 dias...
-[2026-04-29 03:00:18] Backup concluído — total: 50M
+Esse script (`moneypenny-service/scripts/upload_backup_onedrive.py`) faz upload resumível (sessão do Graph API, chunks de 10MB — necessário pra arquivos >4MB) dos 3 `.dump`, e no final varre `Backup/` no OneDrive apagando pastas `jarvis_dump_{YYYYMMDD}` com mais de 30 dias.
+
+**Falha de OneDrive não derruba o backup local** — se o upload falhar, o e-mail de notificação avisa, mas o backup local (a cópia principal) já está garantido antes de tentar o upload.
+
+**Pré-requisito:** conta Microsoft conectada em `connected_accounts` (provider=`microsoft`) com escopo `Files.ReadWrite` consentido. Se o token expirar/for revogado, reconectar via:
+```
+GET /api/moneypenny/auth/microsoft/url  →  abrir a URL retornada, logar, autorizar
 ```
 
----
-
-## Agendar via cron
-
-```bash
-crontab -e
-# Backup diário às 3h da manhã:
-0 3 * * * cd /opt/jarvis && bash scripts/backup.sh >> /var/log/jarvis-backup.log 2>&1
-```
+**Nota PowerShell:** o script roda com `$ErrorActionPreference = "Stop"` global — chamadas a `docker compose` (que sempre escreve no stderr, mesmo com sucesso) precisam trocar temporariamente pra `"Continue"`, senão o PowerShell trata a saída normal do Docker como erro fatal.
 
 ---
 
 ## Restauração
 
-### PostgreSQL
+### PostgreSQL (`postgres_main` ou `fiscal_documents`)
 
-```bash
-# 1. Descompactar
-gunzip backups/20260429_030000/postgres_20260429_030000.sql.gz
+```powershell
+# Copia o dump pro container
+docker cp backups\TIMESTAMP\postgres_main_TIMESTAMP.dump jarvis-db-1:/tmp/restore.dump
 
-# 2. Restaurar (banco deve existir e estar vazio ou aceitar sobreposição)
-docker exec -i jarvis-db-1 bash -c \
-  "PGPASSWORD='SUA_SENHA' psql -U postgres -d postgres" \
-  < backups/20260429_030000/postgres_20260429_030000.sql
+# Restaura (--clean apaga objetos existentes antes de recriar; remova se for banco vazio)
+docker exec jarvis-db-1 pg_restore -U postgres -d postgres --no-owner --no-acl --clean /tmp/restore.dump
 ```
 
-### Evolution API
+### Testar restauração sem tocar produção (recomendado antes de qualquer restore real)
 
-```bash
-# Parar Evolution antes de restaurar
-docker compose stop evolution-api
+```powershell
+docker run --rm -d --name restore-test -e POSTGRES_PASSWORD=test postgres:15
+docker cp backups\TIMESTAMP\postgres_main_TIMESTAMP.dump restore-test:/tmp/restore.dump
+docker exec restore-test createdb -U postgres restoretest
+docker exec restore-test pg_restore -U postgres -d restoretest --no-owner --no-acl /tmp/restore.dump
+docker exec restore-test psql -U postgres -d restoretest -c "select count(*) from performance_reviews;"
+docker stop restore-test  # --rm já remove ao parar
+```
+Erros do tipo `role "service_role" does not exist` nas `CREATE POLICY` são esperados nesse teste isolado (Postgres genérico sem os roles do Supabase) — não indicam falha de dados. **Validado em 2026-08-10**: restauração de 389 `performance_reviews` confirmada íntegra, incluindo correções de avaliador feitas no mesmo dia.
 
-# Restaurar o volume
-docker run --rm \
-  -v jarvis_evolution_data:/data \
-  -v $(pwd)/backups/20260429_030000:/backup:ro \
-  alpine sh -c "cd /data && tar xzf /backup/evolution_20260429_030000.tar.gz"
+### Evolution (WhatsApp)
 
-docker compose start evolution-api
+```powershell
+docker cp backups\TIMESTAMP\evolution_db_TIMESTAMP.dump jarvis-db-1:/tmp/evolution.dump
+docker exec jarvis-db-1 pg_restore -U postgres -d evolution --no-owner --no-acl --clean /tmp/evolution.dump
 ```
 
-### Storage (se aplicável)
+### Do OneDrive
 
-```bash
-docker compose stop storage
-
-docker run --rm \
-  -v jarvis_storage_data:/data \
-  -v $(pwd)/backups/20260429_030000:/backup:ro \
-  alpine sh -c "cd /data && tar xzf /backup/storage_20260429_030000.tar.gz"
-
-docker compose start storage
-```
+Baixar manualmente de `Documents/Backup/jarvis_dump_{YYYYMMDD}/` (ou `jarvis_dump_mensal_{YYYYMM}/`) e seguir os passos de restauração acima.
 
 ---
 
 ## Monitoramento
 
-Verificar último backup:
-```bash
-ls -lht /opt/jarvis/backups/ | head -5
+```powershell
+Get-ChildItem E:\claudecode\claudecode\backups | Sort-Object LastWriteTime -Descending | Select-Object -First 5
+Get-Content E:\claudecode\claudecode\backups\backup.log -Tail 20
 ```
 
-Verificar integridade do dump PostgreSQL:
-```bash
-gunzip -c backups/TIMESTAMP/postgres_TIMESTAMP.sql.gz | tail -5
-# Deve terminar com: "PostgreSQL database dump complete"
-```
+E-mail de confirmação (OK ou FALHA) enviado a cada execução — configurado em `scripts/.env.backup`.
 
 ---
 
 ## Troubleshooting
 
-**`docker exec` falha com "No such container"**
-```bash
+**`docker exec jarvis-db-1` falha com "No such container"**
+```powershell
 docker ps --filter name=jarvis-db
-# ajuste o nome do container se necessário
 ```
 
 **Sem espaço em disco**
-```bash
-df -h /opt/jarvis/backups
-# reduza RETENTION_DAYS ou desabilite BACKUP_STORAGE
+```powershell
+Get-PSDrive E
 ```
 
-**Backup corrompido**
-O script usa `set -euo pipefail` — qualquer falha aborta e não deixa arquivo parcial na pasta de destino.
+**Upload OneDrive falha com 401/403**
+Token expirado ou escopo insuficiente — reconectar via `GET /api/moneypenny/auth/microsoft/url`.
+
+**pg_dump avisa "circular foreign-key constraints"**
+Warning esperado, não é erro — não impede o dump nem a restauração completa (`-Fc` sem `--data-only` lida com a ordem via `pg_restore`).

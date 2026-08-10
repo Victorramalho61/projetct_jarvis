@@ -220,17 +220,10 @@ function TabDashboard({ companies }: { companies: any[] }) {
     if (filters.empresa) params.set("company_id", filters.empresa);
     if (filters.filial)  params.set("branch_id",  filters.filial);
     if (filters.ciclo)   params.set("cycle_id",   filters.ciclo);
-    // "calibrated" usa list_evaluations com filtro de status
-    if (type === "calibrated") {
-      params.set("status", "calibrated");
-      apiFetch<any[]>(`/api/performance/admin/evaluations?${params}`, { token })
-        .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
-        .finally(() => setDrilldownLoading(false));
-    } else {
-      apiFetch<any[]>(`/api/performance/admin/dashboard/${type}?${params}`, { token })
-        .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
-        .finally(() => setDrilldownLoading(false));
-    }
+    const endpoint = type === "calibrated" ? "pending-calibration" : type;
+    apiFetch<any[]>(`/api/performance/admin/dashboard/${endpoint}?${params}`, { token })
+      .then(d => setDrilldownData(d || [])).catch(() => setDrilldownData([]))
+      .finally(() => setDrilldownLoading(false));
   }
 
   async function handleExport() {
@@ -304,7 +297,8 @@ function TabDashboard({ companies }: { companies: any[] }) {
                   onClick={() => openDrilldown("pending-self-eval")} />
               );
             })()}
-            <StatCard label="Análises RH" value={`${stats.calibrations_count ?? 0}`} color="blue"
+            <StatCard label="Pendente Calibragem RH" value={`${stats.pending_calibration_count ?? 0}`}
+              color={(stats.pending_calibration_count ?? 0) > 0 ? "amber" : "green"}
               onClick={() => openDrilldown("calibrated")} />
           </div>
           {stats.by_company?.length > 0 && (() => {
@@ -500,23 +494,26 @@ function TabDashboard({ companies }: { companies: any[] }) {
       </ModalWrapper>
 
       {/* Drilldown: Análises RH */}
-      <ModalWrapper open={drilldown === "calibrated"} onClose={() => setDrilldown(null)} title="Avaliações em Análise RH">
+      <ModalWrapper open={drilldown === "calibrated"} onClose={() => setDrilldown(null)} title="Avaliações Pendentes de Análise RH">
         {drilldownLoading ? (
-          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" /></div>
+          <div className="flex justify-center py-8"><div className="w-6 h-6 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" /></div>
         ) : drilldownData.length === 0 ? (
-          <p className="text-sm text-gray-500 text-center py-4">Nenhuma avaliação em fase de Análise RH.</p>
+          <p className="text-sm text-gray-500 text-center py-4">Nenhuma avaliação pendente de calibragem. 🎉</p>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} avaliação{drilldownData.length !== 1 ? "ões" : ""} analisada{drilldownData.length !== 1 ? "s" : ""} pelo RH</p>
+            <p className="text-xs text-gray-400 mb-3">{drilldownData.length} avaliação{drilldownData.length !== 1 ? "ões" : ""} precisa{drilldownData.length !== 1 ? "m" : ""} de calibragem</p>
             {drilldownData.map((ev: any, i: number) => (
-              <div key={i} className="flex items-center justify-between border border-blue-100 dark:border-blue-900/30 rounded-lg px-4 py-3 bg-blue-50/30 dark:bg-blue-900/10">
+              <div key={i} className="flex items-center justify-between border border-amber-100 dark:border-amber-900/30 rounded-lg px-4 py-3 bg-amber-50/30 dark:bg-amber-900/10">
                 <div>
                   <p className="font-semibold text-gray-900 dark:text-white text-sm">{ev.employee_name}</p>
                   <p className="text-xs text-gray-400">Avaliado por: {ev.evaluator_name}</p>
+                  {(ev.itens_discrepantes ?? 0) > 0 && (
+                    <p className="text-[10px] font-semibold text-amber-600 mt-0.5">⚠️ {ev.itens_discrepantes} item{ev.itens_discrepantes !== 1 ? "s" : ""} ≤50%</p>
+                  )}
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-bold text-blue-600 dark:text-blue-400">{ev.final_score != null ? Number(ev.final_score).toFixed(2) : "—"}</span>
-                  <p className="text-xs text-gray-400">Nota após Análise RH</p>
+                  <span className="text-sm font-bold text-amber-600 dark:text-amber-400">{ev.adherence_pct != null ? `${ev.adherence_pct}%` : "—"}</span>
+                  <p className="text-xs text-gray-400">Aderência geral</p>
                 </div>
               </div>
             ))}

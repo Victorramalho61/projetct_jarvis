@@ -14,6 +14,7 @@ _SCOPES = [
     "Chat.ReadWrite",
     "Chat.Create",
     "ChatMessage.Send",
+    "Files.ReadWrite",
 ]
 
 
@@ -166,6 +167,56 @@ class GraphClient:
             },
         )
         return data.get("value", [])
+
+    def list_children(self, folder_path: str) -> list[dict]:
+        """Lista itens de uma pasta do OneDrive. folder_path ex: 'Backup/jarvis_dump_diario'."""
+        try:
+            data = self._get(f"/me/drive/root:/{folder_path}:/children", params={"$select": "id,name,folder"})
+            return data.get("value", [])
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 404:
+                return []
+            raise
+
+    def delete_item_by_path(self, item_path: str) -> None:
+        with httpx.Client(timeout=20) as client:
+            r = client.delete(f"{self.BASE}/me/drive/root:/{item_path}", headers=self._headers)
+            if r.status_code not in (204, 404):
+                r.raise_for_status()
+
+    def upload_large_file(self, folder_path: str, filename: str, local_path: str, chunk_size: int = 10 * 1024 * 1024) -> None:
+        """Upload resumável (sessão) — necessário pra arquivos >4MB no Graph API."""
+        import os
+
+        file_size = os.path.getsize(local_path)
+        item_path = f"{folder_path}/{filename}"
+        with httpx.Client(timeout=60) as client:
+            r = client.post(
+                f"{self.BASE}/me/drive/root:/{item_path}:/createUploadSession",
+                headers=self._headers,
+                json={"item": {"@microsoft.graph.conflictBehavior": "replace"}},
+            )
+            r.raise_for_status()
+            upload_url = r.json()["uploadUrl"]
+
+            with open(local_path, "rb") as f:
+                offset = 0
+                while offset < file_size:
+                    chunk = f.read(chunk_size)
+                    chunk_len = len(chunk)
+                    end = offset + chunk_len - 1
+                    resp = client.put(
+                        upload_url,
+                        headers={
+                            "Content-Length": str(chunk_len),
+                            "Content-Range": f"bytes {offset}-{end}/{file_size}",
+                        },
+                        content=chunk,
+                        timeout=120,
+                    )
+                    if resp.status_code not in (200, 201, 202):
+                        resp.raise_for_status()
+                    offset += chunk_len
 
     def send_mail(self, to_address: str, subject: str, html_body: str) -> None:
         self._post(

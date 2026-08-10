@@ -114,7 +114,7 @@ def dashboard(
             "pending_acknowledgment": 0, "without_evaluation": 0,
             "indicator_averages": [], "by_company": [],
             "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
-            "calibrations_count": 0, "calibrations_pct": 0,
+            "calibrations_count": 0, "calibrations_pct": 0, "pending_calibration_count": 0,
         }
 
     cache_key = f"dashboard:{cycle_id}:{company_id or 'all'}:{branch_id or 'all'}"
@@ -138,7 +138,7 @@ def dashboard(
             "pending_acknowledgment": 0, "without_evaluation": 0,
             "indicator_averages": [], "by_company": [],
             "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
-            "calibrations_count": 0, "calibrations_pct": 0,
+            "calibrations_count": 0, "calibrations_pct": 0, "pending_calibration_count": 0,
         }
         _cache_set(cache_key, result)
         return result
@@ -177,6 +177,11 @@ def dashboard(
     pending_ack = len(completed) - len(acked_ids & {r["id"] for r in completed})
     calibrations_count = len(calibrated_ids)
     calibrations_pct = round(calibrations_count / len(completed) * 100, 1) if completed else 0
+
+    # Pendente de calibragem (Análise RH): reusa a mesma logica de calibragem_necessaria
+    # de list_evaluations (aderencia geral <=50% OU item individual <=50%, ainda nao calibrado).
+    evals_for_calib = list_evaluations({"role": "rh"}, company_id=company_id, cycle_id=cycle_id)
+    pending_calibration_count = sum(1 for e in evals_for_calib if e.get("calibragem_necessaria"))
 
     # Indicator averages
     indicator_averages: list[dict] = []
@@ -264,6 +269,7 @@ def dashboard(
         "self_eval_pct": self_eval_pct,
         "calibrations_count": calibrations_count,
         "calibrations_pct": calibrations_pct,
+        "pending_calibration_count": pending_calibration_count,
     }
     _cache_set(cache_key, result)
     return result
@@ -617,6 +623,18 @@ def dashboard_export(
     )
 
 
+@router.get("/dashboard/pending-calibration")
+def dashboard_pending_calibration(
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+    cycle_id: str | None = None,
+    company_id: str | None = None,
+) -> list[dict]:
+    """Avaliações que precisam de Análise RH (calibragem_necessaria=True) e ainda não foram calibradas."""
+    evals = list_evaluations(current_user, company_id=company_id, cycle_id=cycle_id)
+    pending = [e for e in evals if e.get("calibragem_necessaria")]
+    return sorted(pending, key=lambda x: x["employee_name"])
+
+
 @router.get("/dashboard/pending-ciencia")
 def dashboard_pending_ciencia(
     _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
@@ -635,6 +653,7 @@ def dashboard_pending_ciencia(
         db.table("performance_reviews")
         .select("id,employee_id,evaluator_id,final_score")
         .eq("cycle_id", cycle_id)
+        .eq("is_self_evaluation", False)
         .in_("status", ["completed", "calibrated"])
     )
     reviews = rev_q.execute().data
@@ -650,13 +669,15 @@ def dashboard_pending_ciencia(
             return []
 
     review_ids = [r["id"] for r in reviews]
-    acks = (
-        db.table("performance_review_acknowledgments")
-        .select("review_id")
-        .in_("review_id", review_ids)
-        .execute()
-        .data
-    )
+    acks = []
+    for chunk in _chunks(review_ids):
+        acks.extend(
+            db.table("performance_review_acknowledgments")
+            .select("review_id")
+            .in_("review_id", chunk)
+            .execute()
+            .data
+        )
     acked_review_ids = {a["review_id"] for a in acks}
 
     pending_reviews = [r for r in reviews if r["id"] not in acked_review_ids]
@@ -665,7 +686,11 @@ def dashboard_pending_ciencia(
 
     # Fetch employee and evaluator names
     all_emp_ids = list({r["employee_id"] for r in pending_reviews} | {r["evaluator_id"] for r in pending_reviews if r.get("evaluator_id")})
-    people = db.table("performance_employees").select("id,name,cargo").in_("id", all_emp_ids).execute().data
+    people = []
+    for chunk in _chunks(all_emp_ids):
+        people.extend(
+            db.table("performance_employees").select("id,name,cargo").in_("id", chunk).execute().data
+        )
     people_map = {p["id"]: p for p in people}
 
     result = []
