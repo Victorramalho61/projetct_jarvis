@@ -1257,6 +1257,36 @@ def update_employee(
     new = result.data[0]
     log_action("employee", employee_id, "update", old, new, current_user["username"], request)
     _cache_invalidate_prefix("dashboard:")
+
+    # Troca de gestor: propaga pro token de avaliação ainda pendente do ciclo
+    # aberto — sem isso, o token continua com o avaliador antigo (quem já foi
+    # notificado por e-mail), e "Reenviar" mandaria pra pessoa errada. Não
+    # envia e-mail novo aqui — só corrige o destinatário pra próxima ação do RH.
+    new_manager_id = new.get("manager_id")
+    if new_manager_id and new_manager_id != old.get("manager_id"):
+        cycle = _get_current_cycle(db)
+        if cycle and cycle["status"] == "open":
+            pending_tok = (
+                db.table("performance_evaluation_tokens")
+                .select("id,evaluator_id")
+                .eq("cycle_id", cycle["id"])
+                .eq("employee_id", employee_id)
+                .eq("is_used", False)
+                .is_("invalidated_at", "null")
+                .execute()
+                .data
+            )
+            for t in pending_tok:
+                if t.get("evaluator_id") != new_manager_id:
+                    db.table("performance_evaluation_tokens").update(
+                        {"evaluator_id": new_manager_id}
+                    ).eq("id", t["id"]).execute()
+                    log_action(
+                        "evaluation_token", t["id"], "evaluator_reassigned",
+                        {"evaluator_id": t.get("evaluator_id")}, {"evaluator_id": new_manager_id},
+                        current_user["username"], request,
+                    )
+
     return _emp_out(new)
 
 
