@@ -13,6 +13,8 @@ Documentação completa do projeto em `docs/arquitetura.md`.
 
 Relatório mensal ACCIONA (Freshdesk Omni) — extração + análise: `docs/relatorio-acciona-freshdesk.md`.
 
+Auditoria de qualidade de dados do Report_ACCIONA_Geral (extrato de viagens) — fill-rate por produto, reconciliação célula a célula, correção automática por associação: `docs/auditoria-acciona-report-geral.md`.
+
 ## Regras de desenvolvimento
 
 - **Código compartilhado** (`db.py`, `auth.py`, `limiter.py`, `app_logger.py`) existe em cópia em cada serviço — mudanças devem ser replicadas nos 7 serviços.

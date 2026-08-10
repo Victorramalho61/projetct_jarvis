@@ -59,3 +59,6 @@ volumes/api/kong_backups/
 
 # Logs de backup (gerado localmente, não deve ir pro git)
 backups/backup.log
+
+# Scratch de auditorias de dados (pode conter PII de clientes)
+_tmp_*.csv
