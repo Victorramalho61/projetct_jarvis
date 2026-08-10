@@ -1589,22 +1589,50 @@ def reopen_current_cycle(
     return {"ok": True, "status": "open", "is_open": True}
 
 
+# Supabase/PostgREST retorna 414 "URI too long" quando .in_() leva centenas de UUIDs
+# na querystring (~37 chars cada). Lotes de 150 IDs (~5,5 KB) ficam seguros.
+_IN_CHUNK_SIZE = 150
+
+
+def _chunks(items: list, size: int = _IN_CHUNK_SIZE):
+    for i in range(0, len(items), size):
+        yield items[i:i + size]
+
+
 def _send_evaluation_batches_background(manager_batches: list[dict], cycle_id: str, cycle_name: str, frontend_url: str, actor: str) -> None:
     from services.email import send_evaluation_batch_email
 
-    sent_emails = 0
+    results: list[dict] = []
     for i, mb in enumerate(manager_batches):
         if i > 0:
             time.sleep(EMAIL_PACING_SECONDS)
-        ok = send_evaluation_batch_email(
-            evaluator_name=mb["evaluator_name"], evaluator_email=mb["evaluator_email"],
-            employees=mb["employees"], cycle_name=cycle_name, frontend_url=frontend_url,
-        )
+        try:
+            ok = send_evaluation_batch_email(
+                evaluator_name=mb["evaluator_name"], evaluator_email=mb["evaluator_email"],
+                employees=mb["employees"], cycle_name=cycle_name, frontend_url=frontend_url,
+            )
+            erro = None
+        except Exception as exc:
+            ok = False
+            erro = str(exc)
+        entry = {
+            "evaluator_email": mb["evaluator_email"], "evaluator_name": mb["evaluator_name"],
+            "company_name": mb.get("company_name"), "qtd_colaboradores": len(mb["employees"]),
+            "ok": ok, "erro": erro,
+        }
+        results.append(entry)
         if ok:
-            sent_emails += 1
+            _logger.info("[send-tokens] OK gestor=%s (%s) — %d colaborador(es)",
+                          mb["evaluator_email"], mb.get("company_name"), len(mb["employees"]))
+        else:
+            _logger.error("[send-tokens] FALHOU gestor=%s (%s) — erro=%s",
+                           mb["evaluator_email"], mb.get("company_name"), erro)
+
+    sent_emails = sum(1 for r in results if r["ok"])
     log_action(
         "cycle", cycle_id, "send_tokens_background", None,
-        {"sent_emails": sent_emails, "total": len(manager_batches)},
+        {"sent_emails": sent_emails, "failed_emails": len(results) - sent_emails,
+         "total": len(manager_batches), "detalhes": results},
         actor, None,
     )
 
@@ -1623,125 +1651,168 @@ def send_tokens_current_cycle(
     if not cycle or cycle["status"] != "open":
         raise HTTPException(400, detail="O ciclo precisa estar aberto para enviar tokens")
 
-    # Buscar colaboradores a serem avaliados: L1 (Gerente), L2 e L3 (Diretoria L4 não é avaliada)
-    employees_to_eval = (
-        db.table("performance_employees")
-        .select("id,name,cargo,email,has_corporate_email,hierarchy_level,manager_id,branch_id,company_id")
-        .in_("hierarchy_level", [1, 2, 3])
-        .eq("active", True)
-        .execute()
-        .data
-    )
-
-    # Coletar manager_ids únicos e buscar dados dos gestores em batch
-    manager_ids = {e["manager_id"] for e in employees_to_eval if e.get("manager_id")}
-    managers_map: dict[str, dict] = {}
-    if manager_ids:
-        mgrs = (
-            db.table("performance_employees")
-            .select("id,name,email,has_corporate_email,hierarchy_level")
-            .in_("id", list(manager_ids))
-            .execute()
-            .data
+    # Processa empresa por empresa (menor → maior): evita .in_() gigante (414 URI too
+    # long) e, se uma empresa falhar, as demais já enviadas/logadas não são perdidas.
+    companies = db.table("performance_companies").select("id,name").execute().data or []
+    company_order: list[tuple[str, str, int]] = []
+    for co in companies:
+        cnt = (
+            db.table("performance_employees").select("id", count="exact")
+            .eq("company_id", co["id"]).eq("active", True).in_("hierarchy_level", [1, 2, 3])
+            .execute().count or 0
         )
-        managers_map = {m["id"]: m for m in mgrs}
+        if cnt:
+            company_order.append((co["id"], co["name"], cnt))
+    company_order.sort(key=lambda x: x[2])
 
-    # Buscar dados de filial/empresa em batch
-    branch_ids = {e["branch_id"] for e in employees_to_eval if e.get("branch_id")}
-    company_ids = {e["company_id"] for e in employees_to_eval if e.get("company_id")}
-    branches_map: dict[str, str] = {}
-    companies_map: dict[str, str] = {}
-    if branch_ids:
-        brs = db.table("performance_branches").select("id,name").in_("id", list(branch_ids)).execute().data
-        branches_map = {b["id"]: b["name"] for b in brs}
-    if company_ids:
-        cos = db.table("performance_companies").select("id,name").in_("id", list(company_ids)).execute().data
-        companies_map = {c["id"]: c["name"] for c in cos}
+    total_tokens_created = 0
+    total_no_email = 0
+    total_diretores_pendentes = 0
+    all_batches_for_bg: list[dict] = []
+    resultado_por_empresa: list[dict] = []
 
-    no_email_count = tokens_created = 0
-
-    # Pre-fetch reviews e tokens para eliminar N+1 queries
-    _emp_ids_eval = [e["id"] for e in employees_to_eval]
-    _prefetch_reviews = db.table("performance_reviews").select("employee_id,status").eq(
-        "cycle_id", cycle["id"]
-    ).eq("is_self_evaluation", False).in_("employee_id", _emp_ids_eval).execute().data or []
-    _review_status_map: dict = {r["employee_id"]: r["status"] for r in _prefetch_reviews}
-
-    _prefetch_tokens = db.table("performance_evaluation_tokens").select("employee_id,token").eq(
-        "cycle_id", cycle["id"]
-    ).eq("is_used", False).is_("invalidated_at", "null").in_(
-        "employee_id", _emp_ids_eval
-    ).execute().data or []
-    _token_map: dict = {r["employee_id"]: r["token"] for r in _prefetch_tokens}
-
-    # Agrupar colaboradores pendentes por gestor para envio de email único por gestor
-    # manager_id → list[{name, cargo, company_name, branch_name, token}]
-    manager_batches: dict[str, list[dict]] = {}
-
-    for emp in employees_to_eval:
-        manager_id = emp.get("manager_id")
-        if not manager_id:
-            no_email_count += 1
-            continue
-
-        mgr = managers_map.get(manager_id)
-        if not mgr:
-            no_email_count += 1
-            continue
-
-        # Bloquear se colaborador já tem avaliação concluída/calibrada/com ciência
-        if _review_status_map.get(emp["id"]) in ("completed", "calibrated", "acknowledged"):
-            no_email_count += 1
-            continue
-
-        # Verificar ou criar token
-        token_value = _token_map.get(emp["id"])
-        if token_value is None:
-            token_value = str(uuid_mod.uuid4())
-            tok_res = db.table("performance_evaluation_tokens").insert({
-                "cycle_id": cycle["id"],
-                "evaluator_id": manager_id,
-                "employee_id": emp["id"],
-                "token": token_value,
-                "is_used": False,
-                "resend_count": 0,
-            }).execute()
-            if not tok_res.data:
+    for company_id, company_name, _cnt in company_order:
+        try:
+            employees_to_eval = (
+                db.table("performance_employees")
+                .select("id,name,cargo,email,has_corporate_email,hierarchy_level,manager_id,branch_id")
+                .eq("company_id", company_id).in_("hierarchy_level", [1, 2, 3]).eq("active", True)
+                .execute().data or []
+            )
+            if not employees_to_eval:
                 continue
-            tokens_created += 1
 
-        if not (mgr.get("has_corporate_email") and mgr.get("email")):
-            no_email_count += 1
+            manager_ids = list({e["manager_id"] for e in employees_to_eval if e.get("manager_id")})
+            managers_map: dict[str, dict] = {}
+            for chunk in _chunks(manager_ids):
+                mgrs = db.table("performance_employees").select(
+                    "id,name,email,has_corporate_email,hierarchy_level"
+                ).in_("id", chunk).execute().data or []
+                managers_map.update({m["id"]: m for m in mgrs})
+
+            branch_ids = list({e["branch_id"] for e in employees_to_eval if e.get("branch_id")})
+            branches_map: dict[str, str] = {}
+            for chunk in _chunks(branch_ids):
+                brs = db.table("performance_branches").select("id,name").in_("id", chunk).execute().data or []
+                branches_map.update({b["id"]: b["name"] for b in brs})
+
+            emp_ids = [e["id"] for e in employees_to_eval]
+            review_status_map: dict = {}
+            for chunk in _chunks(emp_ids):
+                rows = db.table("performance_reviews").select("employee_id,status").eq(
+                    "cycle_id", cycle["id"]
+                ).eq("is_self_evaluation", False).in_("employee_id", chunk).execute().data or []
+                review_status_map.update({r["employee_id"]: r["status"] for r in rows})
+
+            token_map: dict = {}
+            for chunk in _chunks(emp_ids):
+                rows = db.table("performance_evaluation_tokens").select("employee_id,token").eq(
+                    "cycle_id", cycle["id"]
+                ).eq("is_used", False).is_("invalidated_at", "null").in_(
+                    "employee_id", chunk
+                ).execute().data or []
+                token_map.update({r["employee_id"]: r["token"] for r in rows})
+
+            # manager_id → list[{name, cargo, company_name, branch_name, token}]
+            manager_batches: dict[str, list[dict]] = {}
+            no_email_count = tokens_created = diretores_pendentes = 0
+
+            for emp in employees_to_eval:
+                manager_id = emp.get("manager_id")
+                if not manager_id:
+                    no_email_count += 1
+                    continue
+
+                mgr = managers_map.get(manager_id)
+                if not mgr:
+                    no_email_count += 1
+                    continue
+
+                # Bloquear se colaborador já tem avaliação concluída/calibrada/com ciência
+                if review_status_map.get(emp["id"]) in ("completed", "calibrated", "acknowledged"):
+                    continue
+
+                # Verificar ou criar token — sempre, mesmo para gestor Diretor (nível 4),
+                # assim o RH já tem o token pronto pra reenviar manualmente quando quiser.
+                token_value = token_map.get(emp["id"])
+                if token_value is None:
+                    token_value = str(uuid_mod.uuid4())
+                    tok_res = db.table("performance_evaluation_tokens").insert({
+                        "cycle_id": cycle["id"],
+                        "evaluator_id": manager_id,
+                        "employee_id": emp["id"],
+                        "company_id": company_id,
+                        "token": token_value,
+                        "is_used": False,
+                        "resend_count": 0,
+                    }).execute()
+                    if not tok_res.data:
+                        continue
+                    tokens_created += 1
+
+                # Diretor (nível 4): não dispara agora — token fica pronto e pendente,
+                # só sai quando o RH reenviar manualmente (via reenvio de token).
+                if mgr.get("hierarchy_level") == 4:
+                    diretores_pendentes += 1
+                    continue
+
+                if not (mgr.get("has_corporate_email") and mgr.get("email")):
+                    no_email_count += 1
+                    continue
+
+                branch_name = branches_map.get(emp.get("branch_id", ""), "")
+                manager_batches.setdefault(manager_id, []).append({
+                    "name": emp["name"],
+                    "cargo": emp.get("cargo", ""),
+                    "company_name": company_name,
+                    "branch_name": branch_name,
+                    "token": token_value,
+                })
+
+            batches_for_bg = [
+                {"evaluator_name": managers_map[mid]["name"], "evaluator_email": managers_map[mid]["email"],
+                 "employees": emp_list, "company_name": company_name}
+                for mid, emp_list in manager_batches.items()
+            ]
+            all_batches_for_bg.extend(batches_for_bg)
+
+            total_tokens_created += tokens_created
+            total_no_email += no_email_count
+            total_diretores_pendentes += diretores_pendentes
+
+            resultado_por_empresa.append({
+                "empresa": company_name, "status": "ok",
+                "elegiveis": len(employees_to_eval), "gestores_a_notificar": len(batches_for_bg),
+                "tokens_criados": tokens_created, "sem_email": no_email_count,
+                "diretores_pendentes_rh": diretores_pendentes,
+            })
+            _logger.info(
+                "[send-tokens] empresa=%s ok — elegiveis=%d gestores=%d tokens_criados=%d diretores_pendentes=%d",
+                company_name, len(employees_to_eval), len(batches_for_bg), tokens_created, diretores_pendentes,
+            )
+        except Exception as exc:
+            resultado_por_empresa.append({"empresa": company_name, "status": "erro", "erro": str(exc)})
+            _logger.exception("[send-tokens] empresa=%s FALHOU — envio segue para as demais empresas", company_name)
             continue
-
-        branch_name = branches_map.get(emp.get("branch_id", ""), "")
-        company_name = companies_map.get(emp.get("company_id", ""), "")
-        manager_batches.setdefault(manager_id, []).append({
-            "name": emp["name"],
-            "cargo": emp.get("cargo", ""),
-            "company_name": company_name,
-            "branch_name": branch_name,
-            "token": token_value,
-        })
 
     # Enviar um e-mail por gestor com todos os colaboradores pendentes — em background
     # (com pacing) pra não estourar limite do Office 365 nem segurar a resposta HTTP.
-    batches_for_bg = [
-        {"evaluator_name": managers_map[mid]["name"], "evaluator_email": managers_map[mid]["email"], "employees": emp_list}
-        for mid, emp_list in manager_batches.items()
-    ]
     background_tasks.add_task(
-        _send_evaluation_batches_background, batches_for_bg, cycle["id"], cycle["name"], frontend_url, current_user["username"],
+        _send_evaluation_batches_background, all_batches_for_bg, cycle["id"], cycle["name"], frontend_url, current_user["username"],
     )
 
     log_action("cycle", cycle["id"], "send_tokens", None,
-               {"tokens_created": tokens_created, "destinatarios_estimados": len(batches_for_bg), "no_email_count": no_email_count},
+               {"tokens_created": total_tokens_created, "destinatarios_estimados": len(all_batches_for_bg),
+                "no_email_count": total_no_email, "diretores_pendentes_rh": total_diretores_pendentes,
+                "por_empresa": resultado_por_empresa},
                current_user["username"], request)
     return {
         "status": "iniciado",
-        "tokens_criados": tokens_created,
-        "destinatarios_estimados": len(batches_for_bg),
-        "sem_email": no_email_count,
+        "tokens_criados": total_tokens_created,
+        "destinatarios_estimados": len(all_batches_for_bg),
+        "sem_email": total_no_email,
+        "diretores_pendentes_rh": total_diretores_pendentes,
+        "por_empresa": resultado_por_empresa,
     }
 
 
@@ -1920,19 +1991,22 @@ def send_self_evaluation_tokens(
     no_email_count = 0
     to_send: list[dict] = []
 
-    # Pre-fetch tokens e empresas para eliminar N+1 queries
+    # Pre-fetch tokens e empresas para eliminar N+1 queries — em lotes (mesmo motivo
+    # do send-tokens: .in_() com centenas de UUIDs de uma vez gera 414 URI too long).
     _emp_ids_self = [e["id"] for e in employees]
-    _self_tok_rows = db.table("performance_self_evaluation_tokens").select(
-        "employee_id,id,token,is_used,resend_count"
-    ).eq("cycle_id", cycle["id"]).is_("invalidated_at", "null").in_(
-        "employee_id", _emp_ids_self
-    ).execute().data or []
-    _self_tok_map: dict = {r["employee_id"]: r for r in _self_tok_rows}
+    _self_tok_map: dict = {}
+    for _chunk in _chunks(_emp_ids_self):
+        _rows = db.table("performance_self_evaluation_tokens").select(
+            "employee_id,id,token,is_used,resend_count"
+        ).eq("cycle_id", cycle["id"]).is_("invalidated_at", "null").in_(
+            "employee_id", _chunk
+        ).execute().data or []
+        _self_tok_map.update({r["employee_id"]: r for r in _rows})
 
     _co_ids_self = list({e["company_id"] for e in employees if e.get("company_id")})
     _companies_map_self: dict = {}
-    if _co_ids_self:
-        for _co in db.table("performance_companies").select("id,name").in_("id", _co_ids_self).execute().data or []:
+    for _chunk in _chunks(_co_ids_self):
+        for _co in db.table("performance_companies").select("id,name").in_("id", _chunk).execute().data or []:
             _companies_map_self[_co["id"]] = _co["name"]
 
     for emp in employees:
