@@ -281,20 +281,40 @@ function TabDashboard({ companies }: { companies: any[] }) {
             <StatCard label="Análises RH" value={`${stats.calibrations_count ?? 0}`} color="blue"
               onClick={() => openDrilldown("calibrated")} />
           </div>
-          {stats.indicator_averages?.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {stats.indicator_averages?.length > 0 && (
+              <Card className="p-5">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Médias por Indicador</h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={stats.indicator_averages} margin={{ top: 0, right: 8, left: -16, bottom: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+                    <YAxis domain={[0, 5]} tick={{ fontSize: 11 }} />
+                    <Tooltip formatter={(v: any) => [Number(v).toFixed(2), "Média"]} />
+                    <Bar dataKey="avg" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </Card>
+            )}
             <Card className="p-5">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Médias por Indicador</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Auto-Avaliações — Volume</h3>
               <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={stats.indicator_averages} margin={{ top: 0, right: 8, left: -16, bottom: 40 }}>
+                <BarChart
+                  data={[
+                    { name: "Enviadas", volume: stats.self_eval_sent ?? 0 },
+                    { name: "Realizadas", volume: stats.self_eval_completed ?? 0 },
+                  ]}
+                  margin={{ top: 0, right: 8, left: -16, bottom: 8 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
-                  <YAxis domain={[0, 5]} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: any) => [Number(v).toFixed(2), "Média"]} />
-                  <Bar dataKey="avg" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: any) => [v, "Colaboradores"]} />
+                  <Bar dataKey="volume" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={64} />
                 </BarChart>
               </ResponsiveContainer>
             </Card>
-          )}
+          </div>
         </>
       )}
 

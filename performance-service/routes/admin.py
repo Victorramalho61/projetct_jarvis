@@ -2447,13 +2447,15 @@ def list_evaluations(
             hist_emp_ids.update(r[col] for r in rows if r.get(col))
         if not hist_emp_ids:
             return []
-        base_emps_raw = (
-            db.table("performance_employees")
-            .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
-            .in_("id", list(hist_emp_ids))
-            .execute()
-            .data
-        )
+        base_emps_raw = []
+        for chunk in _chunks(list(hist_emp_ids)):
+            base_emps_raw.extend(
+                db.table("performance_employees")
+                .select("id,name,cargo,company_id,has_corporate_email,manager_id,hierarchy_level")
+                .in_("id", chunk)
+                .execute()
+                .data
+            )
 
     emp_map: dict[str, dict] = {e["id"]: e for e in base_emps_raw}
     all_emp_ids: set[str] = set(emp_map.keys())
@@ -2501,7 +2503,11 @@ def list_evaluations(
             evaluator_ids.add(e["manager_id"])
 
     if evaluator_ids:
-        mgr_emps = db.table("performance_employees").select("id,name").in_("id", list(evaluator_ids)).execute().data
+        mgr_emps = []
+        for chunk in _chunks(list(evaluator_ids)):
+            mgr_emps.extend(
+                db.table("performance_employees").select("id,name").in_("id", chunk).execute().data
+            )
         for m in mgr_emps:
             emp_map[m["id"]] = emp_map.get(m["id"]) or m
 
@@ -2510,25 +2516,27 @@ def list_evaluations(
     ack_map: dict[str, dict] = {}
     calib_map: dict[str, dict] = {}
     if review_ids:
-        acks = (
-            db.table("performance_review_acknowledgments")
-            .select("review_id,acknowledged_at,acknowledged_via")
-            .in_("review_id", review_ids)
-            .order("acknowledged_at", desc=True)
-            .execute()
-            .data
-        )
+        acks = []
+        calibs = []
+        for chunk in _chunks(review_ids):
+            acks.extend(
+                db.table("performance_review_acknowledgments")
+                .select("review_id,acknowledged_at,acknowledged_via")
+                .in_("review_id", chunk)
+                .order("acknowledged_at", desc=True)
+                .execute()
+                .data
+            )
+            calibs.extend(
+                db.table("performance_calibrations")
+                .select("review_id,calibrated_at")
+                .in_("review_id", chunk)
+                .order("calibrated_at", desc=True)
+                .execute()
+                .data
+            )
         for a in acks:
             ack_map.setdefault(a["review_id"], a)
-
-        calibs = (
-            db.table("performance_calibrations")
-            .select("review_id,calibrated_at")
-            .in_("review_id", review_ids)
-            .order("calibrated_at", desc=True)
-            .execute()
-            .data
-        )
         for c in calibs:
             calib_map.setdefault(c["review_id"], c)
 
@@ -2555,13 +2563,15 @@ def list_evaluations(
     indicator_review_ids = review_ids + list(self_review_id_by_emp.values())
     scores_by_review: dict[str, dict[str, float]] = {}
     if indicator_review_ids:
-        indicator_scores_raw = (
-            db.table("performance_indicator_scores")
-            .select("review_id,indicator_id,score")
-            .in_("review_id", indicator_review_ids)
-            .execute()
-            .data
-        )
+        indicator_scores_raw = []
+        for chunk in _chunks(indicator_review_ids):
+            indicator_scores_raw.extend(
+                db.table("performance_indicator_scores")
+                .select("review_id,indicator_id,score")
+                .in_("review_id", chunk)
+                .execute()
+                .data
+            )
         for s in indicator_scores_raw:
             scores_by_review.setdefault(s["review_id"], {})[s["indicator_id"]] = float(s["score"])
 

@@ -257,6 +257,10 @@ services:
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_DNS_RESOLVER: "127.0.0.11"   # DNS interno do Docker — sempre retorna IP atual
       KONG_DNS_STALE_TTL: "0"           # não serve IP em cache após TTL expirar
+      # Sem isso, Kong não confia no hop do nginx e sobrescreve X-Forwarded-For
+      # com o IP interno do proxy — todo rate-limit por IP nos microsserviços
+      # colapsa num unico bucket compartilhado entre todos os usuarios reais.
+      KONG_TRUSTED_IPS: "172.18.0.0/16"
       ANON_KEY: ${ANON_KEY}
       SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth,rate-limiting
