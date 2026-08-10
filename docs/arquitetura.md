@@ -1774,6 +1774,55 @@ CREATE INDEX idx_perf_eval_tokens_employee ON performance_evaluation_tokens (emp
 
 ---
 
+## performance-service — Disparo em massa de tokens de avaliação — 2026-08-10
+
+Com ~1075 colaboradores elegíveis (L1-L3) no ciclo, o disparo em massa de
+`POST /cycle/send-tokens` e `POST /cycle/send-self-evaluation-tokens`
+passou a falhar com **500 (postgrest 414 "URI too long")**: `.in_("employee_id", [...])`
+com 1000+ UUIDs de uma vez gera uma querystring maior que o limite aceito
+pelo PostgREST. O mesmo bug afetava `GET /cycle/tokens` (lista de tokens do
+RH) e o dashboard summary quando filtrado por uma empresa grande.
+
+**Fix — chunking:** helper `_chunks(items, size=150)` em `routes/admin.py`
+— todo `.in_()` que pode escalar com o total de colaboradores/tokens busca
+em lotes de 150 IDs (~5,5 KB, seguro) e faz merge dos resultados.
+
+**Fix — envio por empresa (menor → maior):** `send_tokens_current_cycle`
+processa uma empresa por vez (North → VIP Service → VIP Cargas → Voetur
+Viagens → VTC), reduzindo ainda mais o tamanho de cada lote e isolando
+falha de uma empresa sem perder o que já foi enviado/logado nas demais
+(`resultado_por_empresa` no retorno e no `log_action`).
+
+**Regra de negócio — Diretores (nível 4):** não recebem o e-mail
+consolidado no disparo em massa. O token já é criado e fica pronto
+(`sent_at IS NULL`), mas o envio só acontece quando o RH reenviar
+manualmente pelo token individual (`POST /cycle/tokens/{id}/resend`).
+Gerentes, supervisores e coordenadores (L1-L3) continuam recebendo
+imediatamente.
+
+**Idempotência:** `performance_evaluation_tokens.sent_at` (e
+`sent_to_email`) são gravados por token logo após o envio bem-sucedido do
+e-mail consolidado do gestor. Um novo disparo em massa pula qualquer
+colaborador cujo token já tenha `sent_at` setado — evita duplicar e-mail
+se o serviço reiniciar (deploy, crash) no meio de um envio em background.
+`send_self_evaluation_tokens` já gravava `sent_at`; ganhou a mesma checagem
+de skip antes de reenviar.
+
+**Log de sucesso/falha:** `_send_evaluation_batches_background` grava, por
+gestor, `{evaluator_email, company_name, qtd_colaboradores, ok, erro}` em
+`performance_audit_logs` (`entity_type=cycle`, `action=send_tokens_background`)
+além de logar via `_logger` — antes só existia um contador agregado.
+
+**Lição operacional:** rebuild/redeploy de `performance-service` durante um
+disparo em massa em andamento mata a `BackgroundTask` no meio (processo
+morre com o container). Sem a marcação de `sent_at` isso deixava impossível
+saber quem já tinha sido notificado — o que motivou o fix de idempotência
+acima. Evitar redeploy do serviço enquanto um envio em massa estiver em
+andamento; se acontecer, o reenvio agora é seguro (pula quem já tem
+`sent_at`).
+
+---
+
 ## Financeiro — financeiro-service (port 8011) — 2026-06-05
 
 ### Visão geral
