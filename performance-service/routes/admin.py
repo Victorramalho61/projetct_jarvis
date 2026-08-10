@@ -112,7 +112,7 @@ def dashboard(
         return {
             "total_evaluated": 0, "completion_pct": 0,
             "pending_acknowledgment": 0, "without_evaluation": 0,
-            "indicator_averages": [],
+            "indicator_averages": [], "by_company": [],
             "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
             "calibrations_count": 0, "calibrations_pct": 0,
         }
@@ -122,7 +122,7 @@ def dashboard(
     if cached is not None:
         return cached
 
-    emp_q = db.table("performance_employees").select("id").eq("active", True)
+    emp_q = db.table("performance_employees").select("id,company_id").eq("active", True)
     if company_id:
         emp_q = emp_q.eq("company_id", company_id)
     if branch_id:
@@ -130,12 +130,13 @@ def dashboard(
     all_employees = emp_q.execute().data
     total_employees = len(all_employees)
     all_emp_ids = {e["id"] for e in all_employees}
+    emp_company_map = {e["id"]: e.get("company_id") for e in all_employees}
 
     if (company_id or branch_id) and not all_emp_ids:
         result = {
             "total_evaluated": 0, "completion_pct": 0,
             "pending_acknowledgment": 0, "without_evaluation": 0,
-            "indicator_averages": [],
+            "indicator_averages": [], "by_company": [],
             "self_eval_sent": 0, "self_eval_completed": 0, "self_eval_pct": 0,
             "calibrations_count": 0, "calibrations_pct": 0,
         }
@@ -206,21 +207,50 @@ def dashboard(
         self_eval_sent = sum(1 for t in _tokens if t.get("employee_id") in all_emp_ids)
     else:
         self_eval_sent = len(_tokens)
+    self_eval_completed_rows: list[dict] = []
     if company_id or branch_id:
-        self_eval_completed = 0
         for _chunk in _chunks(list(all_emp_ids)):
-            self_eval_completed += len(
-                db.table("performance_reviews").select("id")
+            self_eval_completed_rows.extend(
+                db.table("performance_reviews").select("id,employee_id")
                 .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
                 .in_("employee_id", _chunk).execute().data or []
             )
     else:
-        self_eval_completed = len(
-            db.table("performance_reviews").select("id")
+        self_eval_completed_rows = (
+            db.table("performance_reviews").select("id,employee_id")
             .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
             .execute().data or []
         )
+    self_eval_completed = len(self_eval_completed_rows)
     self_eval_pct = round(self_eval_completed / total_employees * 100, 1) if total_employees else 0
+
+    # ── Volume de avaliações e auto-avaliações realizadas, por empresa ──────────
+    companies_raw = db.table("performance_companies").select("id,name").execute().data
+    company_name_map = {c["id"]: c["name"] for c in companies_raw}
+
+    mgr_by_company: dict[str, int] = {}
+    for r in completed:
+        cid = emp_company_map.get(r.get("employee_id"))
+        if cid:
+            mgr_by_company[cid] = mgr_by_company.get(cid, 0) + 1
+
+    self_by_company: dict[str, int] = {}
+    for r in self_eval_completed_rows:
+        cid = emp_company_map.get(r.get("employee_id"))
+        if cid:
+            self_by_company[cid] = self_by_company.get(cid, 0) + 1
+
+    by_company = sorted(
+        (
+            {
+                "company_name": company_name_map.get(cid, "—"),
+                "avaliacoes": mgr_by_company.get(cid, 0),
+                "auto_avaliacoes": self_by_company.get(cid, 0),
+            }
+            for cid in set(mgr_by_company) | set(self_by_company)
+        ),
+        key=lambda x: x["company_name"],
+    )
 
     result = {
         "total_evaluated": len(completed),
@@ -228,6 +258,7 @@ def dashboard(
         "pending_acknowledgment": pending_ack,
         "without_evaluation": without_evaluation,
         "indicator_averages": indicator_averages,
+        "by_company": by_company,
         "self_eval_sent": self_eval_sent,
         "self_eval_completed": self_eval_completed,
         "self_eval_pct": self_eval_pct,

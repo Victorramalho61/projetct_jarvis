@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
@@ -282,16 +282,18 @@ function TabDashboard({ companies }: { companies: any[] }) {
               onClick={() => openDrilldown("calibrated")} />
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {stats.indicator_averages?.length > 0 && (
+            {stats.by_company?.length > 0 && (
               <Card className="p-5">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Médias por Indicador</h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Avaliações e Auto-Avaliações Realizadas — por Empresa</h3>
                 <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={stats.indicator_averages} margin={{ top: 0, right: 8, left: -16, bottom: 40 }}>
+                  <BarChart data={stats.by_company} margin={{ top: 0, right: 8, left: -16, bottom: 40 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
-                    <YAxis domain={[0, 5]} tick={{ fontSize: 11 }} />
-                    <Tooltip formatter={(v: any) => [Number(v).toFixed(2), "Média"]} />
-                    <Bar dataKey="avg" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={48} />
+                    <XAxis dataKey="company_name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    <Bar dataKey="avaliacoes" name="Avaliações" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                    <Bar dataKey="auto_avaliacoes" name="Auto-Avaliações" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={32} />
                   </BarChart>
                 </ResponsiveContainer>
               </Card>
