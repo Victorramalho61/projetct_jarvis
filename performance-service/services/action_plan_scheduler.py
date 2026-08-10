@@ -5,6 +5,7 @@ Independente do stub legado services/sla_scheduler.py (não reaproveitado —
 sinaliza para o RH que uma fase venceu (status -> pending_rh_send). O envio
 em si é sempre uma ação manual do RH via routes/action_plans.py.
 """
+import fcntl
 import logging
 from datetime import date, datetime, timezone
 
@@ -13,12 +14,24 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 _logger = logging.getLogger(__name__)
 _scheduler: AsyncIOScheduler | None = None
+_lock_file = None  # mantido aberto pela vida do processo — libera o flock ao sair
 
 TZ_BR = pytz.timezone("America/Sao_Paulo")
 
+_LOCK_PATH = "/tmp/action_plan_scheduler.lock"
+
 
 async def start_action_plan_scheduler() -> None:
-    global _scheduler
+    global _scheduler, _lock_file
+    # uvicorn roda 4 workers — só um deve manter o scheduler ativo,
+    # senão _flag_due_phases dispara 4x às 07:00 (um por worker).
+    try:
+        _lock_file = open(_LOCK_PATH, "w")
+        fcntl.flock(_lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        _logger.info("Scheduler de Plano de Ação: outro worker já detém o lock — não inicia aqui")
+        return
+
     _scheduler = AsyncIOScheduler(timezone=TZ_BR)
     _scheduler.add_job(
         _flag_due_phases,
@@ -33,10 +46,13 @@ async def start_action_plan_scheduler() -> None:
 
 
 async def stop_action_plan_scheduler() -> None:
-    global _scheduler
+    global _scheduler, _lock_file
     if _scheduler and _scheduler.running:
         _scheduler.shutdown(wait=False)
         _logger.info("Scheduler de Plano de Ação encerrado")
+    if _lock_file:
+        _lock_file.close()
+        _lock_file = None
 
 
 async def _flag_due_phases() -> None:
