@@ -2142,9 +2142,9 @@ def get_self_evaluation_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMI
 
     all_emp_ids = list({t["employee_id"] for t in tokens if t.get("employee_id")})
     emp_map: dict[str, dict] = {}
-    if all_emp_ids:
-        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", all_emp_ids).execute().data
-        emp_map = {e["id"]: e for e in emps}
+    for _chunk in _chunks(all_emp_ids):
+        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", _chunk).execute().data or []
+        emp_map.update({e["id"]: e for e in emps})
 
     result = []
     for t in tokens:
