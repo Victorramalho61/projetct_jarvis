@@ -2035,6 +2035,7 @@ def send_self_evaluation_tokens(
 
     tokens_created = 0
     no_email_count = 0
+    ja_notificados = 0
     to_send: list[dict] = []
 
     # Pre-fetch tokens e empresas para eliminar N+1 queries — em lotes (mesmo motivo
@@ -2043,7 +2044,7 @@ def send_self_evaluation_tokens(
     _self_tok_map: dict = {}
     for _chunk in _chunks(_emp_ids_self):
         _rows = db.table("performance_self_evaluation_tokens").select(
-            "employee_id,id,token,is_used,resend_count"
+            "employee_id,id,token,is_used,resend_count,sent_at"
         ).eq("cycle_id", cycle["id"]).is_("invalidated_at", "null").in_(
             "employee_id", _chunk
         ).execute().data or []
@@ -2062,6 +2063,13 @@ def send_self_evaluation_tokens(
 
         if existing_tok.data and existing_tok.data[0]["is_used"]:
             continue  # auto-avaliação já concluída
+
+        # Já notificado numa rodada anterior — não reenvia sozinho (evita duplicar
+        # e-mail em caso de retry/reinício do serviço no meio do disparo em massa).
+        # Reenvio deliberado continua manual, via ação específica do RH.
+        if existing_tok.data and existing_tok.data[0].get("sent_at"):
+            ja_notificados += 1
+            continue
 
         if existing_tok.data:
             tok_val = existing_tok.data[0]["token"]
@@ -2103,12 +2111,14 @@ def send_self_evaluation_tokens(
 
     _cache_invalidate_prefix("dashboard:")
     log_action("self_eval_tokens", cycle["id"], "send", None,
-               {"tokens_created": tokens_created, "destinatarios_estimados": len(to_send), "no_email_count": no_email_count},
+               {"tokens_created": tokens_created, "destinatarios_estimados": len(to_send),
+                "no_email_count": no_email_count, "ja_notificados": ja_notificados},
                current_user["username"], request)
     return {
         "status": "iniciado",
         "destinatarios_estimados": len(to_send),
         "no_email_count": no_email_count,
+        "ja_notificados": ja_notificados,
         "tokens_criados": tokens_created,
     }
 
