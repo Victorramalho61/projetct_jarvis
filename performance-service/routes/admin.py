@@ -142,10 +142,22 @@ def dashboard(
         _cache_set(cache_key, result)
         return result
 
-    rev_q = db.table("performance_reviews").select("id,employee_id,status").eq("cycle_id", cycle_id).eq("is_self_evaluation", False)
     if company_id or branch_id:
-        rev_q = rev_q.in_("employee_id", list(all_emp_ids))
-    reviews = rev_q.execute().data
+        # Filtro por empresa/filial: .in_() com centenas de UUIDs pode dar 414 URI too
+        # long (ex.: VTC tem 788 colaboradores) — busca em lotes.
+        reviews = []
+        for _chunk in _chunks(list(all_emp_ids)):
+            reviews.extend(
+                db.table("performance_reviews").select("id,employee_id,status")
+                .eq("cycle_id", cycle_id).eq("is_self_evaluation", False)
+                .in_("employee_id", _chunk).execute().data or []
+            )
+    else:
+        reviews = (
+            db.table("performance_reviews").select("id,employee_id,status")
+            .eq("cycle_id", cycle_id).eq("is_self_evaluation", False)
+            .execute().data
+        )
 
     completed = [r for r in reviews if r.get("status") in ("completed", "calibrated")]
     reviewed_ids = {r["employee_id"] for r in reviews if r.get("employee_id")}
@@ -194,13 +206,20 @@ def dashboard(
         self_eval_sent = sum(1 for t in _tokens if t.get("employee_id") in all_emp_ids)
     else:
         self_eval_sent = len(_tokens)
-    self_eval_completed_q = (
-        db.table("performance_reviews").select("id")
-        .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
-    )
     if company_id or branch_id:
-        self_eval_completed_q = self_eval_completed_q.in_("employee_id", list(all_emp_ids))
-    self_eval_completed = len(self_eval_completed_q.execute().data)
+        self_eval_completed = 0
+        for _chunk in _chunks(list(all_emp_ids)):
+            self_eval_completed += len(
+                db.table("performance_reviews").select("id")
+                .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
+                .in_("employee_id", _chunk).execute().data or []
+            )
+    else:
+        self_eval_completed = len(
+            db.table("performance_reviews").select("id")
+            .eq("cycle_id", cycle_id).eq("is_self_evaluation", True).eq("status", "completed")
+            .execute().data or []
+        )
     self_eval_pct = round(self_eval_completed / total_employees * 100, 1) if total_employees else 0
 
     result = {
@@ -1602,6 +1621,7 @@ def _chunks(items: list, size: int = _IN_CHUNK_SIZE):
 def _send_evaluation_batches_background(manager_batches: list[dict], cycle_id: str, cycle_name: str, frontend_url: str, actor: str) -> None:
     from services.email import send_evaluation_batch_email
 
+    db = get_supabase()
     results: list[dict] = []
     for i, mb in enumerate(manager_batches):
         if i > 0:
@@ -1615,6 +1635,20 @@ def _send_evaluation_batches_background(manager_batches: list[dict], cycle_id: s
         except Exception as exc:
             ok = False
             erro = str(exc)
+
+        # Marca sent_at nos tokens do lote — torna o disparo em massa retomável sem
+        # duplicar e-mail se o serviço reiniciar no meio do envio (ver send-tokens).
+        if ok:
+            now_iso = datetime.now(tz=timezone.utc).isoformat()
+            tokens = [e["token"] for e in mb["employees"] if e.get("token")]
+            try:
+                for chunk in _chunks(tokens):
+                    db.table("performance_evaluation_tokens").update({
+                        "sent_at": now_iso, "sent_to_email": mb["evaluator_email"],
+                    }).in_("token", chunk).execute()
+            except Exception:
+                _logger.exception("[send-tokens] falha ao marcar sent_at — gestor=%s", mb["evaluator_email"])
+
         entry = {
             "evaluator_email": mb["evaluator_email"], "evaluator_name": mb["evaluator_name"],
             "company_name": mb.get("company_name"), "qtd_colaboradores": len(mb["employees"]),
@@ -1668,6 +1702,7 @@ def send_tokens_current_cycle(
     total_tokens_created = 0
     total_no_email = 0
     total_diretores_pendentes = 0
+    total_ja_notificados = 0
     all_batches_for_bg: list[dict] = []
     resultado_por_empresa: list[dict] = []
 
@@ -1705,17 +1740,19 @@ def send_tokens_current_cycle(
                 review_status_map.update({r["employee_id"]: r["status"] for r in rows})
 
             token_map: dict = {}
+            sent_map: dict = {}
             for chunk in _chunks(emp_ids):
-                rows = db.table("performance_evaluation_tokens").select("employee_id,token").eq(
+                rows = db.table("performance_evaluation_tokens").select("employee_id,token,sent_at").eq(
                     "cycle_id", cycle["id"]
                 ).eq("is_used", False).is_("invalidated_at", "null").in_(
                     "employee_id", chunk
                 ).execute().data or []
                 token_map.update({r["employee_id"]: r["token"] for r in rows})
+                sent_map.update({r["employee_id"]: r.get("sent_at") for r in rows})
 
             # manager_id → list[{name, cargo, company_name, branch_name, token}]
             manager_batches: dict[str, list[dict]] = {}
-            no_email_count = tokens_created = diretores_pendentes = 0
+            no_email_count = tokens_created = diretores_pendentes = ja_notificados = 0
 
             for emp in employees_to_eval:
                 manager_id = emp.get("manager_id")
@@ -1730,6 +1767,13 @@ def send_tokens_current_cycle(
 
                 # Bloquear se colaborador já tem avaliação concluída/calibrada/com ciência
                 if review_status_map.get(emp["id"]) in ("completed", "calibrated", "acknowledged"):
+                    continue
+
+                # Já notificado numa rodada anterior deste disparo em massa — não reenvia
+                # sozinho (evita duplicar e-mail em caso de retry/reinício do serviço).
+                # Reenvio deliberado continua disponível via token individual (RH).
+                if sent_map.get(emp["id"]):
+                    ja_notificados += 1
                     continue
 
                 # Verificar ou criar token — sempre, mesmo para gestor Diretor (nível 4),
@@ -1779,16 +1823,17 @@ def send_tokens_current_cycle(
             total_tokens_created += tokens_created
             total_no_email += no_email_count
             total_diretores_pendentes += diretores_pendentes
+            total_ja_notificados += ja_notificados
 
             resultado_por_empresa.append({
                 "empresa": company_name, "status": "ok",
                 "elegiveis": len(employees_to_eval), "gestores_a_notificar": len(batches_for_bg),
                 "tokens_criados": tokens_created, "sem_email": no_email_count,
-                "diretores_pendentes_rh": diretores_pendentes,
+                "diretores_pendentes_rh": diretores_pendentes, "ja_notificados": ja_notificados,
             })
             _logger.info(
-                "[send-tokens] empresa=%s ok — elegiveis=%d gestores=%d tokens_criados=%d diretores_pendentes=%d",
-                company_name, len(employees_to_eval), len(batches_for_bg), tokens_created, diretores_pendentes,
+                "[send-tokens] empresa=%s ok — elegiveis=%d gestores=%d tokens_criados=%d diretores_pendentes=%d ja_notificados=%d",
+                company_name, len(employees_to_eval), len(batches_for_bg), tokens_created, diretores_pendentes, ja_notificados,
             )
         except Exception as exc:
             resultado_por_empresa.append({"empresa": company_name, "status": "erro", "erro": str(exc)})
@@ -1804,7 +1849,7 @@ def send_tokens_current_cycle(
     log_action("cycle", cycle["id"], "send_tokens", None,
                {"tokens_created": total_tokens_created, "destinatarios_estimados": len(all_batches_for_bg),
                 "no_email_count": total_no_email, "diretores_pendentes_rh": total_diretores_pendentes,
-                "por_empresa": resultado_por_empresa},
+                "ja_notificados": total_ja_notificados, "por_empresa": resultado_por_empresa},
                current_user["username"], request)
     return {
         "status": "iniciado",
@@ -1812,6 +1857,7 @@ def send_tokens_current_cycle(
         "destinatarios_estimados": len(all_batches_for_bg),
         "sem_email": total_no_email,
         "diretores_pendentes_rh": total_diretores_pendentes,
+        "ja_notificados": total_ja_notificados,
         "por_empresa": resultado_por_empresa,
     }
 
@@ -1841,9 +1887,9 @@ def get_cycle_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMIN))]) -> l
         if t.get("employee_id"):
             all_ids.add(t["employee_id"])
     emp_map: dict[str, dict] = {}
-    if all_ids:
-        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", list(all_ids)).execute().data
-        emp_map = {e["id"]: e for e in emps}
+    for _chunk in _chunks(list(all_ids)):
+        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", _chunk).execute().data or []
+        emp_map.update({e["id"]: e for e in emps})
 
     result = []
     for t in tokens:
