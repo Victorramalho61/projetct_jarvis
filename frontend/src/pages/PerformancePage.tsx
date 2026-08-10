@@ -1,13 +1,35 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  BarChart, Bar, Cell, LabelList, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
 } from "recharts";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import { apiFetch, ApiError } from "../lib/api";
 import { ResultPanel } from "../components/CienciaResultPanel";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
+
+const COMPANY_ORDER = [
+  "VTC OPERADORA LOGÍSTICA",
+  "VOETUR VIAGENS",
+  "NORTH SERVICOS DE TRANSPORTE AEROVIARIO LTDA",
+  "VIP CARGAS",
+  "VIP SERVICE",
+];
+
+const COMPANY_COLORS: Record<string, string> = {
+  "VTC OPERADORA LOGÍSTICA": "#f97316",                          // laranja
+  "VOETUR VIAGENS": "#16a34a",                                   // verde
+  "VIP SERVICE": "#eab308",                                      // amarelo ouro
+  "NORTH SERVICOS DE TRANSPORTE AEROVIARIO LTDA": "#581c87",     // roxo escuro
+  "VIP CARGAS": "#2563eb",                                       // azul
+};
+const DEFAULT_COMPANY_COLOR = "#6b7280";
+
+function companyColor(name: string): string {
+  return COMPANY_COLORS[name] ?? DEFAULT_COMPANY_COLOR;
+}
 
 type AppRole = "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional" | "administrativo" | "operacional";
 
@@ -142,6 +164,10 @@ type DrilldownModal = "pending-evaluators" | "pending-ciencia" | "pending-self-e
 
 function TabDashboard({ companies }: { companies: any[] }) {
   const { token } = useAuth();
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
+  const chartTickColor = isDark ? "#d1d5db" : "#374151";
+  const chartGridColor = isDark ? "#374151" : "#e5e7eb";
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ empresa: "", filial: "", ciclo: "" });
@@ -268,7 +294,7 @@ function TabDashboard({ companies }: { companies: any[] }) {
             <StatCard label="Completude" value={`${stats.completion_pct ?? 0}%`} color="green" />
             <StatCard label="Pendentes Ciência" value={stats.pending_acknowledgment ?? "—"} color="amber"
               onClick={() => openDrilldown("pending-ciencia")} />
-            <StatCard label="Sem Avaliação" value={stats.without_evaluation ?? "—"} color="red"
+            <StatCard label="Avaliações Pendentes" value={stats.without_evaluation ?? "—"} color="red"
               onClick={() => openDrilldown("pending-evaluators")} />
             {(() => {
               const pct = stats.self_eval_pct ?? 0;
@@ -281,42 +307,68 @@ function TabDashboard({ companies }: { companies: any[] }) {
             <StatCard label="Análises RH" value={`${stats.calibrations_count ?? 0}`} color="blue"
               onClick={() => openDrilldown("calibrated")} />
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {stats.by_company?.length > 0 && (
+          {stats.by_company?.length > 0 && (() => {
+            const byCompanySorted = [...stats.by_company].sort((a: any, b: any) => {
+              const ia = COMPANY_ORDER.indexOf(a.company_name);
+              const ib = COMPANY_ORDER.indexOf(b.company_name);
+              return (ia === -1 ? 999 : ia) - (ib === -1 ? 999 : ib);
+            });
+            return (
               <Card className="p-5">
                 <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Avaliações e Auto-Avaliações Realizadas — por Empresa</h3>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={stats.by_company} margin={{ top: 0, right: 8, left: -16, bottom: 40 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis dataKey="company_name" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" interval={0} />
-                    <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="avaliacoes" name="Avaliações" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={32} />
-                    <Bar dataKey="auto_avaliacoes" name="Auto-Avaliações" fill="#f59e0b" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
+                  {byCompanySorted.map((entry: any) => (
+                    <span key={entry.company_name} className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300">
+                      <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: companyColor(entry.company_name) }} />
+                      {entry.company_name}
+                    </span>
+                  ))}
+                </div>
+                <ResponsiveContainer width="100%" height={320}>
+                  <BarChart data={byCompanySorted} margin={{ top: 44, right: 8, left: -16, bottom: 40 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                    <XAxis dataKey="company_name" tick={{ fontSize: 11, fill: chartTickColor }} angle={-20} textAnchor="end" interval={0} />
+                    <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chartTickColor }} />
+                    <Tooltip contentStyle={isDark ? { background: "#1f2937", border: "1px solid #374151", color: "#f3f4f6" } : undefined} />
+                    <Legend verticalAlign="top" height={28} wrapperStyle={{ fontSize: 12, color: chartTickColor }} />
+                    <Bar dataKey="avaliacoes" name="Avaliações (cor sólida)" fill={isDark ? "#9ca3af" : "#4b5563"} radius={[4, 4, 0, 0]} maxBarSize={48}>
+                      <LabelList dataKey="avaliacoes" position="top" style={{ fontSize: 11, fill: chartTickColor }} />
+                      {byCompanySorted.map((entry: any, i: number) => (
+                        <Cell key={i} fill={companyColor(entry.company_name)} fillOpacity={1} />
+                      ))}
+                    </Bar>
+                    <Bar dataKey="auto_avaliacoes" name="Auto-Avaliações (cor clara)" fill={isDark ? "#6b7280" : "#9ca3af"} radius={[4, 4, 0, 0]} maxBarSize={48}>
+                      <LabelList dataKey="auto_avaliacoes" position="top" style={{ fontSize: 11, fill: chartTickColor }} />
+                      {byCompanySorted.map((entry: any, i: number) => (
+                        <Cell key={i} fill={companyColor(entry.company_name)} fillOpacity={0.55} />
+                      ))}
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </Card>
-            )}
-            <Card className="p-5">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Auto-Avaliações — Volume</h3>
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart
-                  data={[
-                    { name: "Enviadas", volume: stats.self_eval_sent ?? 0 },
-                    { name: "Realizadas", volume: stats.self_eval_completed ?? 0 },
-                  ]}
-                  margin={{ top: 0, right: 8, left: -16, bottom: 8 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                  <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                  <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
-                  <Tooltip formatter={(v: any) => [v, "Colaboradores"]} />
-                  <Bar dataKey="volume" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={64} />
-                </BarChart>
-              </ResponsiveContainer>
-            </Card>
-          </div>
+            );
+          })()}
+          <Card className="p-5">
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Auto-Avaliações — Volume</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart
+                data={[
+                  { name: "Enviadas", volume: stats.self_eval_sent ?? 0 },
+                  { name: "Realizadas", volume: stats.self_eval_completed ?? 0 },
+                ]}
+                margin={{ top: 0, right: 8, left: -16, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridColor} />
+                <XAxis dataKey="name" tick={{ fontSize: 12, fill: chartTickColor }} />
+                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: chartTickColor }} />
+                <Tooltip
+                  formatter={(v: any) => [v, "Colaboradores"]}
+                  contentStyle={isDark ? { background: "#1f2937", border: "1px solid #374151", color: "#f3f4f6" } : undefined}
+                />
+                <Bar dataKey="volume" fill="#00694E" radius={[4, 4, 0, 0]} maxBarSize={64} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Card>
         </>
       )}
 
