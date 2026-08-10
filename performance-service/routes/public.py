@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from db import get_supabase, get_settings
-from limiter import limiter
+from limiter import limiter, get_real_ip
 from services.ciencia import build_ciencia_payload
 
 router = APIRouter(prefix="/api/performance/public")
@@ -287,7 +287,7 @@ BLOCK_MINUTES = 5
 @limiter.limit("10/minute")
 def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) -> dict:
     db = get_supabase()
-    ip = request.client.host if request.client else "unknown"
+    ip = get_real_ip(request)
 
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
     attempts = db.table("performance_ciencia_attempts").select("id").eq("ip_address", ip).gte("attempted_at", cutoff).execute()
@@ -349,7 +349,7 @@ def buscar_ciencia_presencial(body: CienciaPresencialBusca, request: Request) ->
 @limiter.limit("5/minute")
 def confirmar_ciencia_presencial(body: CienciaPresencialConfirmar, request: Request) -> dict:
     db = get_supabase()
-    ip = request.client.host if request.client else "unknown"
+    ip = get_real_ip(request)
 
     # Reutiliza o mesmo bloqueio por IP que o endpoint buscar usa
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
@@ -406,7 +406,7 @@ class AutoAvaliacaoPresencialBusca(BaseModel):
 @limiter.limit("10/minute")
 def buscar_auto_avaliacao_presencial(body: AutoAvaliacaoPresencialBusca, request: Request) -> dict:
     db = get_supabase()
-    ip = request.client.host if request.client else "unknown"
+    ip = get_real_ip(request)
 
     cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
     attempts = db.table("performance_ciencia_attempts").select("id").eq("ip_address", ip).gte("attempted_at", cutoff).execute()
