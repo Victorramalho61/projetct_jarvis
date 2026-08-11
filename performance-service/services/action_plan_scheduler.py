@@ -80,14 +80,17 @@ async def _flag_due_phases() -> None:
         return
 
     plan_ids = list({p["action_plan_id"] for p in due_phases})
-    active_plans = (
-        db.table("performance_action_plans")
-        .select("id")
-        .in_("id", plan_ids)
-        .eq("status", "active")
-        .execute()
-        .data
-    ) or []
+    _CHUNK = 150
+    active_plans = []
+    for i in range(0, len(plan_ids), _CHUNK):
+        active_plans.extend(
+            db.table("performance_action_plans")
+            .select("id")
+            .in_("id", plan_ids[i:i + _CHUNK])
+            .eq("status", "active")
+            .execute()
+            .data or []
+        )
     active_plan_ids = {p["id"] for p in active_plans}
 
     to_flag = [p["id"] for p in due_phases if p["action_plan_id"] in active_plan_ids]
@@ -96,8 +99,9 @@ async def _flag_due_phases() -> None:
         return
 
     now = datetime.now(tz=timezone.utc).isoformat()
-    db.table("performance_action_plan_phases").update({
-        "status": "pending_rh_send",
-        "became_due_at": now,
-    }).in_("id", to_flag).execute()
+    for i in range(0, len(to_flag), _CHUNK):
+        db.table("performance_action_plan_phases").update({
+            "status": "pending_rh_send",
+            "became_due_at": now,
+        }).in_("id", to_flag[i:i + _CHUNK]).execute()
     _logger.info("%d fase(s) marcada(s) como pending_rh_send", len(to_flag))

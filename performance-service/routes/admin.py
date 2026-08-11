@@ -169,9 +169,16 @@ def dashboard(
     acked_ids: set[str] = set()
     calibrated_ids: set[str] = set()
     if review_ids:
-        acks = db.table("performance_review_acknowledgments").select("review_id").in_("review_id", review_ids).execute().data
+        acks = []
+        calibs = []
+        for chunk in _chunks(review_ids):
+            acks.extend(
+                db.table("performance_review_acknowledgments").select("review_id").in_("review_id", chunk).execute().data
+            )
+            calibs.extend(
+                db.table("performance_calibrations").select("review_id").in_("review_id", chunk).execute().data
+            )
         acked_ids = {a["review_id"] for a in acks}
-        calibs = db.table("performance_calibrations").select("review_id").in_("review_id", review_ids).execute().data
         calibrated_ids = {c["review_id"] for c in calibs}
 
     pending_ack = len(completed) - len(acked_ids & {r["id"] for r in completed})
@@ -186,13 +193,15 @@ def dashboard(
     # Indicator averages
     indicator_averages: list[dict] = []
     if review_ids:
-        scores_raw = (
-            db.table("performance_indicator_scores")
-            .select("indicator_id,score,performance_indicators(name)")
-            .in_("review_id", review_ids)
-            .execute()
-            .data
-        )
+        scores_raw = []
+        for chunk in _chunks(review_ids):
+            scores_raw.extend(
+                db.table("performance_indicator_scores")
+                .select("indicator_id,score,performance_indicators(name)")
+                .in_("review_id", chunk)
+                .execute()
+                .data
+            )
         by_ind: dict[str, list[float]] = {}
         ind_names: dict[str, str] = {}
         for s in scores_raw:
@@ -332,7 +341,9 @@ def dashboard_pending_evaluators(
     mgr_ids = [mid for mid in pending_by_manager if mid != "__no_manager__"]
     managers_map: dict[str, dict] = {}
     if mgr_ids:
-        mgrs = db.table("performance_employees").select("id,name,email").in_("id", mgr_ids).execute().data
+        mgrs = []
+        for chunk in _chunks(mgr_ids):
+            mgrs.extend(db.table("performance_employees").select("id,name,email").in_("id", chunk).execute().data or [])
         managers_map = {m["id"]: m for m in mgrs}
 
     result = []
@@ -410,7 +421,9 @@ def dashboard_pending_self_eval(
     mgr_ids = [mid for mid in pending_by_manager if mid != "__no_manager__"]
     managers_map: dict[str, dict] = {}
     if mgr_ids:
-        mgrs = db.table("performance_employees").select("id,name,email").in_("id", mgr_ids).execute().data
+        mgrs = []
+        for chunk in _chunks(mgr_ids):
+            mgrs.extend(db.table("performance_employees").select("id,name,email").in_("id", chunk).execute().data or [])
         managers_map = {m["id"]: m for m in mgrs}
 
     result = []
@@ -470,7 +483,12 @@ def dashboard_export(
     review_ids = [r["id"] for r in manager_reviews]
     calib_map: dict[str, dict] = {}
     if review_ids:
-        calibs = db.table("performance_calibrations").select("review_id,calibrated_by,calibrated_at,notes").in_("review_id", review_ids).order("calibrated_at", desc=True).execute().data
+        calibs = []
+        for chunk in _chunks(review_ids):
+            calibs.extend(
+                db.table("performance_calibrations").select("review_id,calibrated_by,calibrated_at,notes")
+                .in_("review_id", chunk).order("calibrated_at", desc=True).execute().data or []
+            )
         for c in calibs:
             if c["review_id"] not in calib_map:
                 calib_map[c["review_id"]] = c
@@ -1136,13 +1154,11 @@ def list_employees(
     manager_ids = list({e["manager_id"] for e in employees if e.get("manager_id")})
     mgr_map: dict[str, str] = {}
     if manager_ids:
-        mgrs = (
-            db.table("performance_employees")
-            .select("id,name")
-            .in_("id", manager_ids)
-            .execute()
-            .data
-        )
+        mgrs = []
+        for chunk in _chunks(manager_ids):
+            mgrs.extend(
+                db.table("performance_employees").select("id,name").in_("id", chunk).execute().data or []
+            )
         mgr_map = {m["id"]: m["name"] for m in mgrs}
 
     result = []
@@ -2461,7 +2477,9 @@ def export_evaluations(
         rev_by_emp = {r["employee_id"]: r for r in reviews_raw if r.get("employee_id")}
         ev_ids = {r.get("evaluator_id") for r in reviews_raw if r.get("evaluator_id")}
         if ev_ids:
-            mgrs = db.table("performance_employees").select("id,name").in_("id", list(ev_ids)).execute().data
+            mgrs = []
+            for chunk in _chunks(list(ev_ids)):
+                mgrs.extend(db.table("performance_employees").select("id,name").in_("id", chunk).execute().data or [])
             for m in mgrs: emp_map2[m["id"]] = emp_map2.get(m["id"]) or m
 
         self_done = {
@@ -3517,14 +3535,19 @@ def reset_cycle_data(
     review_ids = [r["id"] for r in reviews]
 
     if review_ids:
-        calibs = db.table("performance_calibrations").select("id").in_("review_id", review_ids).execute().data
+        calibs = []
+        for chunk in _chunks(review_ids):
+            calibs.extend(
+                db.table("performance_calibrations").select("id").in_("review_id", chunk).execute().data or []
+            )
         calib_ids = [c["id"] for c in calibs]
-        if calib_ids:
-            db.table("performance_calibration_items").delete().in_("calibration_id", calib_ids).execute()
-        db.table("performance_review_acknowledgments").delete().in_("review_id", review_ids).execute()
-        db.table("performance_calibrations").delete().in_("review_id", review_ids).execute()
-        db.table("performance_indicator_scores").delete().in_("review_id", review_ids).execute()
-        db.table("performance_acknowledgment_tokens").delete().in_("review_id", review_ids).execute()
+        for chunk in _chunks(calib_ids):
+            db.table("performance_calibration_items").delete().in_("calibration_id", chunk).execute()
+        for chunk in _chunks(review_ids):
+            db.table("performance_review_acknowledgments").delete().in_("review_id", chunk).execute()
+            db.table("performance_calibrations").delete().in_("review_id", chunk).execute()
+            db.table("performance_indicator_scores").delete().in_("review_id", chunk).execute()
+            db.table("performance_acknowledgment_tokens").delete().in_("review_id", chunk).execute()
         db.table("performance_reviews").delete().eq("cycle_id", cycle_id).execute()
 
     db.table("performance_evaluation_tokens").delete().eq("cycle_id", cycle_id).execute()

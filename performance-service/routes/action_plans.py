@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from auth import require_role
 from db import get_supabase, get_settings
 from services.audit import log_action
+from routes.admin import _chunks
 
 router = APIRouter(prefix="/api/performance/action-plans")
 _logger = logging.getLogger(__name__)
@@ -61,13 +62,15 @@ def _resolve_employees(db, ids: list[str]) -> dict[str, dict]:
     ids = list({i for i in ids if i})
     if not ids:
         return {}
-    rows = (
-        db.table("performance_employees")
-        .select("id,name,cargo,email,has_corporate_email,company_id,branch_id,manager_id")
-        .in_("id", ids)
-        .execute()
-        .data
-    ) or []
+    rows = []
+    for chunk in _chunks(ids):
+        rows.extend(
+            db.table("performance_employees")
+            .select("id,name,cargo,email,has_corporate_email,company_id,branch_id,manager_id")
+            .in_("id", chunk)
+            .execute()
+            .data or []
+        )
     return {r["id"]: r for r in rows}
 
 
@@ -88,24 +91,28 @@ def _build_candidates(db, cycle_id: str) -> list[dict]:
     review_ids = [r["id"] for r in reviews]
     review_by_id = {r["id"]: r for r in reviews}
 
-    acks = (
-        db.table("performance_review_acknowledgments")
-        .select("review_id")
-        .in_("review_id", review_ids)
-        .execute()
-        .data
-    ) or []
+    acks = []
+    for chunk in _chunks(review_ids):
+        acks.extend(
+            db.table("performance_review_acknowledgments")
+            .select("review_id")
+            .in_("review_id", chunk)
+            .execute()
+            .data or []
+        )
     acked_review_ids = {a["review_id"] for a in acks}
     if not acked_review_ids:
         return []
 
-    all_scores = (
-        db.table("performance_indicator_scores")
-        .select("review_id,indicator_id,score,performance_indicators(name)")
-        .in_("review_id", list(acked_review_ids))
-        .execute()
-        .data
-    ) or []
+    all_scores = []
+    for chunk in _chunks(list(acked_review_ids)):
+        all_scores.extend(
+            db.table("performance_indicator_scores")
+            .select("review_id,indicator_id,score,performance_indicators(name)")
+            .in_("review_id", chunk)
+            .execute()
+            .data or []
+        )
     # Filtra em Python (não via .in_) para não depender de coerção int/float do driver.
     # Estritamente 1 ou 2 (não "<=2"): evita violar o CHECK (original_score IN (1,2))
     # de performance_action_plan_items caso algum score não-inteiro apareça.
@@ -317,9 +324,11 @@ def generate_action_plans(
 
     companies = db.table("performance_companies").select("id,name").execute().data or []
     company_map = {c["id"]: c["name"] for c in companies}
-    emp_rows = db.table("performance_employees").select("id,company_id").in_(
-        "id", [c["employee_id"] for c in candidates]
-    ).execute().data or []
+    emp_rows = []
+    for chunk in _chunks([c["employee_id"] for c in candidates]):
+        emp_rows.extend(
+            db.table("performance_employees").select("id,company_id").in_("id", chunk).execute().data or []
+        )
     emp_company_map = {e["id"]: e.get("company_id") for e in emp_rows}
 
     created = 0
@@ -433,9 +442,13 @@ def _build_alerts(db, cycle_id: str | None) -> dict:
         return {"initial_candidates": candidates, "pending_phase_send": [], "suggested_reminders": []}
 
     plan_ids = list({p["action_plan_id"] for p in phases})
-    plans = db.table("performance_action_plans").select(
-        "id,employee_id,manager_id,cycle_id"
-    ).in_("id", plan_ids).execute().data or []
+    plans = []
+    for chunk in _chunks(plan_ids):
+        plans.extend(
+            db.table("performance_action_plans").select(
+                "id,employee_id,manager_id,cycle_id"
+            ).in_("id", chunk).execute().data or []
+        )
     if cycle_id:
         plans = [p for p in plans if p["cycle_id"] == cycle_id]
     plans_map = {p["id"]: p for p in plans}
@@ -604,10 +617,12 @@ def send_phases_batch(
     if not body.phase_ids:
         raise HTTPException(400, detail="Nenhuma fase selecionada.")
     db = get_supabase()
-    phases = (
-        db.table("performance_action_plan_phases").select("id,action_plan_id,phase_number")
-        .in_("id", body.phase_ids).execute().data
-    ) or []
+    phases = []
+    for chunk in _chunks(body.phase_ids):
+        phases.extend(
+            db.table("performance_action_plan_phases").select("id,action_plan_id,phase_number")
+            .in_("id", chunk).execute().data or []
+        )
     if not phases:
         raise HTTPException(404, detail="Fases não encontradas.")
 
@@ -731,11 +746,13 @@ def _build_overview(db, filters: dict) -> list[dict]:
     if not plan_ids:
         return []
 
-    items = (
-        db.table("performance_action_plan_items")
-        .select("id,action_plan_id,indicator_id,plan_text,cumulative_pct,performance_indicators(name)")
-        .in_("action_plan_id", plan_ids).execute().data
-    ) or []
+    items = []
+    for chunk in _chunks(plan_ids):
+        items.extend(
+            db.table("performance_action_plan_items")
+            .select("id,action_plan_id,indicator_id,plan_text,cumulative_pct,performance_indicators(name)")
+            .in_("action_plan_id", chunk).execute().data or []
+        )
     items_by_plan: dict[str, list[dict]] = {}
     for it in items:
         items_by_plan.setdefault(it["action_plan_id"], []).append(it)
@@ -744,11 +761,13 @@ def _build_overview(db, filters: dict) -> list[dict]:
         wanted_plan_ids = {it["action_plan_id"] for it in items if it["indicator_id"] == filters["indicator_id"]}
         plans = [p for p in plans if p["id"] in wanted_plan_ids]
 
-    phases = (
-        db.table("performance_action_plan_phases")
-        .select("id,action_plan_id,phase_number,due_date,status,sent_at,completed_at")
-        .in_("action_plan_id", plan_ids).execute().data
-    ) or []
+    phases = []
+    for chunk in _chunks(plan_ids):
+        phases.extend(
+            db.table("performance_action_plan_phases")
+            .select("id,action_plan_id,phase_number,due_date,status,sent_at,completed_at")
+            .in_("action_plan_id", chunk).execute().data or []
+        )
     phases_by_plan: dict[str, list[dict]] = {}
     for ph in phases:
         phases_by_plan.setdefault(ph["action_plan_id"], []).append(ph)

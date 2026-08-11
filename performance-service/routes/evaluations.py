@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from auth import require_role
 from db import get_supabase, get_settings
 from services.audit import log_action
+from routes.admin import _chunks
 
 router = APIRouter(prefix="/api/performance/evaluations")
 _logger = logging.getLogger(__name__)
@@ -239,9 +240,13 @@ def send_tokens(
 
     # Pre-fetch subordinados e tokens existentes para eliminar N+1 queries
     _eval_ids = [ev["id"] for ev in evaluators]
-    _all_subs = db.table("performance_employees").select(
-        "id,name,cargo,hierarchy_level,manager_id"
-    ).in_("manager_id", _eval_ids).eq("active", True).execute().data or []
+    _all_subs = []
+    for _chunk in _chunks(_eval_ids):
+        _all_subs.extend(
+            db.table("performance_employees").select(
+                "id,name,cargo,hierarchy_level,manager_id"
+            ).in_("manager_id", _chunk).eq("active", True).execute().data or []
+        )
     _subs_by_mgr: dict = _dd(list)
     for _s in _all_subs:
         _subs_by_mgr[_s["manager_id"]].append(_s)
@@ -249,11 +254,15 @@ def send_tokens(
     _all_sub_ids = [s["id"] for s in _all_subs]
     _existing_tok_map: dict = {}
     if _eval_ids and _all_sub_ids:
-        _tok_rows = db.table("performance_evaluation_tokens").select(
-            "evaluator_id,employee_id,token"
-        ).eq("cycle_id", cycle_id).eq("is_used", False).is_(
-            "invalidated_at", "null"
-        ).in_("evaluator_id", _eval_ids).execute().data or []
+        _tok_rows = []
+        for _chunk in _chunks(_eval_ids):
+            _tok_rows.extend(
+                db.table("performance_evaluation_tokens").select(
+                    "evaluator_id,employee_id,token"
+                ).eq("cycle_id", cycle_id).eq("is_used", False).is_(
+                    "invalidated_at", "null"
+                ).in_("evaluator_id", _chunk).execute().data or []
+            )
         for _t in _tok_rows:
             _existing_tok_map[(_t["evaluator_id"], _t["employee_id"])] = _t["token"]
 
