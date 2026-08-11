@@ -33,19 +33,25 @@ def get_cards_perfil(
         return user
     sb = get_supabase()
     user_id = user.get("user_id") or user.get("id") or user.get("sub") or ""
-    row = (
-        sb.table("cards_permissoes")
-        .select("perfil,ativo")
-        .eq("user_id", user_id)
-        .maybe_single()
-        .execute()
-    )
-    if not row.data or not row.data.get("ativo"):
+    try:
+        row = (
+            sb.table("cards_permissoes")
+            .select("perfil,ativo")
+            .eq("user_id", user_id)
+            .maybe_single()
+            .execute()
+        )
+        data = row.data if row else None
+    except Exception:
+        # PostgREST retorna 406 em vez de vazio pra 0 linhas com maybe_single()
+        # em algumas versoes — trata como "sem permissao cadastrada".
+        data = None
+    if not data or not data.get("ativo"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sem acesso ao módulo de cartões",
         )
-    user["cards_perfil"] = row.data["perfil"]
+    user["cards_perfil"] = data["perfil"]
     return user
 
 

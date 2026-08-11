@@ -100,9 +100,9 @@ def _list_avaliacoes(tipo: str, empresa: Optional[str], status: Optional[str], q
     if q:
         q_lower = q.lower()
         rows = [r for r in rows if (
-            q_lower in (r.get("exp_employees") or {}).get("nome", "").lower() or
-            q_lower in str((r.get("exp_employees") or {}).get("matricula", "")).lower() or
-            q_lower in (r.get("exp_employees") or {}).get("gestor_nome", "").lower()
+            q_lower in ((r.get("exp_employees") or {}).get("nome") or "").lower() or
+            q_lower in str((r.get("exp_employees") or {}).get("matricula") or "").lower() or
+            q_lower in ((r.get("exp_employees") or {}).get("gestor_nome") or "").lower()
         )]
 
     return [_format_avaliacao(r) for r in rows]
@@ -185,9 +185,9 @@ def auditoria(
     if q:
         q_lower = q.lower()
         rows = [r for r in rows if (
-            q_lower in (r.get("exp_employees") or {}).get("nome", "").lower() or
-            q_lower in str((r.get("exp_employees") or {}).get("matricula", "")).lower() or
-            q_lower in (r.get("exp_employees") or {}).get("gestor_nome", "").lower()
+            q_lower in ((r.get("exp_employees") or {}).get("nome") or "").lower() or
+            q_lower in str((r.get("exp_employees") or {}).get("matricula") or "").lower() or
+            q_lower in ((r.get("exp_employees") or {}).get("gestor_nome") or "").lower()
         )]
 
     return [_format_auditoria(r) for r in rows]
