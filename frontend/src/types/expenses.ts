@@ -13,11 +13,22 @@ interface KPIWithContext {
   vs_ly?: KPIComparison        // only for year=2026
 }
 
+export interface SlaKpi {
+  pct: number
+  meta: number
+  atingiu_meta: boolean
+  avaliadas: number
+  no_prazo: number
+  atrasadas: number
+}
+
 interface DashboardKPIs {
   total_ytd: KPIWithContext
   contratos: KPIWithContext
   eventual: KPIWithContext
   media_mensal_kpi: KPIWithContext
+  sla_contratos: SlaKpi | null
+  sla_eventual: SlaKpi | null
   // legacy fields still returned by API
   total_valor: number
   total_efetivo: number

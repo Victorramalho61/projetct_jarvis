@@ -268,6 +268,31 @@ def _kpi_comp(cur: float, prev: float | None) -> dict | None:
     return {"valor": round(cur - prev, 2), "pct": pct, "direcao": direcao}
 
 
+_SLA_META = 80.0
+
+
+def _sla(rows: list[dict]) -> dict | None:
+    """% de parcelas já vencidas que foram liquidadas até a data de vencimento.
+    Parcelas com vencimento futuro ficam de fora — ainda não há prazo a cumprir."""
+    hoje = date.today().isoformat()
+    vencidas = [r for r in rows if str(r.get("DATAVENCIMENTO") or "") <= hoje]
+    if not vencidas:
+        return None
+    no_prazo = sum(
+        1 for r in vencidas
+        if r.get("DATALIQUIDACAO") and str(r["DATALIQUIDACAO"]) <= str(r["DATAVENCIMENTO"])
+    )
+    pct = round(no_prazo / len(vencidas) * 100, 1)
+    return {
+        "pct": pct,
+        "meta": _SLA_META,
+        "atingiu_meta": pct >= _SLA_META,
+        "avaliadas": len(vencidas),
+        "no_prazo": no_prazo,
+        "atrasadas": len(vencidas) - no_prazo,
+    }
+
+
 def _compute_dashboard(
     rows: list[dict],
     year: int,
@@ -429,6 +454,8 @@ def _compute_dashboard(
                 "sparkline": sparkline,
                 "vs_mes_anterior": None,
             },
+            "sla_contratos": _sla(recorrente_rows),
+            "sla_eventual": _sla(eventual_rows),
         },
         "by_month": by_month,
         "by_conta": by_conta,

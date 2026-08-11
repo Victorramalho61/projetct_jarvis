@@ -117,12 +117,6 @@ export default function KPICard({
               {comparison.map((item, i) => <CompRow key={i} item={item} />)}
             </div>
           )}
-
-          {comparison.length === 0 && (
-            <p className="text-[10px] text-gray-400 dark:text-gray-600 italic">
-              Comparativos pendentes
-            </p>
-          )}
         </>
       )}
     </div>

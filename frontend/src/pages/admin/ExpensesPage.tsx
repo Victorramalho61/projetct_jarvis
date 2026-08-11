@@ -25,6 +25,8 @@ import YearSelector from '../../components/expenses/YearSelector'
 import ForecastChart from '../../components/expenses/ForecastChart'
 import DonutOrigem from '../../components/expenses/DonutOrigem'
 import FornecedoresRadial from '../../components/expenses/FornecedoresRadial'
+import ExpenseDrillDownModal from '../../components/expenses/ExpenseDrillDownModal'
+import ClickableTileWrapper from '../../components/rh/ClickableTileWrapper'
 
 // ── Formatters ─────────────────────────────────────────────────────────────────
 
@@ -110,8 +112,8 @@ function ChartCard({ title, children }: { title: string; children: React.ReactNo
 
 function SkeletonGrid() {
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      {Array.from({ length: 4 }).map((_, i) => (
+    <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+      {Array.from({ length: 6 }).map((_, i) => (
         <div key={i} className="h-28 rounded-xl bg-gray-100 dark:bg-gray-800 animate-pulse" />
       ))}
     </div>
@@ -532,6 +534,9 @@ export default function ExpensesPage() {
   const [filial, setFilial]     = useState('')
   const [tipo, setTipo]         = useState('')
 
+  // KPI drill-down modal
+  const [drillDown, setDrillDown] = useState<{ titulo: string; subtitulo?: string; itens: ExpenseRow[] } | null>(null)
+
   // Table pagination
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
@@ -592,6 +597,9 @@ export default function ExpensesPage() {
   const totalPages = Math.ceil(totalRows / PAGE_SIZE)
 
   const supplierGroups = useMemo(() => buildSupplierGroups(filteredRows), [filteredRows])
+
+  const rowsRecorrentes = useMemo(() => (data?.rows ?? []).filter((r) => r.CATEGORIA === 'Recorrente'), [data])
+  const rowsEventuais   = useMemo(() => (data?.rows ?? []).filter((r) => r.CATEGORIA === 'Eventual'), [data])
 
   // Build monthly chart data: merge by_origem_mensal with yoy
   const monthlyChartData = useMemo(() => (data?.by_origem_mensal ?? []).map((m) => {
@@ -713,64 +721,126 @@ export default function ExpensesPage() {
       {loading && !data ? (
         <SkeletonGrid />
       ) : data ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KPICard
-            title="Total YTD"
-            value={FMT_BRL(data.kpis.total_ytd?.valor ?? data.kpis.total_valor)}
-            loading={loading}
-            accentColor="blue"
-            subtitle={`${data.kpis.count_parcelas} parcelas`}
-            comparison={[
-              ...(data.kpis.total_ytd?.vs_mes_anterior ? [{
-                label: 'vs. Mês Ant.',
-                value: `${data.kpis.total_ytd.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.total_ytd.vs_mes_anterior.pct.toFixed(1)}%`,
-                positive: data.kpis.total_ytd.vs_mes_anterior.direcao === 'baixa',
-              }] : []),
-              ...(data.kpis.total_ytd?.vs_ly ? [{
-                label: `vs. ${year - 1}`,
-                value: `${data.kpis.total_ytd.vs_ly.pct > 0 ? '+' : ''}${data.kpis.total_ytd.vs_ly.pct.toFixed(1)}%`,
-                positive: data.kpis.total_ytd.vs_ly.direcao === 'baixa',
-              }] : []),
-            ]}
-          />
-          <KPICard
-            title="Contratos"
-            value={FMT_BRL(data.kpis.contratos?.valor ?? data.kpis.total_recorrente)}
-            loading={loading}
-            accentColor="violet"
-            subtitle="despesas recorrentes"
-            comparison={[
-              ...(data.kpis.contratos?.vs_mes_anterior ? [{
-                label: 'vs. Mês Ant.',
-                value: `${data.kpis.contratos.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.contratos.vs_mes_anterior.pct.toFixed(1)}%`,
-                positive: data.kpis.contratos.vs_mes_anterior.direcao === 'baixa',
-              }] : []),
-            ]}
-          />
-          <KPICard
-            title="Eventual"
-            value={FMT_BRL(data.kpis.eventual?.valor ?? data.kpis.total_eventual)}
-            loading={loading}
-            accentColor="amber"
-            subtitle="compras e pontuais"
-            comparison={[
-              ...(data.kpis.eventual?.vs_mes_anterior ? [{
-                label: 'vs. Mês Ant.',
-                value: `${data.kpis.eventual.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.eventual.vs_mes_anterior.pct.toFixed(1)}%`,
-                positive: data.kpis.eventual.vs_mes_anterior.direcao === 'baixa',
-              }] : []),
-            ]}
-          />
-          <KPICard
-            title="Média Mensal"
-            value={FMT_BRL(data.kpis.media_mensal_kpi?.valor ?? data.kpis.media_mensal_valor ?? data.kpis.media_mensal)}
-            loading={loading}
-            accentColor="teal"
-            subtitle="no ano selecionado"
-            comparison={[]}
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <ClickableTileWrapper onClick={() => setDrillDown({ titulo: 'Total YTD — todas as parcelas', itens: data.rows })}>
+            <KPICard
+              title="Total YTD"
+              value={FMT_BRL(data.kpis.total_ytd?.valor ?? data.kpis.total_valor)}
+              loading={loading}
+              accentColor="blue"
+              subtitle={`${data.kpis.count_parcelas} parcelas`}
+              comparison={[
+                ...(data.kpis.total_ytd?.vs_mes_anterior ? [{
+                  label: 'vs. Mês Ant.',
+                  value: `${data.kpis.total_ytd.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.total_ytd.vs_mes_anterior.pct.toFixed(1)}%`,
+                  positive: data.kpis.total_ytd.vs_mes_anterior.direcao === 'baixa',
+                }] : []),
+                ...(data.kpis.total_ytd?.vs_ly ? [{
+                  label: `vs. ${year - 1}`,
+                  value: `${data.kpis.total_ytd.vs_ly.pct > 0 ? '+' : ''}${data.kpis.total_ytd.vs_ly.pct.toFixed(1)}%`,
+                  positive: data.kpis.total_ytd.vs_ly.direcao === 'baixa',
+                }] : []),
+              ]}
+            />
+          </ClickableTileWrapper>
+          <ClickableTileWrapper onClick={() => setDrillDown({ titulo: 'Contratos — despesas recorrentes', itens: rowsRecorrentes })}>
+            <KPICard
+              title="Contratos"
+              value={FMT_BRL(data.kpis.contratos?.valor ?? data.kpis.total_recorrente)}
+              loading={loading}
+              accentColor="violet"
+              subtitle="despesas recorrentes"
+              comparison={[
+                ...(data.kpis.contratos?.vs_mes_anterior ? [{
+                  label: 'vs. Mês Ant.',
+                  value: `${data.kpis.contratos.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.contratos.vs_mes_anterior.pct.toFixed(1)}%`,
+                  positive: data.kpis.contratos.vs_mes_anterior.direcao === 'baixa',
+                }] : []),
+              ]}
+            />
+          </ClickableTileWrapper>
+          <ClickableTileWrapper onClick={() => setDrillDown({ titulo: 'Eventual — compras e pontuais', itens: rowsEventuais })}>
+            <KPICard
+              title="Eventual"
+              value={FMT_BRL(data.kpis.eventual?.valor ?? data.kpis.total_eventual)}
+              loading={loading}
+              accentColor="amber"
+              subtitle="compras e pontuais"
+              comparison={[
+                ...(data.kpis.eventual?.vs_mes_anterior ? [{
+                  label: 'vs. Mês Ant.',
+                  value: `${data.kpis.eventual.vs_mes_anterior.pct > 0 ? '+' : ''}${data.kpis.eventual.vs_mes_anterior.pct.toFixed(1)}%`,
+                  positive: data.kpis.eventual.vs_mes_anterior.direcao === 'baixa',
+                }] : []),
+              ]}
+            />
+          </ClickableTileWrapper>
+          <ClickableTileWrapper onClick={() => setDrillDown({ titulo: 'Média Mensal — todas as parcelas', itens: data.rows })}>
+            <KPICard
+              title="Média Mensal"
+              value={FMT_BRL(data.kpis.media_mensal_kpi?.valor ?? data.kpis.media_mensal_valor ?? data.kpis.media_mensal)}
+              loading={loading}
+              accentColor="teal"
+              subtitle="no ano selecionado"
+            />
+          </ClickableTileWrapper>
+          <ClickableTileWrapper onClick={() => setDrillDown({
+            titulo: 'SLA de Pagamento — Contratos',
+            subtitulo: `meta ${data.kpis.sla_contratos?.meta ?? 80}%`,
+            itens: rowsRecorrentes,
+          })}>
+            <KPICard
+              title="SLA Contratos"
+              value={data.kpis.sla_contratos ? `${data.kpis.sla_contratos.pct.toFixed(1)}%` : '—'}
+              loading={loading}
+              accentColor={data.kpis.sla_contratos?.atingiu_meta === false ? 'red' : 'green'}
+              subtitle={data.kpis.sla_contratos
+                ? `${data.kpis.sla_contratos.no_prazo}/${data.kpis.sla_contratos.avaliadas} pagas no prazo`
+                : 'sem parcelas vencidas'}
+              comparison={data.kpis.sla_contratos ? [
+                { label: 'Meta', value: `${data.kpis.sla_contratos.meta}%` },
+                {
+                  label: data.kpis.sla_contratos.atingiu_meta ? 'Dentro da meta' : 'Abaixo da meta',
+                  value: `${data.kpis.sla_contratos.atrasadas} atrasada(s)`,
+                  positive: data.kpis.sla_contratos.atingiu_meta,
+                },
+              ] : []}
+            />
+          </ClickableTileWrapper>
+          <ClickableTileWrapper onClick={() => setDrillDown({
+            titulo: 'SLA de Pagamento — Eventual',
+            subtitulo: `meta ${data.kpis.sla_eventual?.meta ?? 80}%`,
+            itens: rowsEventuais,
+          })}>
+            <KPICard
+              title="SLA Eventual"
+              value={data.kpis.sla_eventual ? `${data.kpis.sla_eventual.pct.toFixed(1)}%` : '—'}
+              loading={loading}
+              accentColor={data.kpis.sla_eventual?.atingiu_meta === false ? 'red' : 'green'}
+              subtitle={data.kpis.sla_eventual
+                ? `${data.kpis.sla_eventual.no_prazo}/${data.kpis.sla_eventual.avaliadas} pagas no prazo`
+                : 'sem parcelas vencidas'}
+              comparison={data.kpis.sla_eventual ? [
+                { label: 'Meta', value: `${data.kpis.sla_eventual.meta}%` },
+                {
+                  label: data.kpis.sla_eventual.atingiu_meta ? 'Dentro da meta' : 'Abaixo da meta',
+                  value: `${data.kpis.sla_eventual.atrasadas} atrasada(s)`,
+                  positive: data.kpis.sla_eventual.atingiu_meta,
+                },
+              ] : []}
+            />
+          </ClickableTileWrapper>
         </div>
       ) : null}
+
+      {drillDown && (
+        <ExpenseDrillDownModal
+          titulo={drillDown.titulo}
+          subtitulo={drillDown.subtitulo}
+          itens={drillDown.itens}
+          onClose={() => setDrillDown(null)}
+        />
+      )}
 
       {/* ── Sub-tabs ───────────────────────────────────────────────────────── */}
       <div className="flex gap-1 border-b border-gray-200 dark:border-gray-800 pb-0">
