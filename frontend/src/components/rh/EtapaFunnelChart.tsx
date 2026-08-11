@@ -1,4 +1,4 @@
-import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 type Props = {
   data: { etapa: string; ordem: number; total: number }[];
@@ -20,6 +20,7 @@ export default function EtapaFunnelChart({ data }: Props) {
         <Tooltip />
         <Bar dataKey="total" radius={[0, 4, 4, 0]}>
           {data.map((d, i) => <Cell key={d.etapa} fill={CORES[i % CORES.length]} />)}
+          <LabelList dataKey="total" position="right" style={{ fontSize: 11, fill: "#64748b" }} />
         </Bar>
       </BarChart>
     </ResponsiveContainer>

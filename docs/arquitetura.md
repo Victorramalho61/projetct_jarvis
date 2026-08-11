@@ -908,6 +908,10 @@ erDiagram
 | GET | `/api/expenses/payfly/media/categories` | user | breakdown por categoria |
 | POST | `/api/expenses/payfly/media/fetch` | admin | dispara coleta imediata (trigger manual) |
 
+**SLA de pagamento (`kpis.sla_contratos` / `kpis.sla_eventual`, `services/expenses.py::_sla`):** % de parcelas já vencidas (`DATAVENCIMENTO <= hoje`) liquidadas até a data de vencimento (`DATALIQUIDACAO <= DATAVENCIMENTO`), separado por categoria Contrato/Eventual. Meta fixa de 80% (`_SLA_META`). Parcela com vencimento futuro não entra no cálculo. Consumido pelos cards "SLA Contratos"/"SLA Eventual" no dashboard — accent verde/vermelho conforme bateu a meta, clique abre `ExpenseDrillDownModal` com as parcelas do período.
+
+**Cards clicáveis:** os 4 KPICards do grid principal + os 2 de SLA abrem `ExpenseDrillDownModal` (busca por fornecedor/filial/histórico, status por linha: A vencer / Pago no prazo / Pago com atraso / Atrasada). O placeholder "Comparativos pendentes" foi removido do `KPICard` — card sem comparação simplesmente não mostra a área de comparação.
+
 ### support-service:8007
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
@@ -964,8 +968,8 @@ erDiagram
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
 | GET | `/api/rh/health`, `/api/rh/ready` | público | healthcheck |
-| GET | `/api/rh/dashboard` | admin/rh | KPIs + breakdowns (filtros: período, empresa, status, tipo de vaga/contrato, nível, hierarquia, etapa, seção, analista, requisitante, cargo, busca `q`) |
-| GET | `/api/rh/vagas` | admin/rh | lista paginada — mesmos filtros + busca por candidato/cargo/nº requisição |
+| GET | `/api/rh/dashboard` | admin/rh | KPIs + breakdowns (filtros: período, empresa, status, tipo de vaga/contrato, nível, hierarquia, etapa, seção, analista, requisitante, cargo, busca `q` — casa candidato/cargo/nº requisição/**responsável**) |
+| GET | `/api/rh/vagas` | admin/rh | lista paginada — mesmos filtros + busca `q` (candidato/cargo/nº requisição/responsável) |
 | POST | `/api/rh/vagas/iniciar` | admin/rh | cria o processo (draft) e gera `numero_requisicao` automático |
 | GET/PATCH/DELETE | `/api/rh/vagas/{id}` | admin/rh | detalhe (autosave por campo) / exclui |
 | GET | `/api/rh/vagas/template` | admin/rh | baixa .xlsx modelo com dropdowns das listas atuais |
@@ -974,6 +978,10 @@ erDiagram
 | GET/POST/PATCH/DELETE | `/api/rh/lookups/{tipo}` | admin/rh | CRUD das listas (empresas, cargos, hierarquias, etapas do processo, etc.) |
 
 Tabelas (`rh_*`, `migrations/001_rh_schema.sql` + `002_rh_pipeline.sql`): `rh_vagas` (processo de admissão), `rh_uploads` (auditoria), `rh_etapas_processo` (pipeline ordenado de 16 etapas com seção responsável) e 12 tabelas de lista suspensa seedadas com os valores oficiais da planilha `Controle de Vagas - BSB.xlsx` (empresas com prefixo de numeração, cargos com nível padrão, etc.). Automação: selecionar cargo autopreenche nível; selecionar etapa autopreenche seção e, nas etapas "Concluído"/"Cancelado", o status da vaga.
+
+**Import de planilha — cuidado com nº de requisição duplicado/placeholder:** `services/excel_import.py` faz upsert por `numero_requisicao` — linhas com o mesmo número (ex: várias vagas usando o texto literal `PJ`) colidem num único registro, perdendo as demais. Linhas sem número de requisição sempre geram INSERT novo (nunca fazem match) — reimportar a mesma planilha duplica essas linhas. Antes de reimportar uma planilha com números repetidos, desambiguar manualmente (sufixo `-2`, `-3`, ...) preservando a ocorrência que já bate com o registro existente no banco.
+
+**Dashboard — breakdown por analista (`kpis` local ao frontend, `RhPage.tsx`):** `por_analista` do backend já separa `abertas` (status `em_aberto=true`: EM ANDAMENTO/REABERTO) de `congeladas` (CONGELADO) — **não somar os dois** como "em andamento" (armadilha: um analista que já saiu da empresa pode ter dezenas de vagas CONGELADAS que não são carga de trabalho ativa). A tabela "Vagas por analista" e os 3 painéis de produtividade (Concluídas / Em andamento / Congeladas) usam os campos separados. `por_empresa_fechadas` (novo campo, só CONCLUÍDO) alimenta o gráfico "Vagas fechadas por empresa" — `por_empresa` (todos os status) continua intocado para o relatório impresso semanal.
 
 ---
 

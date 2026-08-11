@@ -76,6 +76,7 @@ def dashboard(
             if q_lower in (r.get("candidato") or "").lower()
             or q_lower in (r.get("cargo") or "").lower()
             or q_lower in (r.get("numero_requisicao") or "").lower()
+            or q_lower in (r.get("responsavel") or "").lower()
         ]
 
     abertas = [r for r in rows if r.get("status_em_aberto")]
@@ -131,6 +132,7 @@ def dashboard(
 
     por_status = Counter(r.get("status") or "NÃO INFORMADO" for r in rows)
     por_empresa = Counter(r.get("empresa") or "NÃO INFORMADO" for r in rows)
+    por_empresa_fechadas = Counter(r.get("empresa") or "NÃO INFORMADO" for r in concluidas)
     top_cargos = Counter(r.get("cargo") for r in rows if r.get("cargo"))
 
     tendencia: dict[str, dict[str, int]] = defaultdict(lambda: {"abertas": 0, "concluidas": 0})
@@ -163,6 +165,7 @@ def dashboard(
         },
         "por_status": [{"status": k, "total": v} for k, v in sorted(por_status.items(), key=lambda x: -x[1])],
         "por_empresa": [{"empresa": k, "total": v} for k, v in sorted(por_empresa.items(), key=lambda x: -x[1])],
+        "por_empresa_fechadas": [{"empresa": k, "total": v} for k, v in sorted(por_empresa_fechadas.items(), key=lambda x: -x[1])],
         "top_cargos": [{"cargo": k, "total": v} for k, v in top_cargos.most_common(10)],
         "tendencia_mensal": [
             {"mes": mes, **vals} for mes, vals in sorted(tendencia.items())

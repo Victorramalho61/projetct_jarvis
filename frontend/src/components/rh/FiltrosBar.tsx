@@ -73,7 +73,7 @@ export default function FiltrosBar({ lookups, value, onChange, showSearch = true
         {showSearch && (
           <div className="col-span-2 sm:col-span-3 lg:col-span-2">
             <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">
-              Buscar (candidato, cargo, nº requisição)
+              Buscar (candidato, cargo, analista, nº requisição)
             </label>
             <input
               value={value.q ?? ""}

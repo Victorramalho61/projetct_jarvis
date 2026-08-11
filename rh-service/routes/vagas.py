@@ -223,6 +223,7 @@ def listar_vagas(
             if q_lower in (r.get("candidato") or "").lower()
             or q_lower in (r.get("cargo") or "").lower()
             or q_lower in (r.get("numero_requisicao") or "").lower()
+            or q_lower in (r.get("responsavel") or "").lower()
         ]
 
     total = len(rows)

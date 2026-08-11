@@ -155,6 +155,7 @@ export type DashboardData = {
   kpis: DashboardKPIs;
   por_status: { status: string; total: number }[];
   por_empresa: { empresa: string; total: number }[];
+  por_empresa_fechadas: { empresa: string; total: number }[];
   top_cargos: { cargo: string; total: number }[];
   tendencia_mensal: { mes: string; abertas: number; concluidas: number }[];
   funil_etapas: { etapa: string; ordem: number; total: number }[];
