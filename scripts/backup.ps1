@@ -155,6 +155,19 @@ if ($ERRORS.Count -gt 0) {
     $oneDriveOutput | ForEach-Object { log "  [onedrive] $_" }
     if ($oneDriveOk) { log "OneDrive: ok" } else { log "OneDrive: FALHOU (backup local esta OK, so o envio pro OneDrive falhou)" }
 
+    # ── Limpeza automatica do Docker (build cache + imagens sem uso) ──
+    # docker compose/build acumula cache a cada deploy - sem isso, o disco
+    # do WSL2 so cresce (nunca encolhe por si so). image prune sem -a so
+    # remove imagens verdadeiramente orfas (sem tag/container usando).
+    log "Docker: limpando build cache e imagens sem uso..."
+    $prevEAP2 = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    $dockerCleanOutput = & docker builder prune -f 2>$null
+    $dockerCleanOutput += & docker image prune -f 2>$null
+    $ErrorActionPreference = $prevEAP2
+    $dockerCleanOutput | Select-Object -Last 5 | ForEach-Object { log "  [docker] $_" }
+    log "Docker: limpeza concluida"
+
     log "=========================================="
     $oneDriveMsg = if ($oneDriveOk) { "OneDrive: enviado com sucesso." } else { "OneDrive: FALHOU (ver log) - backup local esta intacto em $BACKUP_PATH." }
     send-email "[Jarvis] Backup OK $TIMESTAMP" "Backup OK em ${elapsed}min.`nTotal: ${totalMB}MB`n$oneDriveMsg`n`nArquivos:`n$files`n`nPasta: $BACKUP_PATH"
