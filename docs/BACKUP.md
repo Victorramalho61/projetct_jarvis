@@ -63,6 +63,25 @@ GET /api/moneypenny/auth/microsoft/url  →  abrir a URL retornada, logar, autor
 
 ---
 
+## Limpeza automática do Docker (2026-08-12)
+
+Todo `docker compose build` deixa camadas de build cache e imagens intermediárias — sem limpeza, o disco virtual do WSL2 só cresce (**nunca encolhe por si só**, mesmo apagando arquivos de dentro do container: `docker system prune` libera espaço *dentro* do disco virtual, mas o `.vhdx` no Windows só reflete isso depois de compactado manualmente).
+
+`backup.ps1` agora roda, após cada backup local:
+```powershell
+docker builder prune -f   # cache de build, sem uso ativo
+docker image prune -f     # imagens orfas (sem -a — nao remove imagens com tag ainda referenciada)
+```
+
+**Se o C: continuar encolhendo mesmo com essa limpeza rodando**, o disco virtual do WSL2 provavelmente precisa ser compactado (indisponibilidade breve, ~1-2 min):
+```powershell
+wsl --shutdown
+# localizar o .vhdx em C:\Users\<usuario>\AppData\Local\Docker\wsl\... e compactar via diskpart:
+#   diskpart > select vdisk file="<caminho>" > compact vdisk
+```
+
+---
+
 ## Restauração
 
 ### PostgreSQL (`postgres_main` ou `fiscal_documents`)

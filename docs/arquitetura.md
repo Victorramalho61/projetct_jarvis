@@ -983,6 +983,20 @@ Tabelas (`rh_*`, `migrations/001_rh_schema.sql` + `002_rh_pipeline.sql`): `rh_va
 
 **Dashboard — breakdown por analista (`kpis` local ao frontend, `RhPage.tsx`):** `por_analista` do backend já separa `abertas` (status `em_aberto=true`: EM ANDAMENTO/REABERTO) de `congeladas` (CONGELADO) — **não somar os dois** como "em andamento" (armadilha: um analista que já saiu da empresa pode ter dezenas de vagas CONGELADAS que não são carga de trabalho ativa). A tabela "Vagas por analista" e os 3 painéis de produtividade (Concluídas / Em andamento / Congeladas) usam os campos separados. `por_empresa_fechadas` (novo campo, só CONCLUÍDO) alimenta o gráfico "Vagas fechadas por empresa" — `por_empresa` (todos os status) continua intocado para o relatório impresso semanal.
 
+### rh-service — Fase 2: Assinatura Automatizada via D4Sign
+
+Submenu paralelo ao fluxo de impressão (`routes/assinatura.py`, `services/d4sign_client.py`, `rh_assinaturas` em `migrations/003_rh_assinaturas.sql`). Fluxo: gera documento a partir de template Word com tokens (`makedocumentbytemplateword`) → cadastra 4 signatários em ordem sequencial (solicitante → rh → depto_pessoal → diretoria) → envia para assinatura. Suporta aditivo (cancelamento/alteração) pós-conclusão e webhook HMAC (`routes/webhook_d4sign.py`) pros status de finalizado/cancelado/parcial.
+
+**Estado (2026-08-12):** cofre e template já criados no painel sandbox (`D4SIGN_BASE_URL=https://sandbox.d4sign.com.br`, credenciais no `.env` do container `rh-service`, não commitadas):
+- Cofre "Teste": `aa569dfd-b1bd-4bbd-a683-37643abb547f`
+- Template `Template_Requisicao_de_Pessoal.docx`: `9bf798ab-7db5-48a3-8362-72800a393789`
+
+**Bug aberto no suporte D4Sign — tokens não substituídos via API:** `POST /documents/{safe}/makedocumentbytemplateword` retorna sucesso e cria o documento, mas os campos permanecem literais (`${solicitante}`, `${data_recebimento}`, `${numero_requisicao}`, `${centro_custo}`, etc.) no docx/PDF gerado — confirmado abrindo o XML interno dos documentos `a9135b89-7f4a-4b94-96f1-2297570afdf9` e `7a3949c5-bf40-4c17-97ae-6e377cba14c7`. `GET /templates` confirma que o template tem as variáveis certas cadastradas em `tokens_gerais` (mesmos nomes do payload), então não é erro de nomenclatura. Preenchimento manual pela interface web do D4Sign funciona normalmente — o bug é específico da API.
+
+**Regressão adicional (2026-08-11/12):** novas chamadas ao mesmo endpoint passaram a retornar HTTP 200 com corpo vazio e **nenhum documento é criado** (confirmado via `GET /documents` — `total_documents` não incrementa), sem erro reportado. Ou seja, o comportamento da API pode ter mudado desde os testes anteriores — antes ao menos criava o documento (sem substituir tokens), agora nem isso.
+
+**Chamado no suporte D4Sign:** aberto com Diego Costa (`diego.costa@d4sign.com.br`, Analista de Suporte). Enviado em 2026-08-12: UUIDs de cofre/template/documento de reprodução + payload e headers exatos de uma tentativa que retornou corpo vazio. Aguardando retorno. **Enquanto não resolvido, o fluxo de assinatura automatizada via API está bloqueado** — não habilitar em produção até confirmação do fix.
+
 ---
 
 ## VoeIA — support-service:8007
@@ -1154,6 +1168,38 @@ Get-ScheduledTask -TaskName "Jarvis-Docker-Startup"
 
 - `GET /api/performance/admin/dashboard` ganhou o campo `by_company` (avaliações e auto-avaliações completadas, agregadas por `company_id` do colaborador). Substituiu o gráfico "Médias por Indicador" no frontend por "Avaliações e Auto-Avaliações Realizadas — por Empresa" (cor fixa por empresa, ordem VTC → Viagens → demais).
 - `GET /api/performance/admin/dashboard/pending-self-eval` passou a agrupar por gestor (mesmo padrão de `pending-evaluators`), em vez de lista plana — o drilldown "Colaboradores Pendentes de Auto-Avaliação" ganhou expandir/colapsar por gestor.
+
+### 2026-08-11 — Correções pontuais (experiencia-service e cards-service)
+
+- **experiencia-service** (`routes/admin.py`, `/admin/45-dias`): busca por texto (`?q=`) dava 500 (`AttributeError: NoneType.lower`) quando `nome`/`gestor_nome` do colaborador era `NULL` no banco — `.get("campo", "")` só usa o default quando a *chave* não existe, não quando o *valor* é `None`. Trocado por `.get("campo") or ""` nos dois pontos (busca de avaliação 45 dias, duplicado em outra função do mesmo arquivo).
+- **cards-service** (`auth.py`, `get_cards_perfil`): usuário sem nenhuma linha em `cards_permissoes` dava 500 em vez do 403 esperado — `.maybe_single()` deveria retornar `data=None` pra 0 linhas, mas o PostgREST devolve 406 nesse cenário (em algumas versões) e o cliente Python retorna `None` no lugar do objeto de resposta, quebrando `row.data`. Envolvido em `try/except` tratando qualquer falha como "sem permissão".
+
+### 2026-08-11 — Auditoria completa de `.in_()` sem paginação no performance-service
+
+O bug de "414/URI too long" (Kong/PostgREST recusam URLs com centenas de UUIDs num `.in_()`) já tinha sido corrigido em `list_evaluations` e `pending-ciencia` no dia anterior — mas o volume de avaliações continuou crescendo (237+ no mesmo dia) e o mesmo padrão apareceu em mais lugares, silenciosamente (o cliente Python transforma o erro 414 numa exceção de parsing JSON, então aparecia como 500 genérico nos logs, não como 414).
+
+Auditoria cobriu **todo** o `performance-service` (`admin.py`, `action_plans.py`, `evaluations.py`, `my.py`, `action_plans_public.py`, `services/*.py`) e corrigiu com o helper `_chunks()` (lotes de 150 IDs, já existente):
+
+- `GET /admin/dashboard` — o próprio dashboard principal estava quebrando (acks/calibs/indicator_scores por review_id).
+- `dashboard_export` (XLSX), `list_employees` (Gestão RH), os 2 drilldowns de gestor pendente (`mgr_ids`).
+- **`reset_cycle_data`** (zona de perigo, "Remove todas as avaliações do ciclo atual") — os 5 deletes em cascata (`performance_calibration_items`, `performance_review_acknowledgments`, `performance_calibrations`, `performance_indicator_scores`, `performance_acknowledgment_tokens`) não eram paginados; um 414 no meio deixaria o reset pela metade.
+- `action_plans.py`: `_resolve_employees`, `_build_candidates`, geração de planos iniciais, `_build_alerts` (causa real do 500 visto em `/action-plans/alerts`), `send_phases_batch`.
+- **`POST /cycles/{id}/send-tokens`** (`evaluations.py`) — o próprio endpoint de disparo em massa que originou o incidente do dia anterior tinha 2 `.in_()` sem paginação (subordinados de todos os avaliadores + tokens já existentes), sem filtro de empresa. Sem chunking, um disparo pra empresa grande sem filtro quebraria o próprio disparo.
+- `services/action_plan_scheduler.py` — job diário (`_flag_due_phases`, 07:00) que sinaliza fases de plano de ação vencidas; falha aqui é **silenciosa** (só loga e sai, sem alertar ninguém), então corrigido por precaução mesmo com volume baixo esperado.
+
+Revisados e descartados como seguros (escopo sempre pequeno por design): busca por um único `review_id`/`action_plan_id`, subordinados de um único gestor logado, `branch_ids` distintos (poucas filiais), `action_plans_public.py` (sempre 1-2 IDs por token).
+
+### 2026-08-11/12 — Ajustes de UI no dashboard de desempenho
+
+- Modais de drilldown (`ModalWrapper`, `CienciaViewModal`) não fechavam ao clicar fora — só pelo botão X. Adicionado handler de clique no backdrop (`e.target === e.currentTarget`).
+- StatCard "Sem Avaliação" renomeado para "Avaliações Pendentes".
+- StatCard/drilldown "Análises RH": antes mostrava calibragens **já feitas** (`calibrations_count` — ficava zerado mesmo com backlog grande, dando falsa sensação de "tudo ok"). Passou a mostrar **pendente de calibragem** (`calibragem_necessaria=true` e ainda não calibrado) — novo endpoint `GET /admin/dashboard/pending-calibration` reaproveita `list_evaluations`.
+- `dashboard/pending-ciencia`: sempre retornava vazio por 2 bugs — misturava auto-avaliações completadas junto com avaliações do gestor (contagem dobrada, ex. 404 = 132+272) e tinha o mesmo `.in_()` sem paginação (156 IDs). Corrigido: filtra `is_self_evaluation=False` e usa `_chunks()`.
+- Gráfico "Avaliações e Auto-Avaliações — por Empresa": cor fixa por empresa (mesma cor nas 2 barras, opacidade diferente pra distinguir avaliação/auto-avaliação — um único swatch de legenda não dá pra representar "cor varia por empresa"), legenda de cores por empresa acima do gráfico, valores nas colunas, ordem VTC → Viagens → demais, legenda de métrica movida pro topo (colidia com os nomes das empresas no eixo X).
+
+### 2026-08-12 — Backup: upload OneDrive + limpeza automática do Docker
+
+Ver `docs/BACKUP.md` — `backup.ps1` agora envia os dumps pro OneDrive do Victor (retenção 30d diária + cópia mensal) e limpa build cache/imagens Docker órfãs após cada execução. Restauração completa testada e validada (dump → container isolado → `pg_restore` → contagem de linhas) em 2026-08-10.
 
 ---
 
