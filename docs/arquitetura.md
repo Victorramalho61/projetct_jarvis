@@ -1308,6 +1308,8 @@ pending → completed → acknowledged | calibrated
 - Observação do gestor: opcional (campo `observations` nullable)
 - Auto-avaliação: sem nenhuma validação de justificativa ou observação
 
+**Exportação XLSX (`GET /api/performance/admin/dashboard/export`, `routes/admin.py::dashboard_export`):** 4 abas — Resumo, Avaliações (gestor), Auto-Avaliações, Médias por Indicador. Monta um mapa `employee_id → funcionário` em memória (`emp_map`) pra "juntar" nome/cargo/nível/empresa/filial nas linhas de `performance_reviews`; esse mapa **precisa estar filtrado pelos mesmos `company_id`/`branch_id` da exportação** — se a query de reviews não for filtrada pelo mesmo conjunto de `employee_id` do `emp_map`, linhas de funcionário fora do filtro entram com essas colunas em branco (bug corrigido em 2026-08). O nome do avaliador é resolvido num mapa **sem** filtro (`emp_map_all`), porque o avaliador pode pertencer a empresa/filial diferente do colaborador avaliado. A aba Auto-Avaliações usa o mesmo padrão de colunas da aba Avaliações (inclui "Nota", vinda de `final_score` do `performance_reviews` com `is_self_evaluation=True` — toda auto-avaliação enviada já tem nota, só falta quando ainda está "Pendente").
+
 ---
 
 ## Observabilidade

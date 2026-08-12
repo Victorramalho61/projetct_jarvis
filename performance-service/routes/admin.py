@@ -606,7 +606,7 @@ def dashboard_export(
 
     # ── Aba 3: Auto-Avaliações ───────────────────────────────────────────────────
     ws3 = wb.create_sheet("Auto-Avaliações")
-    headers3 = ["Colaborador", "Cargo", "Nível", "Empresa", "Filial", "Status Auto-Aval.", "Obs. Colaborador"]
+    headers3 = ["Colaborador", "Cargo", "Nível", "Empresa", "Filial", "Nota", "Status Auto-Aval.", "Obs. Colaborador"]
     ws3.append(headers3)
     for cell in ws3[1]:
         header_style(cell, bg=VIOLET)
@@ -621,6 +621,7 @@ def dashboard_export(
             _emp_level_label(emp),
             company.get("name", "") if isinstance(company, dict) else "",
             branch.get("name", "") if isinstance(branch, dict) else "",
+            float(se["final_score"]) if se and se.get("final_score") is not None else "",
             "Concluída" if se else "Pendente",
             se.get("observations") or "" if se else "",
         ])
@@ -629,7 +630,7 @@ def dashboard_export(
         for cell in row_cells:
             cell.border = thin_border()
             cell.fill = PatternFill("solid", fgColor=fill_color)
-            cell.alignment = Alignment(horizontal="left", vertical="center")
+            cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
     for i, col in enumerate(headers3, 1):
         ws3.column_dimensions[get_column_letter(i)].width = max(14, len(col) + 4)
