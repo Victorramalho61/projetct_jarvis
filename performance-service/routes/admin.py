@@ -460,21 +460,38 @@ def dashboard_export(
     dash = dashboard(current_user, company_id, branch_id, cycle_id)
 
     # Buscar avaliações detalhadas
-    emp_q = db.table("performance_employees").select("id,name,cargo,hierarchy_level,performance_branches(name),performance_companies(name)").eq("active", True)
-    if company_id:
-        emp_q = emp_q.eq("company_id", company_id)
-    if branch_id:
-        emp_q = emp_q.eq("branch_id", branch_id)
-    employees = emp_q.execute().data
-    emp_map = {e["id"]: e for e in employees}
+    # Mapa completo (sem filtro) — usado para resolver o nome do avaliador mesmo
+    # quando ele pertence a outra empresa/filial da que está sendo filtrada.
+    emp_all = (
+        db.table("performance_employees")
+        .select("id,name,cargo,hierarchy_level,performance_branches(name),performance_companies(name),company_id,branch_id")
+        .eq("active", True)
+        .execute()
+        .data
+    )
+    emp_map_all = {e["id"]: e for e in emp_all}
 
-    reviews = (
+    def _emp_matches_filtro(e: dict) -> bool:
+        if company_id and e.get("company_id") != company_id:
+            return False
+        if branch_id and e.get("branch_id") != branch_id:
+            return False
+        return True
+
+    emp_map = {eid: e for eid, e in emp_map_all.items() if _emp_matches_filtro(e)}
+    employees = list(emp_map.values())
+
+    reviews_all = (
         db.table("performance_reviews")
         .select("id,employee_id,evaluator_id,final_score,status,is_self_evaluation,submitted_at,observations")
         .eq("cycle_id", cycle_id)
         .execute()
         .data
     )
+    # Só entram na exportação as avaliações de colaboradores que batem com o
+    # filtro de empresa/filial — sem isso, a linha aparecia com Colaborador,
+    # Cargo, Nível, Empresa e Filial em branco (join não encontrava o funcionário).
+    reviews = [r for r in reviews_all if r.get("employee_id") in emp_map]
 
     self_eval_map = {r["employee_id"]: r for r in reviews if r.get("is_self_evaluation")}
     manager_reviews = [r for r in reviews if not r.get("is_self_evaluation")]
@@ -564,7 +581,7 @@ def dashboard_export(
 
     for r in manager_reviews:
         emp = emp_map.get(r.get("employee_id", ""), {})
-        ev = emp_map.get(r.get("evaluator_id", ""), {})
+        ev = emp_map_all.get(r.get("evaluator_id", ""), {})
         branch = emp.get("performance_branches") or {}
         company = emp.get("performance_companies") or {}
         calib = calib_map.get(r["id"])
