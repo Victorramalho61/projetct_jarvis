@@ -9,10 +9,13 @@
 | `performance_reviews.fiscal_documents` | `pg_dump -Fc -Z9` (custom format) | `fiscal_documents_TIMESTAMP.dump` | 7 dias |
 | Resto do banco `postgres` (exclui `fiscal_documents`) | `pg_dump -Fc -Z9` | `postgres_main_TIMESTAMP.dump` | 30 dias |
 | Banco `evolution` (WhatsApp) | `pg_dump -Fc -Z9` | `evolution_db_TIMESTAMP.dump` | 30 dias |
+| Volumes Docker (evolution, waha, hermes, storage, letsencrypt, acme) | `tar czf` via container `alpine` (mount `:ro`) | `vol_<nome>_TIMESTAMP.tar.gz` | 30 dias |
 
 Local: `E:\claudecode\claudecode\backups\{TIMESTAMP}\` (TIMESTAMP = `yyyyMMdd_HHmmss`).
 
 Cada dump é gerado dentro do container `jarvis-db-1` (`docker exec`) e copiado pro host via `docker cp` — evita corromper binário custom-format ao passar pelo pipe do PowerShell.
+
+**Volumes fora do pg_dump (2026-08-13)**: `jarvis_evolution_data`, `jarvis_waha_data`, `jarvis_hermes_data`, `jarvis_storage_data`, `jarvis_letsencrypt_certs`, `jarvis_acme_data` são compactados via container `alpine` temporário montando o volume `:ro` — protege contra corrupção do `.vhdx` do WSL2 (já ocorreu em 2026), que apagaria esses dados junto (não cobertos por pg_dump pois não são bancos Postgres). `jarvis_ollama_data` fica **fora de propósito**: são modelos baixados, reproduzíveis, não dados únicos. Tamanho total medido em 2026-08-13: ~26MB (a maioria dos volumes tem poucos KB) — praticamente não pesa no backup diário.
 
 ---
 
@@ -116,6 +119,16 @@ docker exec jarvis-db-1 pg_restore -U postgres -d evolution --no-owner --no-acl 
 ### Do OneDrive
 
 Baixar manualmente de `Documents/Backup/jarvis_dump_{YYYYMMDD}/` (ou `jarvis_dump_mensal_{YYYYMM}/`) e seguir os passos de restauração acima.
+
+### Volumes Docker (evolution, waha, hermes, storage, letsencrypt, acme)
+
+```powershell
+# Recriar o volume (se nao existir) e restaurar o conteudo
+docker volume create jarvis_hermes_data
+docker run --rm -v jarvis_hermes_data:/data -v E:\claudecode\claudecode\backups\TIMESTAMP:/backup alpine `
+    sh -c "cd /data && tar xzf /backup/vol_hermes_TIMESTAMP.tar.gz"
+```
+Repetir por volume, trocando o nome. Container correspondente precisa estar parado durante a restauracao para evitar gravacao concorrente (`docker compose stop <servico>`, restaura, `docker compose start <servico>`).
 
 ---
 

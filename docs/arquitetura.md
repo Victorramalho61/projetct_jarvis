@@ -2111,3 +2111,25 @@ export function lazyWithReload<T extends ComponentType<any>>(
 ```
 
 Resultado: após um deploy do frontend, a próxima navegação para uma página lazy com chunk stale recarrega a página automaticamente e carrega o build atual, sem erro visível ao usuário.
+
+## Docker Desktop — Docker inteiro fora do ar após reboot do servidor (2026-08-13)
+
+### Problema
+
+Servidor precisou ser reiniciado e o Docker Desktop não voltou — todos os serviços do Jarvis ficaram fora do ar. Causa em cadeia:
+
+1. Uma auto-atualização do Docker Desktop (4.75.0 → 4.86.0) travou (`AppHang`) pouco antes do reboot, deixando o app num estado inconsistente.
+2. Com isso, `com.docker.backend.exe` crashava sempre com `panic: runtime error: invalid memory address or nil pointer dereference` em `startDockerAPIProxy` (`services.go:642`) — reproduzível de forma determinística (mesmo endereço de memória), mesmo após reset completo dos settings (`%APPDATA%\Docker`) e re-registro da distro WSL `docker-desktop`. Sinal de que o binário/dependência instalada estava corrompido, não os dados.
+3. Reparado via reinstalação (instalador oficial 4.86.0 por cima da instalação existente) — não afeta `docker_data.vhdx` (onde ficam containers/imagens/volumes, montado separadamente via `wsl --mount --bare --vhd`).
+4. Após reparar, novo erro: `Wsl/Service/AttachDisk/MountDisk/HCS/E_ACCESSDENIED` ao montar `docker_data.vhdx`. Confirmado com teste manual (`wsl --mount --bare --vhd ...` rodando como Administrador funciona; sem elevação, falha) que o Docker Desktop, rodando sem elevação, não estava conseguindo repassar essa operação pro serviço privilegiado (`com.docker.service`) corretamente.
+
+### Fix
+
+- Removida a entrada de auto-start não elevada em `HKCU:\...\CurrentVersion\Run` (`Docker Desktop`) — é ela que reiniciava o app sem elevação a cada logon, reproduzindo o problema.
+- Criada Tarefa Agendada (`Docker Desktop Elevated Autostart`, Task Scheduler) que inicia `Docker Desktop.exe` no logon do usuário com `-RunLevel Highest` — inicia já elevado, sem prompt de UAC, resolvendo o `E_ACCESSDENIED` no mount do disco de dados.
+- Nenhuma imagem/container/volume foi perdido durante o incidente — confirmado via `docker images`/`docker ps -a` após recuperação (34 imagens, 26 containers, todos retomados via restart policy).
+- `jarvis-hermes-service` continua parado — desligado deliberadamente (CPU alta), não é regressão desse incidente.
+
+### Follow-up
+
+Backup de disco inteiro (`.vhdx`) feito durante o incidente foi só uma rede de segurança pontual, não uma estratégia contínua — ver `docs/BACKUP.md` (2026-08-13): `backup.ps1` passou a exportar também os volumes Docker fora do escopo do `pg_dump` (evolution, waha, hermes, storage, letsencrypt, acme), para não depender de cópia manual do `.vhdx` numa próxima corrupção.

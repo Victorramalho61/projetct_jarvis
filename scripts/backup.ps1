@@ -86,6 +86,20 @@ function check-size($file, $label, $minMB = 0.1) {
     }
 }
 
+function run-volume-backup($volumeName, $label) {
+    # tar.gz do volume inteiro via container temporario (alpine), sem parar nada
+    $outFile = "$BACKUP_PATH\${label}_${TIMESTAMP}.tar.gz"
+    log "${label}: iniciando backup do volume ${volumeName}..."
+    docker run --rm -v "${volumeName}:/data:ro" -v "${BACKUP_PATH}:/backup" alpine `
+        tar czf "/backup/${label}_${TIMESTAMP}.tar.gz" -C /data .
+    if ($LASTEXITCODE -ne 0) {
+        $script:ERRORS += "${label}: tar do volume falhou (exit $LASTEXITCODE)"
+        log "ERRO: ${label} - tar retornou $LASTEXITCODE"
+        return
+    }
+    check-size $outFile $label 0.001
+}
+
 function run-dump($label, $pgArgs, $outFile, $minMB) {
     # Grava dentro do container e copia para evitar corrupcao binaria do PowerShell
     $tmp = "/tmp/bkp_$([System.IO.Path]::GetFileName($outFile))"
@@ -117,6 +131,20 @@ run-dump "postgres_main" "-U postgres -d postgres -Fc -Z 9 --no-owner --no-acl -
 # 3. banco evolution (WhatsApp)
 $f3 = "$BACKUP_PATH\evolution_db_${TIMESTAMP}.dump"
 run-dump "evolution_db" "-U postgres -d evolution -Fc -Z 9 --no-owner --no-acl" $f3 0.01
+
+# 4. Volumes Docker sem cobertura do pg_dump (protege contra crash do vhdx do WSL2)
+# jarvis_ollama_data fora da lista de proposito: sao modelos baixados (reproduziveis), nao dados unicos
+$VOLUMES_TO_BACKUP = @(
+    @{ Volume = "jarvis_evolution_data";    Label = "vol_evolution" },
+    @{ Volume = "jarvis_waha_data";         Label = "vol_waha" },
+    @{ Volume = "jarvis_hermes_data";       Label = "vol_hermes" },
+    @{ Volume = "jarvis_storage_data";      Label = "vol_storage" },
+    @{ Volume = "jarvis_letsencrypt_certs"; Label = "vol_letsencrypt" },
+    @{ Volume = "jarvis_acme_data";         Label = "vol_acme" }
+)
+foreach ($v in $VOLUMES_TO_BACKUP) {
+    run-volume-backup $v.Volume $v.Label
+}
 
 # Rotacao
 log "Rotacao: fiscal<=${RET_FISCAL}d, geral<=${RET_GERAL}d..."
