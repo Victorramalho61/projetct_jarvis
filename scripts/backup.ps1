@@ -24,6 +24,7 @@ $SMTP_USER   = ""
 $SMTP_PASS   = ""
 $SMTP_FROM   = ""
 $NOTIFY_TO   = ""
+$SECRETS_PASSPHRASE = ""
 
 if (Test-Path $ENV_BACKUP) {
     Get-Content $ENV_BACKUP | Where-Object { $_ -match "^\s*[^#]" } | ForEach-Object {
@@ -37,6 +38,7 @@ if (Test-Path $ENV_BACKUP) {
                 "SMTP_PASS"  { $script:SMTP_PASS  = $v }
                 "SMTP_FROM"  { $script:SMTP_FROM  = $v }
                 "NOTIFY_TO"  { $script:NOTIFY_TO  = $v }
+                "SECRETS_BACKUP_PASSPHRASE" { $script:SECRETS_PASSPHRASE = $v }
             }
         }
     }
@@ -104,6 +106,60 @@ function run-volume-backup($volumeName, $label) {
     check-size $outFile $label 0.00001
 }
 
+function backup-secrets() {
+    # .env e volumes/api/kong.yml tem segredos (chaves de criptografia, API keys,
+    # senhas) e ficam fora do git (.gitignore) - sem isso, um DR completo nao
+    # consegue decifrar certificados/cartoes ja salvos nem religar integracoes.
+    # Cifrado com AES-256-CBC, chave derivada via PBKDF2-SHA256 (100k iteracoes)
+    # da SECRETS_BACKUP_PASSPHRASE. Formato do arquivo: salt(16) + iv(16) + ciphertext.
+    if (-not $SECRETS_PASSPHRASE) {
+        log "AVISO: secrets - SECRETS_BACKUP_PASSPHRASE nao configurado em $ENV_BACKUP, backup criptografado pulado"
+        return
+    }
+    $envFile  = "E:\claudecode\claudecode\.env"
+    $kongFile = "E:\claudecode\claudecode\volumes\api\kong.yml"
+    $tmpZip   = "$BACKUP_PATH\secrets_tmp_${TIMESTAMP}.zip"
+    $outFile  = "$BACKUP_PATH\secrets_${TIMESTAMP}.zip.enc"
+    log "secrets: empacotando .env + kong.yml..."
+    try {
+        Compress-Archive -Path $envFile, $kongFile -DestinationPath $tmpZip -Force
+    } catch {
+        $script:ERRORS += "secrets: falha ao compactar - $_"
+        log "ERRO: secrets - falha ao compactar - $_"
+        return
+    }
+    try {
+        $plainBytes = [System.IO.File]::ReadAllBytes($tmpZip)
+        $salt = New-Object byte[] 16
+        $iv   = New-Object byte[] 16
+        $rng  = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+        $rng.GetBytes($salt)
+        $rng.GetBytes($iv)
+        $pbkdf2 = New-Object System.Security.Cryptography.Rfc2898DeriveBytes(
+            $SECRETS_PASSPHRASE, $salt, 100000, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+        $key = $pbkdf2.GetBytes(32)
+        $aes = [System.Security.Cryptography.Aes]::Create()
+        $aes.Key  = $key
+        $aes.IV   = $iv
+        $aes.Mode = [System.Security.Cryptography.CipherMode]::CBC
+        $encryptor   = $aes.CreateEncryptor()
+        $cipherBytes = $encryptor.TransformFinalBlock($plainBytes, 0, $plainBytes.Length)
+        $aes.Dispose()
+        $outBytes = New-Object byte[] ($salt.Length + $iv.Length + $cipherBytes.Length)
+        [Array]::Copy($salt, 0, $outBytes, 0, $salt.Length)
+        [Array]::Copy($iv, 0, $outBytes, $salt.Length, $iv.Length)
+        [Array]::Copy($cipherBytes, 0, $outBytes, $salt.Length + $iv.Length, $cipherBytes.Length)
+        [System.IO.File]::WriteAllBytes($outFile, $outBytes)
+    } catch {
+        $script:ERRORS += "secrets: falha ao criptografar - $_"
+        log "ERRO: secrets - falha ao criptografar - $_"
+        return
+    } finally {
+        Remove-Item -Force -ErrorAction SilentlyContinue $tmpZip
+    }
+    check-size $outFile "secrets" 0.0001
+}
+
 function run-dump($label, $pgArgs, $outFile, $minMB) {
     # Grava dentro do container e copia para evitar corrupcao binaria do PowerShell
     $tmp = "/tmp/bkp_$([System.IO.Path]::GetFileName($outFile))"
@@ -149,6 +205,9 @@ $VOLUMES_TO_BACKUP = @(
 foreach ($v in $VOLUMES_TO_BACKUP) {
     run-volume-backup $v.Volume $v.Label
 }
+
+# 5. Segredos (.env + kong.yml) criptografados - protege contra perda do DR
+backup-secrets
 
 # Rotacao
 log "Rotacao: fiscal<=${RET_FISCAL}d, geral<=${RET_GERAL}d..."

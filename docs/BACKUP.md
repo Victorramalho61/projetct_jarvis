@@ -10,6 +10,7 @@
 | Resto do banco `postgres` (exclui `fiscal_documents`) | `pg_dump -Fc -Z9` | `postgres_main_TIMESTAMP.dump` | 30 dias |
 | Banco `evolution` (WhatsApp) | `pg_dump -Fc -Z9` | `evolution_db_TIMESTAMP.dump` | 30 dias |
 | Volumes Docker (evolution, waha, hermes, storage, letsencrypt, acme) | `tar czf` via container `alpine` (mount `:ro`) | `vol_<nome>_TIMESTAMP.tar.gz` | 30 dias |
+| `.env` + `volumes/api/kong.yml` (segredos, fora do git) | AES-256-CBC + PBKDF2-SHA256, ver seção "Disaster Recovery" | `secrets_TIMESTAMP.zip.enc` | 30 dias |
 
 Local: `E:\claudecode\claudecode\backups\{TIMESTAMP}\` (TIMESTAMP = `yyyyMMdd_HHmmss`).
 
@@ -170,7 +171,26 @@ Consequências concretas se o `.env` se perder junto com o servidor:
 
 **Volume `jarvis_storage_data` fica quase vazio (~8KB) por design, não é perda de dado** — confirmado por busca em todo o backend/frontend: a aplicação nunca usa a Supabase Storage API (`storage-api` container sobe como parte do stack padrão do Supabase, mas nenhum serviço faz upload de arquivo nele).
 
-**Recomendação pendente**: incluir uma cópia criptografada do `.env` + `kong.yml` na rotina de backup (não pode ir em texto puro pro OneDrive junto dos dumps). Ainda não implementado — decisão de onde/como guardar em aberto.
+**Implementado em 2026-08-14**: `backup.ps1` agora empacota `.env` + `volumes/api/kong.yml` num zip e cifra com AES-256-CBC (chave derivada via PBKDF2-SHA256, 100k iterações, salt aleatório) em `secrets_TIMESTAMP.zip.enc`. Formato do arquivo: `salt(16 bytes) + iv(16 bytes) + ciphertext`. O zip temporário sem cifra é apagado logo após a criptografia. O `.enc` entra na mesma pasta do backup diário (rotação de 30 dias) e também sobe pro OneDrive junto dos `.dump` (`upload_backup_onedrive.py` inclui `*.enc` no upload).
+
+A passphrase fica em `SECRETS_BACKUP_PASSPHRASE`, dentro de `scripts\.env.backup` (mesmo arquivo das credenciais SMTP, gitignored). Se a variável não estiver definida, o backup segue normalmente e só loga um aviso pulando essa etapa (não derruba o backup principal).
+
+**⚠️ Crítico**: `scripts\.env.backup` está no mesmo servidor que o `.env` que ele protege — se o servidor inteiro morrer, a passphrase morre junto e o `secrets_*.zip.enc` que chegou no OneDrive fica permanentemente indecifrável. **Uma cópia da passphrase precisa estar guardada fora do servidor (gerenciador de senhas do Victor)**, não só no `.env.backup` local. Isso ainda depende de ação manual — o script não tem como fazer isso sozinho.
+
+**Restaurar** (depois de recuperar a passphrase de onde ela foi guardada):
+```powershell
+$passphrase = "<passphrase guardada no gerenciador de senhas>"
+$bytes = [System.IO.File]::ReadAllBytes("backups\TIMESTAMP\secrets_TIMESTAMP.zip.enc")
+$salt = $bytes[0..15]; $iv = $bytes[16..31]; $cipher = $bytes[32..($bytes.Length-1)]
+$pbkdf2 = New-Object System.Security.Cryptography.Rfc2898DeriveBytes($passphrase, $salt, 100000, [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+$aes = [System.Security.Cryptography.Aes]::Create()
+$aes.Key = $pbkdf2.GetBytes(32); $aes.IV = $iv; $aes.Mode = [System.Security.Cryptography.CipherMode]::CBC
+$plain = $aes.CreateDecryptor().TransformFinalBlock($cipher, 0, $cipher.Length)
+[System.IO.File]::WriteAllBytes("secrets_restored.zip", $plain)
+Expand-Archive secrets_restored.zip -DestinationPath . # gera .env e kong.yml
+```
+
+**Gap ainda aberto (não coberto por este fix)**: os `vol_*.tar.gz` (volumes Docker) ficam só no disco local, `upload_backup_onedrive.py` nunca subiu eles pro OneDrive — se o disco local morrer antes de alguém copiar essa pasta pra outro lugar, esses volumes se perdem junto. Fora do escopo pedido aqui; sinalizado pra decisão futura.
 
 ---
 

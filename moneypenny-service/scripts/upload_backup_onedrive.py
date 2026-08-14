@@ -1,4 +1,4 @@
-"""Sobe os dumps de backup do Jarvis pro OneDrive do Victor (grupovoetur-my.sharepoint.com).
+"""Sobe os dumps de backup (e o secrets_*.zip.enc, se presente) do Jarvis pro OneDrive do Victor (grupovoetur-my.sharepoint.com).
 
 Uso: python scripts/upload_backup_onedrive.py <pasta_do_backup_local> <YYYYMMDD_HHMMSS>
 
@@ -37,10 +37,11 @@ def main() -> int:
         _log(f"ERRO: pasta nao encontrada: {backup_dir}")
         return 1
 
-    files = sorted(backup_dir.glob("*.dump"))
-    if not files:
+    dump_files = sorted(backup_dir.glob("*.dump"))
+    if not dump_files:
         _log(f"ERRO: nenhum .dump encontrado em {backup_dir}")
         return 1
+    files = dump_files + sorted(backup_dir.glob("*.enc"))
 
     db = get_supabase()
     acc_res = db.table("connected_accounts").select("*").eq("provider", "microsoft").execute()
