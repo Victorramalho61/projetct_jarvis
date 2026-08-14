@@ -77,8 +77,9 @@ function check-size($file, $label, $minMB = 0.1) {
         log "ERRO: ${label} - arquivo nao encontrado"
         return
     }
-    $sizeMB = [math]::Round((Get-Item $file).Length / 1MB, 2)
-    if ($sizeMB -lt $minMB) {
+    $rawMB  = (Get-Item $file).Length / 1MB
+    $sizeMB = [math]::Round($rawMB, 2)
+    if ($rawMB -lt $minMB) {
         $script:ERRORS += "${label}: ${sizeMB}MB (minimo: ${minMB}MB)"
         log "AVISO: ${label} - ${sizeMB}MB (suspeito)"
     } else {
@@ -97,7 +98,10 @@ function run-volume-backup($volumeName, $label) {
         log "ERRO: ${label} - tar retornou $LASTEXITCODE"
         return
     }
-    check-size $outFile $label 0.001
+    # limiar bem baixo (so pega arquivo zerado/corrompido) - alguns volumes
+    # (evolution, storage) sao stubs quase vazios legitimamente (~100-150 bytes
+    # de tar.gz), falha real de tar ja e pega pelo exit code acima
+    check-size $outFile $label 0.00001
 }
 
 function run-dump($label, $pgArgs, $outFile, $minMB) {

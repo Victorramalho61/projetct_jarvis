@@ -143,6 +143,37 @@ E-mail de confirmação (OK ou FALHA) enviado a cada execução — configurado 
 
 ---
 
+## Disaster Recovery — recuperação completa em servidor novo (2026-08-14)
+
+Cenário: servidor atual perdido (disco morto, `.vhdx` do WSL2 corrompido) e precisa recriar tudo do zero num Docker novo.
+
+### O que é 100% recuperável
+
+| Item | Fonte | Como |
+|---|---|---|
+| Código de todos os microsserviços, `docker-compose*.yml`, Dockerfiles | `git clone https://github.com/Victorramalho61/projetct_jarvis.git` (remoto GitHub) | `docker compose build` reconstrói as imagens custom; imagens de terceiros (`postgres`, `redis`, `waha`, `ollama` etc.) vêm de `docker pull` normal |
+| Todas as tabelas do Postgres local (usuários/auth do core-service, `connected_accounts` do moneypenny, avaliações/auto-avaliações/plano de ação do performance-service, `fiscal_documents`, resto do schema `public`) | `fiscal_documents_*.dump` + `postgres_main_*.dump` | `pg_restore` (ver seção acima) — todos esses serviços apontam pro mesmo Postgres local (`SUPABASE_URL=http://10.140.0.220:54321`), não Supabase cloud, então um único restore cobre todos |
+| Banco `evolution` (WhatsApp) | `evolution_db_*.dump` | `pg_restore` |
+| Sessão/autenticação WhatsApp (WAHA), estado do Hermes, certificados Let's Encrypt | `vol_waha_*.tar.gz`, `vol_hermes_*.tar.gz`, `vol_letsencrypt_*.tar.gz`, `vol_acme_*.tar.gz` | extrair tar.gz no volume recriado (ver seção "Volumes Docker" acima) |
+
+### O que NÃO é recuperável hoje — gap conhecido
+
+Nenhum backup cobre segredos: `.env` (raiz e de cada serviço) está no `.gitignore` e fora do escopo do `backup.ps1`; `volumes/api/kong.yml` (roteamento do Kong) também está gitignored e sem backup.
+
+Consequências concretas se o `.env` se perder junto com o servidor:
+
+- **`CERT_ENCRYPTION_KEY` (Fernet, fiscal-service)**: os certificados A1 já criptografados no dump do Postgres ficam **permanentemente indecifráveis** sem essa chave — precisaria reemitir/reupload de certificado de cada empresa cliente.
+- **`CARD_ENCRYPTION_KEY` (Fernet, cards-service)**: mesmo problema pros dados de cartão no cofre.
+- **Tokens OAuth (`connected_accounts`, ex. Microsoft/OneDrive)**: o registro sobrevive no banco restaurado, mas sem `MICROSOFT_CLIENT_SECRET` (e demais API keys — D4Sign, Freshservice, Anthropic, WhatsApp, SMTP) as integrações não voltam a funcionar até reconfigurar manualmente cada uma.
+- **`JWT_SECRET` / `POSTGRES_PASSWORD`**: sem perda de dado real (só invalida sessões ativas / senha local do Postgres), recriáveis à vontade.
+- **`kong.yml`**: precisaria reconstruir o roteamento na mão a partir do `docker-compose.yml` (rotas seguem o padrão de "Roteamento rápido" do `CLAUDE.md`).
+
+**Volume `jarvis_storage_data` fica quase vazio (~8KB) por design, não é perda de dado** — confirmado por busca em todo o backend/frontend: a aplicação nunca usa a Supabase Storage API (`storage-api` container sobe como parte do stack padrão do Supabase, mas nenhum serviço faz upload de arquivo nele).
+
+**Recomendação pendente**: incluir uma cópia criptografada do `.env` + `kong.yml` na rotina de backup (não pode ir em texto puro pro OneDrive junto dos dumps). Ainda não implementado — decisão de onde/como guardar em aberto.
+
+---
+
 ## Troubleshooting
 
 **`docker exec jarvis-db-1` falha com "No such container"**
