@@ -729,7 +729,7 @@ function TabIndicadores() {
 
 type Employee = {
   id: string; name: string; matricula: string; cargo: string;
-  level: string; manager_id?: string; manager_name?: string;
+  level: string; manager_id?: string | null; manager_name?: string;
   email?: string; branch_id: string; company_id: string; active?: boolean;
 };
 
@@ -1046,7 +1046,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Empresa *</label>
             <select value={(modal.item as any)?.company_id ?? ""}
-              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, company_id: e.target.value, branch_id: "", manager_id: undefined } }))}
+              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, company_id: e.target.value, branch_id: "", manager_id: null } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Selecione a empresa</option>
               {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -1110,7 +1110,7 @@ function TabHierarquia({ companies }: { companies: any[] }) {
           <div>
             <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Gestor Direto</label>
             <select value={(modal.item as any)?.manager_id ?? ""}
-              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, manager_id: e.target.value || undefined } }))}
+              onChange={e => setModal(m => ({ ...m, item: { ...m.item!, manager_id: e.target.value || null } }))}
               className="w-full rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00694E] text-gray-900 dark:text-gray-100">
               <option value="">Sem gestor direto</option>
               {modalManagers.filter((m: any) => m.id !== modal.item?.id).map((m: any) => (

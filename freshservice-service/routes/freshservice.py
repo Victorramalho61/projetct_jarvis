@@ -150,13 +150,27 @@ async def dashboard_live(_: dict = Depends(require_role("admin"))):
     return await get_live_metrics()
 
 
+_NULL_FILTER = "__none__"
+
+
+def _apply_nullable_eq(query, column: str, raw: str | None):
+    if raw is None:
+        return query
+    if raw == _NULL_FILTER:
+        return query.is_(column, "null")
+    try:
+        return query.eq(column, int(raw))
+    except ValueError:
+        raise HTTPException(422, detail=f"{column} inválido: {raw!r}")
+
+
 @router.get("/tickets")
 async def list_tickets(
     from_date: str | None = Query(None, alias="from"),
     to_date: str | None = Query(None, alias="to"),
-    group_id: int | None = None,
-    responder_id: int | None = None,
-    company_id: int | None = None,
+    group_id: str | None = None,
+    responder_id: str | None = None,
+    company_id: str | None = None,
     priority: int | None = None,
     sla_breached: bool | None = None,
     csat_rating: int | None = None,
@@ -182,12 +196,9 @@ async def list_tickets(
         query = query.gte("updated_at", from_date)
     if to_date:
         query = query.lt("updated_at", to_date)
-    if group_id is not None:
-        query = query.eq("group_id", group_id)
-    if responder_id is not None:
-        query = query.eq("responder_id", responder_id)
-    if company_id is not None:
-        query = query.eq("company_id", company_id)
+    query = _apply_nullable_eq(query, "group_id", group_id)
+    query = _apply_nullable_eq(query, "responder_id", responder_id)
+    query = _apply_nullable_eq(query, "company_id", company_id)
     if priority is not None:
         query = query.eq("priority", priority)
     if sla_breached is not None:

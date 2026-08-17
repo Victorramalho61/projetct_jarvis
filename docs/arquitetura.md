@@ -2133,3 +2133,27 @@ Servidor precisou ser reiniciado e o Docker Desktop não voltou — todos os ser
 ### Follow-up
 
 Backup de disco inteiro (`.vhdx`) feito durante o incidente foi só uma rede de segurança pontual, não uma estratégia contínua — ver `docs/BACKUP.md` (2026-08-13): `backup.ps1` passou a exportar também os volumes Docker fora do escopo do `pg_dump` (evolution, waha, hermes, storage, letsencrypt, acme), para não depender de cópia manual do `.vhdx` numa próxima corrupção.
+
+## AVD (performance-service) e Freshservice — Correções de filtros null/vazio (2026-08-17)
+
+Investigação disparada por relato de usuário: filtro "Sem gestor" na aba Hierarquia do AVD não mostrava colaboradores sem gestor. Três bugs confirmados e corrigidos, todos da mesma família — "campo vazio/nulo não é distinguível de campo omitido/ausente" em algum ponto da cadeia frontend→backend→banco.
+
+### Bug 1 — `manager_id` não era limpo ao editar colaborador (`PerformancePage.tsx`, `admin.py::update_employee`)
+
+Ao editar um colaborador e escolher "Sem gestor direto" (ou trocar a empresa no mesmo modal, que reseta o gestor), o frontend mandava `manager_id: undefined` — `JSON.stringify` remove chaves `undefined` do corpo da requisição, então o PUT chegava ao backend sem o campo `manager_id` nenhum. O backend fazia `if body.manager_id is not None`, que não distingue "campo omitido" de "campo nunca enviado" (Pydantic preenche o default `None` nos dois casos) — o `UPDATE` nunca zerava a coluna no banco, e o colaborador ficava com um gestor "fantasma" pra sempre, inclusive pra efeitos do filtro "Sem gestor" (que em si já estava correto).
+
+Fix: frontend passou a mandar `manager_id: null` explicitamente (não é removido pelo `JSON.stringify`); backend trocou os gates `is not None` por checagem de presença via `body.model_fields_set` (Pydantic v2) nos campos limpáveis (`manager_id`, `email`, `cpf`, `whatsapp_phone`, `active`, `jarvis_username`) — só toca a coluna se o campo foi de fato enviado no request.
+
+### Bug 2 — Dashboard Freshservice: clique em bucket "vazio" não filtrava (`FreshservicePage.tsx`, `freshservice-service/routes/freshservice.py`)
+
+Três drill-downs do dashboard ("Sem Grupo" na tabela SLA por Grupo, técnico não atribuído no board de Técnicos, solicitante anônimo no Top 5 Empresas) convertiam um `group_id`/`responder_id`/`company_id` legitimamente `null` em `undefined` antes de montar o filtro — nenhum parâmetro era enviado, e a tabela de tickets voltava sem filtro nenhum (lista inteira do período) em vez de mostrar só aquele bucket vazio. O backend também só suportava `.eq()`, sem braço pra "me dê as linhas com esse campo NULL".
+
+Fix: os 3 cliques passaram a mandar um sentinel de string (`"__none__"`) em vez de descartar o valor; `GET /api/freshservice/tickets` passou a aceitar esse sentinel e usar `.is_(coluna, "null")` (idiom já usado em outros serviços do repo) quando recebido, mantendo `.eq()` pro caso normal.
+
+### Bug 3 — Dashboard AVD: "Gestores com Avaliações Pendentes" escondia ~62% dos pendentes reais (`admin.py::dashboard_pending_evaluators`)
+
+A query que decide quem está pendente de avaliação do gestor contava qualquer `performance_reviews` com `status in (completed, calibrated)` no ciclo, **sem filtrar `is_self_evaluation=False`** — quando o colaborador concluía a própria autoavaliação, isso era confundido com "o gestor já avaliou", e o colaborador desaparecia da lista mesmo que o gestor não tivesse feito nada ainda. Mesma classe de bug já corrigida em `dashboard/pending-ciencia` em 2026-08-11/12 (ver changelog do Módulo Desempenho acima), mas esse endpoint específico ficou de fora daquela auditoria.
+
+Medido no banco antes do fix (ciclo aberto 2025/2026): 204 colaboradores apareciam como pendentes; o número correto era 527 — **323 colaboradores com avaliação do gestor pendente estavam escondidos** do card. Fix: adicionado `.eq("is_self_evaluation", False)` na query de `reviewed_ids`, no mesmo padrão já usado em `dashboard()` e `dashboard_pending_self_eval`.
+
+Auditoria adicional confirmou que nenhum outro submenu do AVD (Ciclo, Avaliações, Gestão RH, Plano de Ação) nem nenhum outro dashboard do Jarvis (RH, Governance, Fiscal, Expenses, Financeiro, Agents, Monitoring) reproduz esse padrão hoje — riscos latentes anotados mas não corrigidos por não serem alcançáveis pela UI atual: `indicators.py::update_indicator` (`exclude_none=True`) e os campos `jarvis_username`/`name`/`active` de `update_branch` em `admin.py`.

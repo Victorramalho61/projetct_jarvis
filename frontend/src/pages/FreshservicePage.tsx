@@ -336,7 +336,7 @@ export default function FreshservicePage() {
         ) : (
           <SLAGroupTable
             data={slaGroups}
-            onGroupClick={(gid) => openDrill("group", { group_id: gid ?? undefined })}
+            onGroupClick={(gid) => openDrill("group", { group_id: gid === null ? "__none__" : gid })}
           />
         )}
       </div>
@@ -375,7 +375,7 @@ export default function FreshservicePage() {
           ) : (
             <AgentBoard
               data={agents}
-              onAgentClick={(aid) => openDrill("agent", { responder_id: aid ?? undefined })}
+              onAgentClick={(aid) => openDrill("agent", { responder_id: aid === null ? "__none__" : aid })}
             />
           )}
         </div>
@@ -394,7 +394,7 @@ export default function FreshservicePage() {
                 <button
                   key={r.company_id ?? `anon-${i}`}
                   type="button"
-                  onClick={() => openDrill("group", { company_id: r.company_id ?? undefined })}
+                  onClick={() => openDrill("group", { company_id: r.company_id === null ? "__none__" : r.company_id })}
                   className="flex items-center gap-3 w-full text-left hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-lg px-1 -mx-1 py-1 transition-colors"
                 >
                   <span className="text-[11px] font-bold text-gray-400 dark:text-gray-500 w-4">

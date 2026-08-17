@@ -3,12 +3,14 @@ export interface Period {
   to: string;
 }
 
+export type NullableIdFilter = number | "__none__";
+
 export interface TicketFilters {
   from?: string;
   to?: string;
-  group_id?: number;
-  responder_id?: number;
-  company_id?: number;
+  group_id?: NullableIdFilter;
+  responder_id?: NullableIdFilter;
+  company_id?: NullableIdFilter;
   priority?: number;
   sla_breached?: boolean;
   csat_rating?: number;

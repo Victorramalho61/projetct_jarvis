@@ -320,6 +320,7 @@ def dashboard_pending_evaluators(
             db.table("performance_reviews")
             .select("employee_id")
             .eq("cycle_id", cycle_id)
+            .eq("is_self_evaluation", False)
             .in_("status", ["completed", "calibrated"])
             .execute()
             .data
@@ -1331,6 +1332,7 @@ def update_employee(
         raise HTTPException(404, detail="Colaborador não encontrado")
     old = existing.data[0]
 
+    provided = body.model_fields_set
     updates: dict[str, Any] = {"updated_at": "now()"}
     if body.name:
         _validate_name(body.name)
@@ -1340,25 +1342,25 @@ def update_employee(
         updates["matricula"] = body.matricula.strip()
     if body.cargo:
         updates["cargo"] = body.cargo
-    if body.email is not None:
+    if "email" in provided:
         updates["email"] = body.email or None
         updates["has_corporate_email"] = bool(body.email and body.email.strip())
-    if body.cpf is not None:
+    if "cpf" in provided:
         updates["cpf"] = re.sub(r'\D', '', body.cpf).strip() or None
-    if body.whatsapp_phone is not None:
+    if "whatsapp_phone" in provided:
         updates["whatsapp_phone"] = re.sub(r'\D', '', body.whatsapp_phone or "").strip()
     if body.level:
         updates["perfil"] = body.perfil
         updates["hierarchy_level"] = _LEVEL_MAP.get(body.level, 3)
-    if body.manager_id is not None:
+    if "manager_id" in provided:
         updates["manager_id"] = body.manager_id or None
     if body.company_id:
         updates["company_id"] = body.company_id
     if body.branch_id:
         updates["branch_id"] = body.branch_id
-    if body.active is not None:
+    if "active" in provided:
         updates["active"] = body.active
-    if body.jarvis_username is not None:
+    if "jarvis_username" in provided:
         updates["jarvis_username"] = body.jarvis_username
 
     result = db.table("performance_employees").update(updates).eq("id", employee_id).execute()
