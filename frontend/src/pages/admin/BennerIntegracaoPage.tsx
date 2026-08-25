@@ -83,6 +83,34 @@ interface CategoriaDetalhe {
   };
 }
 
+interface CGStat {
+  total: number;
+  sem_cc: number;
+  pct: number;
+}
+
+interface CGCliente {
+  cliente: string;
+  aereo_sem_cc: number;
+  vendas_sem_cc: number;
+  total_sem_cc: number;
+}
+
+interface CGSnapshot {
+  id: number;
+  capturado_em: string;
+  periodo_dias: number;
+  aereo: CGStat;
+  vendas_gerais: CGStat;
+  por_cliente: CGCliente[];
+}
+
+interface CGExemplo {
+  reserva: string | null;
+  data: string | null;
+  handle: number;
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(iso: string | null | undefined) {
@@ -121,7 +149,7 @@ function shortMsg(msg: string | null | undefined): string {
 
 // ── componente principal ──────────────────────────────────────────────────────
 
-type Tab = "monitoramento" | "rpa";
+type Tab = "monitoramento" | "rpa" | "campos_gerenciais";
 
 export default function BennerIntegracaoPage() {
   const { token } = useAuth();
@@ -153,6 +181,14 @@ export default function BennerIntegracaoPage() {
   const [expandedCat, setExpandedCat] = useState<string | null>(null);
   const [catDetalhe, setCatDetalhe] = useState<Record<string, CategoriaDetalhe>>({});
   const [catLoading, setCatLoading] = useState<string | null>(null);
+
+  // ── estado campos gerenciais ─────────────────────────────────────────────
+  const [cgData, setCgData] = useState<CGSnapshot | null>(null);
+  const [cgLoading, setCgLoading] = useState(false);
+  const [cgError, setCgError] = useState<string | null>(null);
+  const [cgExpanded, setCgExpanded] = useState<string | null>(null); // `${cliente}::${tipo}`
+  const [cgExemplos, setCgExemplos] = useState<Record<string, CGExemplo[]>>({});
+  const [cgExemplosLoading, setCgExemplosLoading] = useState<string | null>(null);
 
   // ── carregamento ─────────────────────────────────────────────────────────
 
@@ -216,6 +252,42 @@ export default function BennerIntegracaoPage() {
   useEffect(() => {
     if (tab === "rpa") loadRpa();
   }, [tab, loadRpa]);
+
+  const loadCamposGerenciais = useCallback(async () => {
+    if (!token) return;
+    setCgLoading(true);
+    setCgError(null);
+    try {
+      const d = await apiFetch<CGSnapshot>(
+        "/api/monitoring/benner/campos-gerenciais/latest", { token }
+      );
+      setCgData(d);
+    } catch (e) {
+      setCgError(e instanceof ApiError ? e.message : "Erro ao carregar campos gerenciais.");
+    } finally {
+      setCgLoading(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (tab === "campos_gerenciais") loadCamposGerenciais();
+  }, [tab, loadCamposGerenciais]);
+
+  async function toggleCgCliente(cliente: string, tipo: "aereo" | "vendas_gerais") {
+    const key = `${cliente}::${tipo}`;
+    if (cgExpanded === key) { setCgExpanded(null); return; }
+    setCgExpanded(key);
+    if (cgExemplos[key]) return;
+    setCgExemplosLoading(key);
+    try {
+      const d = await apiFetch<{ items: CGExemplo[] }>(
+        `/api/monitoring/benner/campos-gerenciais/exemplos?cliente=${encodeURIComponent(cliente)}&tipo=${tipo}&dias=${cgData?.periodo_dias ?? 90}`,
+        { token }
+      );
+      setCgExemplos(prev => ({ ...prev, [key]: d.items || [] }));
+    } catch { /* silently ignore */ }
+    finally { setCgExemplosLoading(null); }
+  }
 
   // ── drill-down categoria RPA ─────────────────────────────────────────────
 
@@ -299,7 +371,7 @@ export default function BennerIntegracaoPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-200 dark:border-gray-700">
-        {(["monitoramento", "rpa"] as Tab[]).map(t => (
+        {(["monitoramento", "campos_gerenciais", "rpa"] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -309,7 +381,7 @@ export default function BennerIntegracaoPage() {
                 : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
             }`}
           >
-            {t === "monitoramento" ? "Monitoramento" : "Automações RPA"}
+            {t === "monitoramento" ? "Monitoramento" : t === "campos_gerenciais" ? "Campos gerenciais" : "Automações RPA"}
             {t === "rpa" && rpaSummary && rpaSummary.por_status.aguardando_input > 0 && (
               <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-orange-500 text-white text-[9px] font-bold">
                 {rpaSummary.por_status.aguardando_input}
@@ -579,6 +651,155 @@ export default function BennerIntegracaoPage() {
               <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
                 Contagem de erros: SQL Server direto (últimos 7 dias) · snapshots: banco D-1
               </p>
+            </>
+          )}
+        </>
+      )}
+
+      {/* ── TAB: CAMPOS GERENCIAIS ────────────────────────────────────────── */}
+      {tab === "campos_gerenciais" && (
+        <>
+          {cgLoading && (
+            <div className="flex items-center justify-center h-40">
+              <div className="w-8 h-8 border-4 border-brand-green border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+
+          {cgError && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-300">
+              {cgError}
+            </div>
+          )}
+
+          {!cgLoading && !cgError && !cgData && (
+            <div className="text-center py-16 text-sm text-gray-400">
+              Nenhum snapshot disponível ainda.
+            </div>
+          )}
+
+          {!cgLoading && cgData && (
+            <>
+              <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <p className="text-xs text-blue-700 dark:text-blue-300">
+                  Vendas de clientes que cadastram centro de custo válido no Benner, mas que saíram
+                  sem o campo preenchido — não aparece como erro de integração, a venda passa normal,
+                  só falta a informação gerencial do cliente.
+                </p>
+                <p className="text-[11px] text-blue-500 dark:text-blue-400 mt-1">
+                  Snapshot: {fmt(cgData.capturado_em)} · janela de {cgData.periodo_dias} dias
+                </p>
+              </div>
+
+              {/* KPIs */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: "Aéreo sem CC", value: cgData.aereo.sem_cc.toLocaleString("pt-BR"), sub: `${cgData.aereo.pct}% de ${cgData.aereo.total.toLocaleString("pt-BR")}`, color: snapTaxaCor(cgData.aereo.pct) },
+                  { label: "Vendas gerais sem CC", value: cgData.vendas_gerais.sem_cc.toLocaleString("pt-BR"), sub: `${cgData.vendas_gerais.pct}% de ${cgData.vendas_gerais.total.toLocaleString("pt-BR")}`, color: snapTaxaCor(cgData.vendas_gerais.pct) },
+                  { label: "Clientes afetados", value: cgData.por_cliente.length.toLocaleString("pt-BR"), sub: "top listados abaixo", color: "text-gray-800 dark:text-gray-100" },
+                  { label: "Total sem CC", value: (cgData.aereo.sem_cc + cgData.vendas_gerais.sem_cc).toLocaleString("pt-BR"), sub: "aéreo + vendas gerais", color: "text-red-600 dark:text-red-400" },
+                ].map(({ label, value, sub, color }) => (
+                  <div key={label} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-4">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">{label}</p>
+                    <p className={`text-2xl font-bold tabular-nums ${color}`}>{value}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Tabela por cliente */}
+              <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                  <h2 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    Clientes com vendas sem centro de custo
+                    <span className="ml-1.5 text-xs font-normal text-gray-400">— clique em um número para ver as reservas</span>
+                  </h2>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-gray-50 dark:bg-gray-700/50 text-left text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                        <th className="px-4 py-2.5 font-medium">Cliente</th>
+                        <th className="px-4 py-2.5 font-medium text-right">Aéreo sem CC</th>
+                        <th className="px-4 py-2.5 font-medium text-right">Vendas gerais sem CC</th>
+                        <th className="px-4 py-2.5 font-medium text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cgData.por_cliente.map(c => (
+                        <>
+                          <tr key={c.cliente} className="border-b border-gray-100 dark:border-gray-700">
+                            <td className="px-4 py-2.5 font-medium text-gray-700 dark:text-gray-300 max-w-[280px] truncate" title={c.cliente}>{c.cliente}</td>
+                            {(["aereo", "vendas_gerais"] as const).map(tipo => {
+                              const qtd = tipo === "aereo" ? c.aereo_sem_cc : c.vendas_sem_cc;
+                              const key = `${c.cliente}::${tipo}`;
+                              const isOpen = cgExpanded === key;
+                              return (
+                                <td key={tipo} className="px-4 py-2.5 text-right tabular-nums">
+                                  {qtd > 0 ? (
+                                    <button
+                                      onClick={() => toggleCgCliente(c.cliente, tipo)}
+                                      className={`font-medium hover:underline ${isOpen ? "text-brand-green" : "text-red-600 dark:text-red-400"}`}
+                                    >
+                                      {qtd.toLocaleString("pt-BR")}
+                                    </button>
+                                  ) : (
+                                    <span className="text-gray-400">0</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+                            <td className="px-4 py-2.5 text-right tabular-nums font-semibold text-gray-700 dark:text-gray-300">
+                              {c.total_sem_cc.toLocaleString("pt-BR")}
+                            </td>
+                          </tr>
+                          {(["aereo", "vendas_gerais"] as const).map(tipo => {
+                            const key = `${c.cliente}::${tipo}`;
+                            if (cgExpanded !== key) return null;
+                            const exemplos = cgExemplos[key];
+                            const isLoadingEx = cgExemplosLoading === key;
+                            return (
+                              <tr key={`${key}-detail`}>
+                                <td colSpan={4} className="p-0 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                                  <div className="p-4">
+                                    <p className="text-[11px] font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+                                      {tipo === "aereo" ? "Reservas aéreas sem centro de custo" : "Vendas gerais sem centro de custo"}
+                                    </p>
+                                    {isLoadingEx && (
+                                      <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+                                        <div className="w-4 h-4 border-2 border-brand-green border-t-transparent rounded-full animate-spin" />
+                                        Carregando...
+                                      </div>
+                                    )}
+                                    {!isLoadingEx && exemplos && exemplos.length === 0 && (
+                                      <p className="text-xs text-gray-400 py-2">Nenhuma reserva encontrada.</p>
+                                    )}
+                                    {!isLoadingEx && exemplos && exemplos.length > 0 && (
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {exemplos.map((e, idx) => (
+                                          <span key={idx} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-mono" title={fmt(e.data)}>
+                                            {e.reserva || `#${e.handle}`}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </>
+                      ))}
+                      {cgData.por_cliente.length === 0 && (
+                        <tr>
+                          <td colSpan={4} className="px-4 py-6 text-center text-gray-400">
+                            Nenhum cliente com venda sem centro de custo no período.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </>
           )}
         </>

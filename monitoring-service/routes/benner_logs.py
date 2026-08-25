@@ -4,7 +4,13 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from auth import get_current_user
-from benner_db import query_categorias_erro, query_logs, query_summary
+from benner_db import (
+    query_campos_gerenciais,
+    query_campos_gerenciais_exemplos,
+    query_categorias_erro,
+    query_logs,
+    query_summary,
+)
 from db import get_supabase
 from limiter import limiter
 
@@ -184,6 +190,92 @@ async def benner_summary(
         data = await asyncio.to_thread(query_summary, horas)
     except Exception as exc:
         logger.exception("Erro ao consultar resumo Benner")
+        raise HTTPException(502, f"Falha ao consultar Benner: {exc}") from exc
+    return data
+
+
+@router.get("/campos-gerenciais/latest")
+@limiter.limit("60/minute")
+async def campos_gerenciais_latest(
+    request: Request,
+    _=Depends(get_current_user),
+):
+    """Snapshot mais recente de vendas sem centro de custo (campo gerencial do cliente)."""
+    try:
+        sb = get_supabase()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_campos_gerenciais_snapshots")
+            .select("*")
+            .order("capturado_em", desc=True)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("Erro ao buscar snapshot de campos gerenciais")
+        raise HTTPException(502, f"Falha ao consultar banco: {exc}") from exc
+
+    if not resp.data:
+        raise HTTPException(404, "Nenhum snapshot disponível ainda.")
+
+    return resp.data[0]
+
+
+@router.get("/campos-gerenciais/history")
+@limiter.limit("60/minute")
+async def campos_gerenciais_history(
+    request: Request,
+    limit: int = Query(30, ge=1, le=180),
+    _=Depends(get_current_user),
+):
+    try:
+        sb = get_supabase()
+        resp = await asyncio.to_thread(
+            lambda: sb.table("benner_campos_gerenciais_snapshots")
+            .select("id,capturado_em,periodo_dias,aereo,vendas_gerais")
+            .order("capturado_em", desc=True)
+            .limit(limit)
+            .execute()
+        )
+    except Exception as exc:
+        logger.exception("Erro ao buscar histórico de campos gerenciais")
+        raise HTTPException(502, f"Falha ao consultar banco: {exc}") from exc
+
+    return {"items": list(reversed(resp.data or []))}
+
+
+@router.get("/campos-gerenciais/exemplos")
+@limiter.limit("20/minute")
+async def campos_gerenciais_exemplos(
+    request: Request,
+    cliente: str = Query(...),
+    tipo: str = Query(..., pattern="^(aereo|vendas_gerais)$"),
+    dias: int = Query(90, ge=1, le=365),
+    limit: int = Query(50, ge=1, le=200),
+    _=Depends(get_current_user),
+):
+    """Drill-down ao vivo no SQL Server — amostra de vendas sem centro de custo."""
+    try:
+        data = await asyncio.to_thread(
+            query_campos_gerenciais_exemplos, cliente, tipo, dias, limit
+        )
+    except Exception as exc:
+        logger.exception("Erro ao consultar exemplos de campos gerenciais")
+        raise HTTPException(502, f"Falha ao consultar Benner: {exc}") from exc
+    return {"cliente": cliente, "tipo": tipo, "items": data}
+
+
+@router.get("/campos-gerenciais/summary")
+@limiter.limit("10/minute")
+async def campos_gerenciais_summary(
+    request: Request,
+    dias: int = Query(90, ge=1, le=365),
+    _=Depends(get_current_user),
+):
+    """Consulta ao vivo no SQL Server (fallback / admin), sem depender do snapshot."""
+    try:
+        data = await asyncio.to_thread(query_campos_gerenciais, dias)
+    except Exception as exc:
+        logger.exception("Erro ao consultar campos gerenciais")
         raise HTTPException(502, f"Falha ao consultar Benner: {exc}") from exc
     return data
 

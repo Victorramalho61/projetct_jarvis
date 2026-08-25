@@ -56,3 +56,34 @@ async def sync_benner_snapshot() -> None:
         )
     except Exception as exc:
         logger.error("benner_monitor: falha ao salvar snapshot: %s", exc)
+
+
+async def sync_campos_gerenciais_snapshot() -> None:
+    """Snapshot diário de vendas sem centro de custo (clientes que usam a feature)."""
+    from benner_db import query_campos_gerenciais
+    from db import get_supabase
+
+    try:
+        raw = await asyncio.to_thread(query_campos_gerenciais, 90)
+    except Exception as exc:
+        logger.warning("benner_monitor: falha ao consultar campos gerenciais: %s", exc)
+        return
+
+    payload = {
+        "periodo_dias":  raw["periodo_dias"],
+        "aereo":         raw["aereo"],
+        "vendas_gerais": raw["vendas_gerais"],
+        "por_cliente":   raw["por_cliente"],
+    }
+
+    try:
+        sb = get_supabase()
+        await asyncio.to_thread(
+            lambda: sb.table("benner_campos_gerenciais_snapshots").insert(payload).execute()
+        )
+        logger.info(
+            "benner_monitor: snapshot campos gerenciais salvo — aereo_sem_cc=%d vendas_sem_cc=%d",
+            raw["aereo"]["sem_cc"], raw["vendas_gerais"]["sem_cc"],
+        )
+    except Exception as exc:
+        logger.error("benner_monitor: falha ao salvar snapshot campos gerenciais: %s", exc)

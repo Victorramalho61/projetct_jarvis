@@ -37,10 +37,15 @@ async def _sync_benner() -> None:
     """Captura snapshot comprimido + coleta erros individuais no Benner."""
     from db import get_settings
     from benner_db import query_new_errors
-    from services.benner_monitor import sync_benner_snapshot
+    from services.benner_monitor import sync_benner_snapshot, sync_campos_gerenciais_snapshot
     from services.benner_collector import collect_benner_erros
 
     await sync_benner_snapshot()
+
+    try:
+        await sync_campos_gerenciais_snapshot()
+    except Exception as exc:
+        logger.warning("benner_check: falha no snapshot de campos gerenciais: %s", exc)
 
     try:
         inserted = await collect_benner_erros(horas=48)

@@ -344,3 +344,161 @@ def query_categorias_erro(days: int = 7, exemplos_por_cat: int = 30) -> list[dic
         ],
         key=lambda x: -x["count"],
     )
+
+
+# ── Campos gerenciais (centro de custo do cliente) ausentes na venda ─────────
+# Os contratos Benner (BB_CLIENTECONTRATOS.OBRIGA*) não são usados na prática
+# (100% 'N' em produção) — o sinal real é "cliente tem centro de custo válido
+# cadastrado" (BB_CLIENTECC.VALIDO='S') mas a venda saiu sem ele preenchido.
+
+_CLIENTE_BLOCKLIST = (
+    "CLIENTES DIVERSOS - REEMBOLSO INTEGRAL BAIXA INTERNA",
+    "VOETUR TURISMO E REPRESENTACOES LTDA",
+)
+
+
+def query_campos_gerenciais(days: int = 90, top: int = 30) -> dict:
+    conn = get_benner_conn()
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        WITH usa_cc AS (SELECT DISTINCT BB_CLIENTE FROM BB_CLIENTECC WHERE VALIDO = 'S')
+        SELECT
+            COUNT(*) AS subset_total,
+            SUM(CASE WHEN pa.CENTRODECUSTO IS NULL THEN 1 ELSE 0 END) AS sem_cc
+        FROM BB_PNRACCOUNTINGS pa
+        JOIN usa_cc u ON u.BB_CLIENTE = pa.BB_CLIENTE
+        WHERE pa.DATAEMISSAO >= DATEADD(DAY, ?, GETDATE())
+        """,
+        (-days,),
+    )
+    row = cur.fetchone()
+    aereo_total, aereo_sem_cc = row[0] or 0, row[1] or 0
+
+    cur.execute(
+        """
+        WITH usa_cc AS (SELECT DISTINCT BB_CLIENTE FROM BB_CLIENTECC WHERE VALIDO = 'S')
+        SELECT
+            COUNT(*) AS subset_total,
+            SUM(CASE WHEN v.CENTRODECUSTO IS NULL THEN 1 ELSE 0 END) AS sem_cc
+        FROM BB_VENDASDOCUMENTOS v
+        JOIN usa_cc u ON u.BB_CLIENTE = v.PESSOA
+        WHERE v.DATAENTRADA >= DATEADD(DAY, ?, GETDATE())
+        """,
+        (-days,),
+    )
+    row = cur.fetchone()
+    vendas_total, vendas_sem_cc = row[0] or 0, row[1] or 0
+
+    cur.execute(
+        """
+        WITH usa_cc AS (SELECT DISTINCT BB_CLIENTE FROM BB_CLIENTECC WHERE VALIDO = 'S')
+        SELECT p.NOME, COUNT(*) AS qtd
+        FROM BB_PNRACCOUNTINGS pa
+        JOIN usa_cc u ON u.BB_CLIENTE = pa.BB_CLIENTE
+        LEFT JOIN GN_PESSOAS p ON p.HANDLE = pa.BB_CLIENTE
+        WHERE pa.CENTRODECUSTO IS NULL
+          AND pa.DATAEMISSAO >= DATEADD(DAY, ?, GETDATE())
+        GROUP BY p.NOME
+        """,
+        (-days,),
+    )
+    aereo_por_cliente = {(r[0] or "Desconhecido").strip(): r[1] for r in cur.fetchall()}
+
+    cur.execute(
+        """
+        WITH usa_cc AS (SELECT DISTINCT BB_CLIENTE FROM BB_CLIENTECC WHERE VALIDO = 'S')
+        SELECT p.NOME, COUNT(*) AS qtd
+        FROM BB_VENDASDOCUMENTOS v
+        JOIN usa_cc u ON u.BB_CLIENTE = v.PESSOA
+        LEFT JOIN GN_PESSOAS p ON p.HANDLE = v.PESSOA
+        WHERE v.CENTRODECUSTO IS NULL
+          AND v.DATAENTRADA >= DATEADD(DAY, ?, GETDATE())
+        GROUP BY p.NOME
+        """,
+        (-days,),
+    )
+    vendas_por_cliente = {(r[0] or "Desconhecido").strip(): r[1] for r in cur.fetchall()}
+
+    conn.close()
+
+    clientes = set(aereo_por_cliente) | set(vendas_por_cliente)
+    clientes -= set(_CLIENTE_BLOCKLIST)
+
+    por_cliente = sorted(
+        (
+            {
+                "cliente":        nome,
+                "aereo_sem_cc":   aereo_por_cliente.get(nome, 0),
+                "vendas_sem_cc":  vendas_por_cliente.get(nome, 0),
+                "total_sem_cc":   aereo_por_cliente.get(nome, 0) + vendas_por_cliente.get(nome, 0),
+            }
+            for nome in clientes
+        ),
+        key=lambda x: -x["total_sem_cc"],
+    )[:top]
+
+    return {
+        "periodo_dias": days,
+        "aereo": {
+            "total": aereo_total,
+            "sem_cc": aereo_sem_cc,
+            "pct": round(aereo_sem_cc / aereo_total * 100, 1) if aereo_total else 0,
+        },
+        "vendas_gerais": {
+            "total": vendas_total,
+            "sem_cc": vendas_sem_cc,
+            "pct": round(vendas_sem_cc / vendas_total * 100, 1) if vendas_total else 0,
+        },
+        "por_cliente": por_cliente,
+    }
+
+
+def query_campos_gerenciais_exemplos(
+    cliente: str, tipo: str, days: int = 90, limit: int = 50,
+) -> list[dict]:
+    """Amostra de vendas sem centro de custo para um cliente específico.
+    tipo: 'aereo' ou 'vendas_gerais'.
+    """
+    conn = get_benner_conn()
+    cur = conn.cursor()
+
+    if tipo == "aereo":
+        cur.execute(
+            """
+            SELECT TOP (?) pa.RLOCCODIFICADO, pa.DATAEMISSAO, pa.HANDLE
+            FROM BB_PNRACCOUNTINGS pa
+            LEFT JOIN GN_PESSOAS p ON p.HANDLE = pa.BB_CLIENTE
+            WHERE pa.CENTRODECUSTO IS NULL
+              AND pa.DATAEMISSAO >= DATEADD(DAY, ?, GETDATE())
+              AND p.NOME = ?
+            ORDER BY pa.DATAEMISSAO DESC
+            """,
+            (limit, -days, cliente),
+        )
+        rows = [
+            {"reserva": r[0], "data": r[1].isoformat() if r[1] else None, "handle": r[2]}
+            for r in cur.fetchall()
+        ]
+    else:
+        cur.execute(
+            """
+            SELECT TOP (?) v.CODIGO, v.DATAENTRADA, v.HANDLE
+            FROM BB_VENDASDOCUMENTOS v
+            LEFT JOIN GN_PESSOAS p ON p.HANDLE = v.PESSOA
+            WHERE v.CENTRODECUSTO IS NULL
+              AND v.DATAENTRADA >= DATEADD(DAY, ?, GETDATE())
+              AND p.NOME = ?
+            ORDER BY v.DATAENTRADA DESC
+            """,
+            (limit, -days, cliente),
+        )
+        rows = [
+            {"reserva": str(r[0]) if r[0] is not None else None,
+             "data": r[1].isoformat() if r[1] else None, "handle": r[2]}
+            for r in cur.fetchall()
+        ]
+
+    conn.close()
+    return rows
