@@ -40,13 +40,15 @@ function ProgressBar({ pct }: { pct: number | null }) {
 function TaskTimelineItem({ task, isLast }: { task: FsProjectTask; isLast: boolean }) {
   const [open, setOpen] = useState(false);
   const description = stripHtml(task.raw?.description);
+  const today = new Date().toISOString().slice(0, 10);
+  const isOverdue = !task.is_done && !!task.planned_end_date && task.planned_end_date < today;
 
   return (
     <div className="relative pb-5 pl-6">
       {!isLast && <span className="absolute left-[5px] top-4 bottom-0 w-px bg-gray-200 dark:bg-gray-700" />}
       <span
         className={`absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ring-4 ring-white dark:ring-gray-950 ${
-          task.is_done ? "bg-brand-green" : "bg-gray-300 dark:bg-gray-600"
+          task.is_done ? "bg-brand-green" : isOverdue ? "bg-red-500" : "bg-gray-300 dark:bg-gray-600"
         }`}
       />
       <button type="button" onClick={() => setOpen((o) => !o)} className="w-full text-left group">
@@ -64,11 +66,20 @@ function TaskTimelineItem({ task, isLast }: { task: FsProjectTask; isLast: boole
               Concluída
             </span>
           )}
+          {isOverdue && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 shrink-0">
+              Estourada
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3 mt-1 text-[11px] text-gray-500 dark:text-gray-400">
           <span>{task.assignee_name ?? "Sem responsável"}</span>
           {task.planned_start_date && <span>Início: {fmtDate(task.planned_start_date)}</span>}
-          {task.planned_end_date && <span>Prazo: {fmtDate(task.planned_end_date)}</span>}
+          {task.planned_end_date && (
+            <span className={isOverdue ? "text-red-600 dark:text-red-400 font-medium" : undefined}>
+              Prazo: {fmtDate(task.planned_end_date)}
+            </span>
+          )}
           {description && (
             <span className="ml-auto text-brand-green group-hover:underline shrink-0">
               {open ? "Ocultar descrição ↑" : "Ver descrição ↓"}

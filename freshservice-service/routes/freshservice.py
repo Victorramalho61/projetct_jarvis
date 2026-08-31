@@ -578,7 +578,23 @@ async def list_projects(_: dict = Depends(require_role("admin"))):
 @router.get("/projects/statuses")
 async def list_project_statuses(_: dict = Depends(require_role("admin"))):
     db = get_supabase()
-    return db.table("freshservice_project_statuses").select("*").order("kind").order("status_id").execute().data or []
+    rows = db.table("freshservice_project_statuses").select("*").order("kind").order("status_id").execute().data or []
+
+    task_status_ids = [r["status_id"] for r in rows if r["kind"] == "task"]
+    tasks = (
+        db.table("freshservice_project_tasks").select("status_id,title").in_("status_id", task_status_ids).execute().data or []
+        if task_status_ids else []
+    )
+    titles_by_status: dict[int, list[str]] = {}
+    for t in tasks:
+        titles_by_status.setdefault(t["status_id"], []).append(t["title"])
+
+    for r in rows:
+        if r["kind"] == "task":
+            sample = titles_by_status.get(r["status_id"], [])
+            r["task_count"] = len(sample)
+            r["sample_titles"] = sample[:3]
+    return rows
 
 
 class ProjectStatusUpdate(BaseModel):
@@ -600,6 +616,64 @@ async def update_project_status(
     if not result.data:
         raise HTTPException(status_code=404, detail="Status não encontrado.")
     return result.data[0]
+
+
+@router.get("/projects/overdue-summary")
+async def overdue_tasks_summary(_: dict = Depends(require_role("admin"))):
+    """Tasks com planned_end_date no passado e status não marcado como concluído, agrupadas por projeto."""
+    db = get_supabase()
+    today = datetime.now(_BRT).date().isoformat()
+
+    projects = db.table("freshservice_projects").select("id,name,key,archived").eq("archived", False).execute().data or []
+    projects = [p for p in projects if p["id"] not in _HIDDEN_PROJECT_IDS]
+    proj_map = {p["id"]: p for p in projects}
+
+    tasks = (
+        db.table("freshservice_project_tasks")
+        .select("id,project_id,title,display_key,status_id,assignee_id,planned_end_date")
+        .lt("planned_end_date", today)
+        .execute().data or []
+    )
+
+    _, task_statuses = _status_maps(db)
+    agent_names = _agent_names(db, {t["assignee_id"] for t in tasks if t.get("assignee_id")})
+
+    by_project: dict[int, list[dict]] = {}
+    for t in tasks:
+        if t["project_id"] not in proj_map:
+            continue
+        status_row = task_statuses.get(t["status_id"])
+        if status_row and status_row.get("is_done"):
+            continue
+        days_overdue = (datetime.fromisoformat(today).date() - datetime.fromisoformat(t["planned_end_date"]).date()).days
+        by_project.setdefault(t["project_id"], []).append({
+            **t,
+            "status_label": status_row["label"] if status_row else None,
+            "assignee_name": agent_names.get(t.get("assignee_id")),
+            "days_overdue": days_overdue,
+        })
+
+    result = []
+    for pid, overdue_tasks in by_project.items():
+        overdue_tasks.sort(key=lambda t: -t["days_overdue"])
+        p = proj_map[pid]
+        result.append({
+            "project_id": pid,
+            "project_name": p["name"],
+            "project_key": p.get("key"),
+            "overdue_count": len(overdue_tasks),
+            "tasks": overdue_tasks,
+        })
+    result.sort(key=lambda r: -r["overdue_count"])
+
+    uncurated = [s for s in task_statuses.values() if not s.get("label")]
+
+    return {
+        "projects": result,
+        "total_overdue_tasks": sum(r["overdue_count"] for r in result),
+        "uncurated_status_count": len(uncurated),
+        "total_task_statuses": len(task_statuses),
+    }
 
 
 @router.get("/projects/{project_id}")

@@ -213,3 +213,41 @@ export interface FsProjectDetail {
   tasks: FsProjectTask[];
   pending_by_assignee: FsProjectPendingGroup[];
 }
+
+export interface FsOverdueTask {
+  id: number;
+  project_id: number;
+  title: string;
+  display_key: string | null;
+  status_id: number | null;
+  status_label: string | null;
+  assignee_id: number | null;
+  assignee_name: string | null;
+  planned_end_date: string;
+  days_overdue: number;
+}
+
+export interface FsOverdueProject {
+  project_id: number;
+  project_name: string;
+  project_key: string | null;
+  overdue_count: number;
+  tasks: FsOverdueTask[];
+}
+
+export interface FsOverdueSummary {
+  projects: FsOverdueProject[];
+  total_overdue_tasks: number;
+  uncurated_status_count: number;
+  total_task_statuses: number;
+}
+
+export interface FsProjectStatus {
+  status_id: number;
+  kind: "project" | "task";
+  label: string | null;
+  is_done: boolean;
+  updated_at: string;
+  task_count?: number;
+  sample_titles?: string[];
+}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
-import type { FsProject } from "../types/freshservice";
+import type { FsProject, FsOverdueSummary } from "../types/freshservice";
 import KPICard from "../components/freshservice/KPICard";
 
 function fmtDate(iso: string | null) {
@@ -79,6 +79,7 @@ export default function FreshserviceProjectsPage() {
   const isAdmin = user?.role === "admin";
 
   const [projects, setProjects] = useState<FsProject[]>([]);
+  const [overdue, setOverdue] = useState<FsOverdueSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -87,8 +88,12 @@ export default function FreshserviceProjectsPage() {
     setLoading(true);
     setError(null);
     try {
-      const data = await apiFetch<FsProject[]>(`/api/freshservice/projects`, { token });
+      const [data, overdueData] = await Promise.all([
+        apiFetch<FsProject[]>(`/api/freshservice/projects`, { token }),
+        apiFetch<FsOverdueSummary>(`/api/freshservice/projects/overdue-summary`, { token }),
+      ]);
       setProjects(data);
+      setOverdue(overdueData);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Erro ao carregar projetos.");
     } finally {
@@ -150,7 +155,7 @@ export default function FreshserviceProjectsPage() {
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KPICard label="Projetos ativos" value={active.length} colorClass="text-brand-deep dark:text-brand-mid" />
           <KPICard
             label="% conclusão média"
@@ -161,6 +166,13 @@ export default function FreshserviceProjectsPage() {
             label="Tarefas pendentes"
             value={active.reduce((sum, p) => sum + p.pending_tasks, 0).toLocaleString("pt-BR")}
             colorClass="text-amber-600 dark:text-amber-400"
+          />
+          <KPICard
+            label="Tasks estouradas"
+            value={overdue?.total_overdue_tasks.toLocaleString("pt-BR") ?? "—"}
+            sub={overdue?.uncurated_status_count ? "status a classificar" : undefined}
+            colorClass="text-red-600 dark:text-red-400"
+            onClick={() => navigate("/freshservice/projetos/estouradas")}
           />
         </div>
       )}
