@@ -1188,17 +1188,28 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       .then(s => setCycleOpen(s?.is_open ?? true)).catch(() => {});
   }, [token]);
 
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(filters.search), 350);
+    return () => clearTimeout(t);
+  }, [filters.search]);
+
+  const loadListAbortRef = useRef<AbortController | null>(null);
   function loadList() {
+    loadListAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadListAbortRef.current = controller;
     setLoading(true);
     const params = new URLSearchParams();
     if (filters.status) params.set("status", filters.status);
     if (filters.company_id) params.set("company_id", filters.company_id);
-    if (filters.search) params.set("search", filters.search);
-    apiFetch<any[]>(`/api/performance/admin/evaluations?${params}`, { token })
-      .then(setList).catch(() => setList([]))
+    if (debouncedSearch) params.set("search", debouncedSearch);
+    apiFetch<any[]>(`/api/performance/admin/evaluations?${params}`, { token, signal: controller.signal })
+      .then(setList)
+      .catch((e) => { if (e?.name !== "AbortError") setList([]); })
       .finally(() => setLoading(false));
   }
-  useEffect(() => { loadList(); }, [token, filters]);
+  useEffect(() => { loadList(); }, [token, filters.status, filters.company_id, debouncedSearch]);
 
   const visibleList = list.filter(ev =>
     (calibFilter === "" || (calibFilter === "yes" ? ev.calibrated : !ev.calibrated)) &&
@@ -1993,6 +2004,10 @@ function TabCiclo({ companies }: { companies: any[] }) {
   const [selfEvalTokens, setSelfEvalTokens] = useState<any[]>([]);
   const [resendingSelfEval, setResendingSelfEval] = useState<string | null>(null);
   const [copiedPresencial, setCopiedPresencial] = useState(false);
+  // Envio em lote da avaliação do time — Diretoria (nível 4) não se auto-avalia,
+  // só avalia os colaboradores dela; disparo em massa (/cycle/send-tokens) pula
+  // esse nível de propósito, então precisa desse botão manual.
+  const [sendingEvalBatch, setSendingEvalBatch] = useState<string | null>(null);
 
   // ── Consulta histórica: selecionar um ciclo (atual ou passado) e ver todos
   // os colaboradores avaliados nele, com avaliação/auto-avaliação/calibragem/ciência ──
@@ -2069,6 +2084,21 @@ function TabCiclo({ companies }: { companies: any[] }) {
       alert(e?.message || "Erro ao enviar auto-avaliação.");
     } finally {
       setResendingSelfEval(null);
+    }
+  }
+
+  async function handleSendEvalBatchForEvaluator(evaluatorId: string) {
+    setSendingEvalBatch(evaluatorId);
+    try {
+      const r = await apiFetch<any>("/api/performance/admin/cycle/tokens/send-for-evaluator", {
+        token, method: "POST", json: { evaluator_id: evaluatorId },
+      });
+      alert(`Enviado! ${r.sent_count} avaliação(ões) pendente(s) no e-mail de ${r.evaluator_name}.`);
+      await load();
+    } catch (e: any) {
+      alert(e?.message || "Erro ao enviar avaliações do time.");
+    } finally {
+      setSendingEvalBatch(null);
     }
   }
 
@@ -2362,11 +2392,21 @@ function TabCiclo({ companies }: { companies: any[] }) {
           ...Object.keys(evalByEmp),
           ...Object.keys(selfByEmp),
         ]));
+        // Time pendente por avaliador — usado pra Diretoria (nível 4), que não se
+        // auto-avalia, só avalia os colaboradores dela (disparo em massa pula esse nível).
+        const pendingTeamByEvaluator: Record<string, number> = {};
+        tokens.forEach(t => {
+          if (t.evaluator_id && t.status === "pending") {
+            pendingTeamByEvaluator[t.evaluator_id] = (pendingTeamByEvaluator[t.evaluator_id] || 0) + 1;
+          }
+        });
         const rows = allEmpIds.map(empId => ({
           empId,
           evalTok: evalByEmp[empId] ?? null,
           selfTok: selfByEmp[empId] ?? null,
           name: (evalByEmp[empId]?.employee_name || selfByEmp[empId]?.employee_name || ""),
+          isDiretoria: selfByEmp[empId]?.hierarchy_level === 4,
+          pendingTeam: pendingTeamByEvaluator[empId] || 0,
         })).sort((a, b) => a.name.localeCompare(b.name, "pt-BR"));
 
         return (
@@ -2394,7 +2434,7 @@ function TabCiclo({ companies }: { companies: any[] }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map(({ empId, evalTok, selfTok, name }) => (
+                    {rows.map(({ empId, evalTok, selfTok, name, isDiretoria, pendingTeam }) => (
                       <tr key={empId} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
                         <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{name || "—"}</td>
                         <td className="px-4 py-3 text-sm text-gray-500">{evalTok?.evaluator_name ?? <span className="text-gray-300">—</span>}</td>
@@ -2430,9 +2470,24 @@ function TabCiclo({ companies }: { companies: any[] }) {
                                 </button>
                               ) : <span className="text-xs text-gray-400 italic">sem e-mail</span>
                             )}
-                            {/* Botão enviar/reenviar auto-avaliação */}
-                            {cycleStatus?.status === "open" && selfTok?.status !== "completed" && selfTok?.status !== "invalidated" && (
-                              selfTok ? (
+                            {/* Diretoria (nível 4) também avalia o time dela — disparo em massa
+                                (/cycle/send-tokens) pula esse nível de propósito, então precisa
+                                desse botão manual pra mandar tudo num só e-mail. Aparece ao lado
+                                do Auto-Aval., não no lugar — diretor faz as duas coisas. */}
+                            {isDiretoria && cycleStatus?.status === "open" && pendingTeam > 0 && (
+                              <button onClick={() => handleSendEvalBatchForEvaluator(empId)}
+                                disabled={sendingEvalBatch === empId}
+                                title={`Enviar/reenviar avaliação de ${pendingTeam} colaborador${pendingTeam !== 1 ? "es" : ""} pendente${pendingTeam !== 1 ? "s" : ""} num único e-mail`}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-[#E6F4F0] hover:bg-[#CCE8E0] text-[#00694E] dark:bg-[#00694E]/20 dark:hover:bg-[#00694E]/30 dark:text-emerald-300 rounded-lg transition-all border border-[#00694E]/30 disabled:opacity-60">
+                                {sendingEvalBatch === empId
+                                  ? <span className="w-3.5 h-3.5 border-2 border-emerald-400/30 border-t-emerald-600 rounded-full animate-spin" />
+                                  : <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>}
+                                {`Avaliação (${pendingTeam})`}
+                              </button>
+                            )}
+                            {/* Botão enviar/reenviar auto-avaliação — token invalidado conta como "sem token": mostra criar/enviar */}
+                            {cycleStatus?.status === "open" && selfTok?.status !== "completed" && (
+                              selfTok && selfTok.status !== "invalidated" ? (
                                 <button onClick={() => handleResendSelfEval(selfTok.id)}
                                   disabled={resendingSelfEval === selfTok.id}
                                   title={selfTok.resend_count > 0 ? `Reenviar auto-avaliação (${selfTok.resend_count}x)` : "Reenviar link de auto-avaliação"}
