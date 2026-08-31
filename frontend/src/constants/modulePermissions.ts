@@ -22,4 +22,5 @@ export const MODULE_PERMISSIONS: ModulePermission[] = [
   { id: "financeiro",    label: "Financeiro",            navId: "financeiro" },
   { id: "experiencia",   label: "Aval. de Experiência",  navId: "experiencia" },
   { id: "rh",            label: "Recursos Humanos",      navId: "rh" },
+  { id: "satisfacao",    label: "Pesquisa de Satisfação", navId: "satisfacao" },
 ];

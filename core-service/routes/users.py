@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 _VALID_ROLES = {
     "admin", "user",
     "rh", "gerente", "coordenador_supervisor", "administrativo_operacional",
+    "sgi",
 }
 
 

@@ -19,6 +19,7 @@ Sistema interno da Voetur/VTCLog com autenticação própria e dez módulos:
 | Cofre de Cartões | cards-service | 8012 | Solicitação e aprovação de cartões corporativos com criptografia Fernet |
 | Aval. Experiência | experiencia-service | 8013 | Avaliações de 45/90 dias — sync Benner, e-mail ao gestor, assinatura digital |
 | Status das Vagas de RH | rh-service | 8014 | Gestão de vagas/processos de admissão — dashboard, upload de planilha, impressão de formulário |
+| Pesquisa de Satisfação | satisfacao-service | 8015 | Pesquisa de satisfação de clientes (VTG.CM.PGP.01) — formulário público via token, dashboard com alertas de notas ruins, triagem e plano de ação |
 
 ### Serviços suspensos (❌ não sobem automaticamente)
 
@@ -62,8 +63,10 @@ Browser
         │                                     │     └─► cards-service:8012
         │                                     ├─ /api/experiencia/*
         │                                     │     └─► experiencia-service:8013
-        │                                     └─ /api/rh/*
-        │                                           └─► rh-service:8014
+        │                                     ├─ /api/rh/*
+        │                                     │     └─► rh-service:8014
+        │                                     └─ /api/satisfacao/*
+        │                                           └─► satisfacao-service:8015
         └─ / ──────────────────────────────► SPA React (nginx serve estático)
 
 Inter-serviço (Docker app_net):
@@ -108,6 +111,7 @@ Microsserviços (8001–8011): sem portas expostas ao host, apenas rede interna 
 | `coordenador` | desempenho | criar metas, avaliar liderados, gerenciar PDI |
 | `supervisor` | desempenho | criar metas, avaliar liderados, assinar avaliação |
 | `colaborador` | desempenho | assinar metas recebidas, autoavaliação, tomar ciência |
+| `sgi` | satisfacao | gerenciar campanhas, cadastro de clientes/perguntas, triagem de notas ruins, plano de ação |
 
 ---
 
@@ -2237,3 +2241,90 @@ Commits de correções que já estavam prontas no working tree antes desta sess�
 - **`expenses-service` — modelos LLM descontinuados** (`services/media_classifier.py`, `media_pipeline.py`): `gemini-2.0-flash` e `llama-3.1-8b-instant` passaram a retornar 404 (Groq removeu toda a linha `llama-3.x-instant/versatile` do catálogo). Primário agora `gemini-2.5-flash`, fallback `openai/gpt-oss-20b`.
 - **`performance-service` — `POST /cycle/tokens/send-for-evaluator`** (`routes/admin.py`): envia num único e-mail todas as avaliações pendentes de um avaliador — cobre gestores Diretoria (nível 4), que o disparo em massa (`/cycle/send-tokens`) pula deliberadamente (token fica criado mas pendente, sem e-mail — ver "performance-service — Disparo em massa de tokens de avaliação" acima). Já estava em uso: foi o endpoint usado nesta sessão pra enviar avaliação de equipe pra Andréia, Rafael e Humberto antes mesmo de estar commitado. `GET /cycle/self-evaluation-tokens` passou a retornar `hierarchy_level` no payload, pra permitir filtro por nível na tela admin.
 - **`support-service` — `source` do chamado Freshservice** (`services/freshservice_connector.py`): chamados abertos pelo bot de WhatsApp eram classificados com `source=1` (Email), mascarando a origem real; corrigido para `source=4` (Chat).
+
+## Módulo Pesquisa de Satisfação de Clientes — satisfacao-service:8015 (2026-08-31)
+
+Novo microsserviço que leva o procedimento oficial **VTG.CM.PGP.01 — Pesquisa de Satisfação de Clientes** para dentro do Jarvis, substituindo o fluxo manual via Google Forms + formulário físico. Escopo: pesquisa anual de satisfação (Comercial/SGI); a pesquisa por telefone (canal Go To, atendimento operacional) e um eventual módulo de Ocorrências/Não Conformidades ficam fora de escopo por decisão do Victor — o plano de ação deste módulo é autocontido (status simples aberto/em_andamento/concluido).
+
+**Perfil de acesso**: role `sgi` (novo, junto com `admin`) — único perfil habilitado a ver o módulo. `require_role("admin", "sgi")` em todas as rotas autenticadas do serviço. Adicionado em `core-service/routes/users.py` (`_VALID_ROLES`), `schema.sql` + migration `core-service/migrations/003_add_sgi_role.sql` (corrige também o `CHECK` de `profiles.role`, que estava desatualizado — só listava `admin`/`user` apesar de `rh`/`gerente`/`coordenador_supervisor`/`administrativo_operacional` já estarem em uso), `frontend/src/context/AuthContext.tsx` (`Role`), `AppLayout.tsx` (`NAV_ITEMS`, padrão pai+subitens igual RH) e `constants/modulePermissions.ts`.
+
+**Telas** (3, `frontend/src/pages/`):
+- `SatisfacaoDashboardPage.tsx` (`/satisfacao`) — KPIs (convidados, aderência, dias restantes, planos de ação abertos), distribuição de notas por pergunta com badge de alerta (>30% notas ruins), drilldown em modal com comentários pendentes de triagem, comparativo anual (recharts).
+- `SatisfacaoEnvioPage.tsx` (`/satisfacao/envio`) — uso do SGI: criar/iniciar/postergar/encerrar campanha, tabela de respostas por cliente (reenviar cobrança, lançar resposta manual como fallback de quem responde fora do sistema), fila de triagem de notas ruins (classificação por causa-raiz), CRUD de planos de ação.
+- `SatisfacaoCadastroPage.tsx` (`/satisfacao/cadastro`) — cadastro de clientes/contatos/e-mails, CRUD do template de perguntas e dos "pontos de avaliação" (taxonomia de causa-raiz usada na triagem).
+- `PublicSatisfacaoPage.tsx` (`/satisfacao/responder/:token`, fora do `ProtectedRoute`) — formulário público sem login, token opaco (`secrets.token_urlsafe(32)`, expira em 60 dias), mesmo padrão de `PublicExperienciaPage.tsx`.
+
+**Schema** (`satisfacao-service/migration_001_satisfacao.sql` + seed em `migration_002_satisfacao_seed_pontos.sql`, prefixo `sat_`):
+
+```mermaid
+erDiagram
+    sat_clientes ||--o{ sat_respostas : recebe
+    sat_perguntas ||--o{ sat_pontos_avaliacao : "causa-raiz"
+    sat_perguntas ||--o{ sat_campanha_perguntas : "snapshot"
+    sat_campanhas ||--o{ sat_campanha_perguntas : contem
+    sat_campanhas ||--o{ sat_respostas : gera
+    sat_respostas ||--o{ sat_respostas_itens : possui
+    sat_respostas ||--o{ sat_email_log : loga
+    sat_campanha_perguntas ||--o{ sat_respostas_itens : responde
+    sat_pontos_avaliacao ||--o{ sat_respostas_itens : classifica
+    sat_campanhas ||--o{ sat_planos_acao : dispara
+    sat_perguntas ||--o{ sat_planos_acao : referencia
+
+    sat_clientes {
+        uuid id PK
+        text empresa_nome
+        text contato_nome
+        text contato_email
+        bool ativo
+    }
+    sat_perguntas {
+        uuid id PK
+        int ordem
+        text texto
+        text categoria
+        bool ativa
+    }
+    sat_campanhas {
+        uuid id PK
+        int ano UK
+        text status
+        date data_prazo
+        int qtd_postergacoes
+    }
+    sat_respostas {
+        uuid id PK
+        uuid campanha_id FK
+        uuid cliente_id FK
+        text status
+        text canal_resposta
+        text token UK
+    }
+    sat_respostas_itens {
+        uuid id PK
+        uuid resposta_id FK
+        int nota
+        text triagem_status
+        uuid triagem_ponto_id FK
+    }
+    sat_planos_acao {
+        uuid id PK
+        uuid campanha_id FK
+        uuid pergunta_id FK
+        numeric percentual_notas_ruins
+        text status
+    }
+```
+
+- `sat_campanha_perguntas` faz snapshot do texto da pergunta no momento da criação da campanha — editar/desativar uma pergunta depois não altera dados históricos.
+- `sat_respostas_itens.triagem_status` vira `pendente` automaticamente quando `nota IN (1,2)` (regra em código, `routes/public.py`/`routes/admin.py`), alimentando a fila de triagem do SGI.
+- `sat_planos_acao` é por pergunta×campanha (não por resposta individual), conforme a regra do procedimento ("se notas ruins excederem 30% das respostas de um item").
+
+**Regras de negócio automatizadas** (`services/scheduler.py`, APScheduler `BackgroundScheduler`, timezone `America/Sao_Paulo`):
+- `07h00` — `_job_verificar_aderencia`: se aderência < 30% e a campanha ainda não sofreu postergação automática (`qtd_postergacoes == 0`), posterga +10 dias úteis e reforça convite aos pendentes. Só posterga automaticamente **uma vez**; qualquer nova postergação exige ação manual do SGI (decisão confirmada com o Victor, evita loop indefinido de prazos).
+- `07h30` — `_job_verificar_prazo_vencido`: encerra automaticamente campanhas cujo `data_prazo` já passou, expirando respostas pendentes.
+- `08h00` — `_job_cobranca_automatica`: reenvia cobrança para quem está com status `enviado` há mais de 5 dias sem responder.
+- Prazos (15 dias úteis para responder, +10 dias úteis de postergação) calculados via `services/business_days.py`, usando `workalendar.america.Brazil()` (feriados nacionais) — única dependência nova do projeto, isolada neste serviço (decisão confirmada com o Victor: precisão de feriados em vez de contar só fim de semana).
+
+**E-mail**: `services/email_service.py` — SMTP direto (`smtplib`), reaproveitando as env vars `SMTP_*` já usadas por outros serviços + nova `SGI_EMAIL` (destinatário das notificações de nova resposta/notas ruins, default `sgi@voetur.com.br`). Templates: `send_primeiro_envio`, `send_cobranca`, `send_reforco_adesao` (pós-postergação), `send_confirmacao_sgi`. Log de envio em `sat_email_log`, mesmo padrão de `exp_email_log` do `experiencia-service`.
+
+**Documentos-fonte**: as 5 perguntas oficiais e a taxonomia de causa-raiz (53 "pontos de avaliação") vieram da planilha "Questões da Pesquisa e Notas Ruins.xlsx" e do procedimento oficial "VTG.CM.PGP.01 - Pesquisa de Satisfação de Clientes.docx", fornecidos pelo Victor.

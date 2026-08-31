@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
     username      text UNIQUE NOT NULL,
     display_name  text NOT NULL,
     email         text UNIQUE NOT NULL,
-    role          text NOT NULL DEFAULT 'user' CHECK (role IN ('admin','user')),
+    role          text NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'rh', 'gerente', 'coordenador_supervisor', 'administrativo_operacional', 'sgi')),
     active        boolean NOT NULL DEFAULT false,
     password_hash text,
     whatsapp_phone text DEFAULT '',
