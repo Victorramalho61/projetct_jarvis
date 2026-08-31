@@ -2130,6 +2130,97 @@ def resend_cycle_token(
     return {"ok": ok}
 
 
+class SendForEvaluatorBody(BaseModel):
+    evaluator_id: str
+
+
+@router.post("/cycle/tokens/send-for-evaluator")
+def send_evaluation_batch_for_evaluator(
+    body: SendForEvaluatorBody,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    """Envia num único e-mail todas as avaliações pendentes de um avaliador —
+    usado pra gestores Diretoria (nível 4), que o disparo em massa
+    (/cycle/send-tokens) deliberadamente pula (fica só com token criado e pendente)."""
+    from services.email import send_evaluation_batch_email
+
+    db = get_supabase()
+    s = get_settings()
+    frontend_url = s.allowed_origins.split(",")[0].strip().rstrip("/")
+
+    cycle = _get_current_cycle(db)
+    if not cycle or cycle["status"] != "open":
+        raise HTTPException(400, detail="O ciclo precisa estar aberto")
+
+    evaluator_res = db.table("performance_employees").select("*").eq("id", body.evaluator_id).eq("active", True).execute()
+    if not evaluator_res.data:
+        raise HTTPException(404, detail="Avaliador não encontrado ou inativo")
+    evaluator = evaluator_res.data[0]
+    if not evaluator.get("has_corporate_email") or not evaluator.get("email"):
+        raise HTTPException(400, detail="Avaliador não possui e-mail corporativo cadastrado")
+
+    tokens = (
+        db.table("performance_evaluation_tokens")
+        .select("id,token,employee_id,resend_count")
+        .eq("cycle_id", cycle["id"]).eq("evaluator_id", body.evaluator_id)
+        .eq("is_used", False).is_("invalidated_at", "null")
+        .execute().data or []
+    )
+    if not tokens:
+        raise HTTPException(400, detail="Nenhuma avaliação pendente para este avaliador")
+
+    emp_ids = [t["employee_id"] for t in tokens if t.get("employee_id")]
+    emps_map: dict = {}
+    for chunk in _chunks(emp_ids):
+        for e in db.table("performance_employees").select("id,name,cargo,company_id,branch_id").in_("id", chunk).execute().data or []:
+            emps_map[e["id"]] = e
+
+    co_ids = list({e["company_id"] for e in emps_map.values() if e.get("company_id")})
+    companies_map: dict = {}
+    for chunk in _chunks(co_ids):
+        for co in db.table("performance_companies").select("id,name").in_("id", chunk).execute().data or []:
+            companies_map[co["id"]] = co["name"]
+
+    branch_ids = list({e["branch_id"] for e in emps_map.values() if e.get("branch_id")})
+    branches_map: dict = {}
+    for chunk in _chunks(branch_ids):
+        for br in db.table("performance_branches").select("id,name").in_("id", chunk).execute().data or []:
+            branches_map[br["id"]] = br["name"]
+
+    employees_payload = []
+    for t in tokens:
+        emp = emps_map.get(t.get("employee_id"))
+        if not emp:
+            continue
+        employees_payload.append({
+            "name": emp["name"], "cargo": emp.get("cargo", ""),
+            "company_name": companies_map.get(emp.get("company_id", ""), ""),
+            "branch_name": branches_map.get(emp.get("branch_id", ""), ""),
+            "token": t["token"],
+        })
+    if not employees_payload:
+        raise HTTPException(400, detail="Nenhuma avaliação pendente para este avaliador")
+
+    ok = send_evaluation_batch_email(
+        evaluator_name=evaluator["name"], evaluator_email=evaluator["email"],
+        employees=employees_payload, cycle_name=cycle["name"], frontend_url=frontend_url,
+    )
+    if not ok:
+        raise HTTPException(502, detail="Falha ao enviar e-mail. Verifique configuração SMTP.")
+
+    now_iso = datetime.now(tz=timezone.utc).isoformat()
+    for t in tokens:
+        db.table("performance_evaluation_tokens").update({
+            "sent_at": now_iso, "sent_to_email": evaluator["email"],
+            "resend_count": (t.get("resend_count") or 0) + 1,
+        }).eq("id", t["id"]).execute()
+
+    log_action("evaluator_batch", body.evaluator_id, "send", None,
+               {"qtd_colaboradores": len(employees_payload)}, current_user["username"], request)
+    return {"ok": True, "sent_count": len(employees_payload), "evaluator_name": evaluator["name"]}
+
+
 def _send_self_evaluation_tokens_background(to_send: list[dict], cycle_id: str, cycle_name: str, frontend_url: str, actor: str) -> None:
     from services.email import send_self_evaluation_email
 
@@ -2291,7 +2382,7 @@ def get_self_evaluation_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMI
     all_emp_ids = list({t["employee_id"] for t in tokens if t.get("employee_id")})
     emp_map: dict[str, dict] = {}
     for _chunk in _chunks(all_emp_ids):
-        emps = db.table("performance_employees").select("id,name,email,has_corporate_email").in_("id", _chunk).execute().data or []
+        emps = db.table("performance_employees").select("id,name,email,has_corporate_email,hierarchy_level").in_("id", _chunk).execute().data or []
         emp_map.update({e["id"]: e for e in emps})
 
     result = []
@@ -2301,6 +2392,7 @@ def get_self_evaluation_tokens(_: Annotated[dict, Depends(require_role(*_RH_ADMI
             "id": t["id"],
             "employee_id": t.get("employee_id"),
             "employee_name": emp.get("name", ""),
+            "hierarchy_level": emp.get("hierarchy_level"),
             "status": "completed" if t["is_used"] else ("invalidated" if t.get("invalidated_at") else "pending"),
             "sent_at": t.get("sent_at"),
             "resend_count": t.get("resend_count", 0),
