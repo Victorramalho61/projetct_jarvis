@@ -1,7 +1,6 @@
 """Rotas admin/SGI — campanhas, respostas, triagem, planos de ação, dashboard."""
 import logging
-import secrets
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -17,18 +16,49 @@ log = logging.getLogger(__name__)
 _ROLES = ("admin", "sgi")
 
 
+class ItemInvalido(Exception):
+    pass
+
+
 def _require_acesso(user=Depends(require_role(*_ROLES))):
     return user
 
 
-def _gerar_token(resposta_id: str, sb) -> str:
-    token = secrets.token_urlsafe(32)
-    expires = (datetime.now(timezone.utc) + timedelta(days=60)).isoformat()
-    sb.table("sat_respostas").update({
-        "token": token,
-        "token_expires_at": expires,
-    }).eq("id", resposta_id).execute()
-    return token
+def _aplicar_itens(
+    sb,
+    resposta_id: str,
+    itens: list[dict],
+    canal_resposta: str,
+    lancado_por: Optional[str] = None,
+) -> None:
+    """Grava as notas/comentários de uma resposta e marca como respondida.
+
+    Reaproveitado por lançamento manual do SGI, conciliação automática do webhook
+    do Microsoft Forms e conciliação manual de respostas não identificadas.
+    """
+    for item in itens:
+        if not (1 <= item["nota"] <= 5):
+            raise ItemInvalido(f"Nota inválida: {item['nota']}")
+
+    for item in itens:
+        triagem_status = "pendente" if item["nota"] <= 2 else "nao_aplicavel"
+        sb.table("sat_respostas_itens").insert({
+            "resposta_id": resposta_id,
+            "campanha_pergunta_id": item["campanha_pergunta_id"],
+            "nota": item["nota"],
+            "comentario": item.get("comentario"),
+            "triagem_status": triagem_status,
+        }).execute()
+
+    update = {
+        "status": "respondido",
+        "canal_resposta": canal_resposta,
+        "respondido_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": "now()",
+    }
+    if lancado_por:
+        update["lancado_por"] = lancado_por
+    sb.table("sat_respostas").update(update).eq("id", resposta_id).execute()
 
 
 def _registrar_envio(sb, resposta_id: str, destinatario: str, tipo_email: str, sucesso: bool):
@@ -54,6 +84,12 @@ def _registrar_envio(sb, resposta_id: str, destinatario: str, tipo_email: str, s
 class CampanhaPayload(BaseModel):
     ano: int
     titulo: str
+    ms_forms_url: str
+
+
+class CampanhaUpdatePayload(BaseModel):
+    titulo: Optional[str] = None
+    ms_forms_url: Optional[str] = None
 
 
 @router.get("/campanhas")
@@ -71,6 +107,9 @@ def list_campanhas(user=Depends(_require_acesso)):
 
 @router.post("/campanhas")
 def create_campanha(payload: CampanhaPayload, user=Depends(_require_acesso)):
+    if not payload.ms_forms_url.strip():
+        raise HTTPException(status_code=422, detail="Informe o link do Microsoft Forms")
+
     sb = get_supabase()
 
     existente = sb.table("sat_campanhas").select("id").eq("ano", payload.ano).execute()
@@ -80,6 +119,7 @@ def create_campanha(payload: CampanhaPayload, user=Depends(_require_acesso)):
     campanha = sb.table("sat_campanhas").insert({
         "ano": payload.ano,
         "titulo": payload.titulo,
+        "ms_forms_url": payload.ms_forms_url.strip(),
         "status": "rascunho",
         "created_by": user.get("username"),
     }).execute().data[0]
@@ -113,6 +153,19 @@ def get_campanha(campanha_id: str, user=Depends(_require_acesso)):
     return resp.data
 
 
+@router.patch("/campanhas/{campanha_id}")
+def update_campanha(campanha_id: str, payload: CampanhaUpdatePayload, user=Depends(_require_acesso)):
+    sb = get_supabase()
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=422, detail="Nada para atualizar")
+    update["updated_at"] = "now()"
+    resp = sb.table("sat_campanhas").update(update).eq("id", campanha_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Campanha não encontrada")
+    return resp.data[0]
+
+
 @router.post("/campanhas/{campanha_id}/iniciar")
 def iniciar_campanha(campanha_id: str, user=Depends(_require_acesso)):
     sb = get_supabase()
@@ -121,6 +174,8 @@ def iniciar_campanha(campanha_id: str, user=Depends(_require_acesso)):
         raise HTTPException(status_code=404, detail="Campanha não encontrada")
     if campanha["status"] != "rascunho":
         raise HTTPException(status_code=409, detail="Campanha já foi iniciada")
+    if not (campanha.get("ms_forms_url") or "").strip():
+        raise HTTPException(status_code=422, detail="Defina o link do Microsoft Forms antes de iniciar a campanha")
 
     hoje = date.today()
     prazo = add_business_days(hoje, 15)
@@ -147,8 +202,7 @@ def iniciar_campanha(campanha_id: str, user=Depends(_require_acesso)):
         if not cliente.get("contato_email"):
             erros += 1
             continue
-        token = r.get("token") or _gerar_token(r["id"], sb)
-        ok = send_primeiro_envio(cliente, campanha, token)
+        ok = send_primeiro_envio(cliente, campanha)
         _registrar_envio(sb, r["id"], cliente["contato_email"], "primeiro_envio", ok)
         enviados += 1 if ok else 0
         erros += 0 if ok else 1
@@ -192,7 +246,7 @@ def postergar_campanha(campanha_id: str, payload: PostergarPayload, user=Depends
     )
     for r in pendentes:
         cliente = r.get("sat_clientes") or {}
-        if not cliente.get("contato_email") or not r.get("token"):
+        if not cliente.get("contato_email"):
             continue
         ok = send_reforco_adesao(cliente, campanha, r)
         _registrar_envio(sb, r["id"], cliente["contato_email"], "reforco_adesao", ok)
@@ -258,9 +312,6 @@ def reenviar_resposta(resposta_id: str, user=Depends(_require_acesso)):
     if not cliente.get("contato_email"):
         raise HTTPException(status_code=422, detail="Cliente sem e-mail cadastrado")
 
-    token = r.get("token") or _gerar_token(resposta_id, sb)
-    r["token"] = token
-
     from services.email_service import send_cobranca
     ok = send_cobranca(cliente, campanha, r)
     _registrar_envio(sb, resposta_id, cliente["contato_email"], "cobranca", ok)
@@ -289,25 +340,15 @@ def lancar_resposta_manual(resposta_id: str, payload: LancarManualPayload, user=
     if r["status"] == "respondido":
         raise HTTPException(status_code=409, detail="Resposta já registrada")
 
-    for item in payload.itens:
-        if not (1 <= item.nota <= 5):
-            raise HTTPException(status_code=422, detail="Nota deve estar entre 1 e 5")
-        triagem_status = "pendente" if item.nota <= 2 else "nao_aplicavel"
-        sb.table("sat_respostas_itens").insert({
-            "resposta_id": resposta_id,
-            "campanha_pergunta_id": item.campanha_pergunta_id,
-            "nota": item.nota,
-            "comentario": item.comentario,
-            "triagem_status": triagem_status,
-        }).execute()
-
-    sb.table("sat_respostas").update({
-        "status": "respondido",
-        "canal_resposta": "manual_sgi",
-        "respondido_at": datetime.now(timezone.utc).isoformat(),
-        "lancado_por": user.get("username"),
-        "updated_at": "now()",
-    }).eq("id", resposta_id).execute()
+    try:
+        _aplicar_itens(
+            sb, resposta_id,
+            [item.model_dump() for item in payload.itens],
+            "manual_sgi",
+            lancado_por=user.get("username"),
+        )
+    except ItemInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
     return {"ok": True}
 
@@ -431,3 +472,129 @@ def get_dashboard(campanha_id: str, user=Depends(_require_acesso)):
 def get_historico(user=Depends(_require_acesso)):
     from services.dashboard import build_historico
     return build_historico()
+
+
+# ── Microsoft Forms — conciliação manual e log de envios ─────────────────────
+
+@router.get("/campanhas/{campanha_id}/ms-forms-log")
+def list_ms_forms_log(campanha_id: str, status: Optional[str] = Query(None), user=Depends(_require_acesso)):
+    sb = get_supabase()
+    query = (
+        sb.table("sat_ms_forms_log")
+        .select("*, sat_clientes(empresa_nome, contato_nome)")
+        .eq("campanha_id", campanha_id)
+    )
+    if status:
+        query = query.eq("status", status)
+    resp = query.order("recebido_em", desc=True).execute()
+    return resp.data or []
+
+
+class ConciliarMsFormsPayload(BaseModel):
+    resposta_id: str
+
+
+@router.post("/ms-forms-log/{log_id}/conciliar")
+def conciliar_ms_forms(log_id: str, payload: ConciliarMsFormsPayload, user=Depends(_require_acesso)):
+    sb = get_supabase()
+    log_row = sb.table("sat_ms_forms_log").select("*").eq("id", log_id).single().execute().data
+    if not log_row:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    if log_row["status"] == "conciliado":
+        raise HTTPException(status_code=409, detail="Este registro já foi conciliado")
+
+    resposta = sb.table("sat_respostas").select("*").eq("id", payload.resposta_id).single().execute().data
+    if not resposta:
+        raise HTTPException(status_code=404, detail="Resposta não encontrada")
+    if resposta["status"] == "respondido":
+        raise HTTPException(status_code=409, detail="Essa resposta já foi respondida")
+
+    cp_por_ordem = {
+        cp["ordem"]: cp["id"] for cp in
+        sb.table("sat_campanha_perguntas").select("id, ordem").eq("campanha_id", resposta["campanha_id"]).execute().data or []
+    }
+    itens_bruto = (log_row.get("payload_bruto") or {}).get("itens", [])
+    itens_resolvidos = []
+    for item in itens_bruto:
+        cp_id = cp_por_ordem.get(item.get("ordem"))
+        if not cp_id:
+            raise HTTPException(status_code=422, detail=f"Ordem de pergunta inválida no payload: {item.get('ordem')}")
+        itens_resolvidos.append({
+            "campanha_pergunta_id": cp_id,
+            "nota": item.get("nota"),
+            "comentario": item.get("comentario"),
+        })
+
+    try:
+        _aplicar_itens(sb, payload.resposta_id, itens_resolvidos, "ms_forms", lancado_por=user.get("username"))
+    except ItemInvalido as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    sb.table("sat_ms_forms_log").update({
+        "status": "conciliado",
+        "matched": True,
+        "resposta_id": payload.resposta_id,
+        "cliente_id": resposta["cliente_id"],
+        "conciliado_por": user.get("username"),
+        "conciliado_em": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", log_id).execute()
+
+    return {"ok": True}
+
+
+@router.post("/ms-forms-log/{log_id}/ignorar")
+def ignorar_ms_forms(log_id: str, user=Depends(_require_acesso)):
+    sb = get_supabase()
+    resp = sb.table("sat_ms_forms_log").update({"status": "ignorado"}).eq("id", log_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Registro não encontrado")
+    return {"ok": True}
+
+
+@router.get("/campanhas/{campanha_id}/log-envios")
+def list_log_envios(campanha_id: str, user=Depends(_require_acesso)):
+    sb = get_supabase()
+
+    respostas = (
+        sb.table("sat_respostas")
+        .select("id, sat_clientes(empresa_nome, contato_nome)")
+        .eq("campanha_id", campanha_id)
+        .execute()
+        .data or []
+    )
+    cliente_por_resposta = {r["id"]: (r.get("sat_clientes") or {}) for r in respostas}
+    resposta_ids = list(cliente_por_resposta.keys())
+
+    eventos = []
+
+    if resposta_ids:
+        email_log = sb.table("sat_email_log").select("*").in_("resposta_id", resposta_ids).execute().data or []
+        for e in email_log:
+            cliente = cliente_por_resposta.get(e["resposta_id"], {})
+            eventos.append({
+                "tipo": e["tipo_email"],
+                "data": e["enviado_at"],
+                "cliente_nome": cliente.get("empresa_nome") or "—",
+                "sucesso": e["sucesso"],
+                "detalhe": e.get("erro_detalhe"),
+            })
+
+    forms_log = (
+        sb.table("sat_ms_forms_log")
+        .select("*, sat_clientes(empresa_nome)")
+        .eq("campanha_id", campanha_id)
+        .execute()
+        .data or []
+    )
+    for f in forms_log:
+        cliente = f.get("sat_clientes") or {}
+        eventos.append({
+            "tipo": f"ms_forms_{f['status']}",
+            "data": f["recebido_em"],
+            "cliente_nome": cliente.get("empresa_nome") or f.get("empresa_informada") or f.get("email_informado") or "—",
+            "sucesso": f["status"] == "conciliado",
+            "detalhe": f.get("erro_detalhe"),
+        })
+
+    eventos.sort(key=lambda e: e["data"], reverse=True)
+    return eventos

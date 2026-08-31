@@ -3,9 +3,17 @@ import { useAuth } from "../context/AuthContext";
 import { apiFetch, ApiError } from "../lib/api";
 
 type Campanha = {
-  id: string; ano: number; titulo: string; status: string;
+  id: string; ano: number; titulo: string; status: string; ms_forms_url?: string;
   data_inicio?: string; data_prazo?: string; qtd_postergacoes: number;
   total_convidados?: number; total_respondidos?: number;
+};
+
+type LogEnvioEvento = { tipo: string; data: string; cliente_nome: string; sucesso: boolean; detalhe?: string | null };
+
+type MsFormsLogItem = {
+  id: string; status: string; email_informado?: string | null; empresa_informada?: string | null;
+  erro_detalhe?: string | null; recebido_em: string;
+  sat_clientes?: { empresa_nome: string; contato_nome: string } | null;
 };
 
 type Resposta = {
@@ -66,8 +74,20 @@ const TABS = [
   { id: "respostas", label: "Respostas" },
   { id: "triagem", label: "Triagem" },
   { id: "planos", label: "Planos de Ação" },
+  { id: "logs", label: "Log de Envios" },
 ] as const;
 type TabId = typeof TABS[number]["id"];
+
+const TIPO_LOG_LABELS: Record<string, string> = {
+  primeiro_envio: "Convite enviado",
+  cobranca: "Cobrança enviada",
+  reforco_adesao: "Reforço (prazo prorrogado)",
+  confirmacao_sgi: "Confirmação ao SGI",
+  ms_forms_conciliado: "Resposta recebida (Forms)",
+  ms_forms_recebido: "Resposta pendente de conciliação",
+  ms_forms_erro: "Erro na conciliação",
+  ms_forms_ignorado: "Ignorado",
+};
 
 export default function SatisfacaoEnvioPage() {
   const { token } = useAuth();
@@ -76,6 +96,7 @@ export default function SatisfacaoEnvioPage() {
   const [campanhaId, setCampanhaId] = useState<string>("");
   const [novoAno, setNovoAno] = useState(new Date().getFullYear());
   const [novoTitulo, setNovoTitulo] = useState(`Pesquisa de Satisfação ${new Date().getFullYear()}`);
+  const [novoMsFormsUrl, setNovoMsFormsUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -83,6 +104,12 @@ export default function SatisfacaoEnvioPage() {
   const [campanhaPerguntas, setCampanhaPerguntas] = useState<CampanhaPergunta[]>([]);
   const [triagem, setTriagem] = useState<TriagemItem[]>([]);
   const [planos, setPlanos] = useState<PlanoAcao[]>([]);
+  const [logEnvios, setLogEnvios] = useState<LogEnvioEvento[]>([]);
+  const [msFormsPendentes, setMsFormsPendentes] = useState<MsFormsLogItem[]>([]);
+
+  const [editarCampanha, setEditarCampanha] = useState<{ titulo: string; ms_forms_url: string } | null>(null);
+  const [conciliarAtivo, setConciliarAtivo] = useState<MsFormsLogItem | null>(null);
+  const [respostaEscolhida, setRespostaEscolhida] = useState("");
 
   const [lancarManual, setLancarManual] = useState<Resposta | null>(null);
   const [notasManuais, setNotasManuais] = useState<Record<string, { nota: number; comentario: string }>>({});
@@ -115,16 +142,54 @@ export default function SatisfacaoEnvioPage() {
     apiFetch<any>(`/api/satisfacao/admin/campanhas/${campanhaId}/dashboard`, { token })
       .then((d) => setCampanhaPerguntas((d.perguntas || []).map((p: any) => ({ id: p.campanha_pergunta_id, ordem: p.ordem, texto_snapshot: p.texto }))))
       .catch(() => {});
+    reloadLogs();
   }, [campanhaId, token]);
 
+  function reloadLogs() {
+    if (!campanhaId) return;
+    apiFetch<LogEnvioEvento[]>(`/api/satisfacao/admin/campanhas/${campanhaId}/log-envios`, { token }).then(setLogEnvios).catch(() => {});
+    apiFetch<MsFormsLogItem[]>(`/api/satisfacao/admin/campanhas/${campanhaId}/ms-forms-log?status=recebido`, { token }).then(setMsFormsPendentes).catch(() => {});
+  }
+
   async function criarCampanha() {
+    if (!novoMsFormsUrl.trim()) { setMsg("Informe o link do Microsoft Forms antes de criar a campanha."); return; }
     setBusy(true); setMsg(null);
     try {
-      await apiFetch("/api/satisfacao/admin/campanhas", { method: "POST", token, json: { ano: novoAno, titulo: novoTitulo } });
+      await apiFetch("/api/satisfacao/admin/campanhas", { method: "POST", token, json: { ano: novoAno, titulo: novoTitulo, ms_forms_url: novoMsFormsUrl } });
       setMsg("Campanha criada.");
       reloadCampanhas();
     } catch (e) { setMsg(e instanceof ApiError ? e.message : "Erro ao criar campanha"); }
     setBusy(false);
+  }
+
+  async function salvarEdicaoCampanha() {
+    if (!campanhaId || !editarCampanha) return;
+    try {
+      await apiFetch(`/api/satisfacao/admin/campanhas/${campanhaId}`, { method: "PATCH", token, json: editarCampanha });
+      setMsg("Campanha atualizada.");
+      setEditarCampanha(null);
+      reloadCampanhas();
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : "Erro ao atualizar campanha"); }
+  }
+
+  async function conciliarMsForms() {
+    if (!conciliarAtivo || !respostaEscolhida) return;
+    try {
+      await apiFetch(`/api/satisfacao/admin/ms-forms-log/${conciliarAtivo.id}/conciliar`, { method: "POST", token, json: { resposta_id: respostaEscolhida } });
+      setMsg("Resposta conciliada com sucesso.");
+      setConciliarAtivo(null); setRespostaEscolhida("");
+      reloadLogs();
+      apiFetch<Resposta[]>(`/api/satisfacao/admin/campanhas/${campanhaId}/respostas`, { token }).then(setRespostas);
+      apiFetch<TriagemItem[]>(`/api/satisfacao/admin/campanhas/${campanhaId}/triagem`, { token }).then(setTriagem);
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : "Erro ao conciliar"); }
+  }
+
+  async function ignorarMsForms(logId: string) {
+    if (!window.confirm("Ignorar este registro? Ele não poderá mais ser conciliado.")) return;
+    try {
+      await apiFetch(`/api/satisfacao/admin/ms-forms-log/${logId}/ignorar`, { method: "POST", token, json: {} });
+      reloadLogs();
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : "Erro ao ignorar"); }
   }
 
   async function iniciarCampanha() {
@@ -259,22 +324,34 @@ export default function SatisfacaoEnvioPage() {
                 <input type="text" value={novoTitulo} onChange={(e) => setNovoTitulo(e.target.value)}
                   className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
-              <button disabled={busy} onClick={criarCampanha} className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
-                Criar
-              </button>
+            </div>
+            <div className="mt-3">
+              <label className="block text-xs text-gray-500 mb-1">Link do Microsoft Forms</label>
+              <div className="flex gap-3 flex-wrap items-end">
+                <input type="url" placeholder="https://forms.office.com/r/..." value={novoMsFormsUrl} onChange={(e) => setNovoMsFormsUrl(e.target.value)}
+                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm flex-1 min-w-[260px] bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+                <button disabled={busy} onClick={criarCampanha} className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
+                  Criar
+                </button>
+              </div>
             </div>
           </div>
 
           {campanha && (
             <div className="border-t border-gray-100 dark:border-gray-700 pt-5">
-              <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-2">{campanha.titulo}</h3>
-              <div className="flex gap-3 text-sm text-gray-500 mb-4 flex-wrap">
+              <div className="flex items-start justify-between gap-3 flex-wrap">
+                <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-2">{campanha.titulo}</h3>
+                <button onClick={() => setEditarCampanha({ titulo: campanha.titulo, ms_forms_url: campanha.ms_forms_url || "" })}
+                  className="text-xs font-medium text-[#00694E] hover:underline">Editar</button>
+              </div>
+              <div className="flex gap-3 text-sm text-gray-500 mb-2 flex-wrap">
                 <Badge color={campanha.status === "encerrada" ? "gray" : campanha.status === "postergada" ? "amber" : "blue"}>{campanha.status}</Badge>
                 {campanha.data_inicio && <span>Início: {campanha.data_inicio}</span>}
                 {campanha.data_prazo && <span>Prazo: {campanha.data_prazo}</span>}
                 <span>Postergações: {campanha.qtd_postergacoes}</span>
                 <span>{campanha.total_respondidos ?? 0}/{campanha.total_convidados ?? 0} respondidos</span>
               </div>
+              <p className="text-xs text-gray-400 mb-4 break-all">Forms: {campanha.ms_forms_url || "não definido"}</p>
               <div className="flex gap-2 flex-wrap">
                 {campanha.status === "rascunho" && (
                   <button disabled={busy} onClick={iniciarCampanha} className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50">Iniciar</button>
@@ -363,6 +440,93 @@ export default function SatisfacaoEnvioPage() {
           ))}
         </div>
       )}
+
+      {tab === "logs" && (
+        <div className="space-y-6">
+          {msFormsPendentes.length > 0 && (
+            <div>
+              <h3 className="font-bold text-amber-600 dark:text-amber-400 mb-3">Conciliação pendente ({msFormsPendentes.length})</h3>
+              <div className="space-y-2">
+                {msFormsPendentes.map((f) => (
+                  <Card key={f.id} className="p-4 flex items-start justify-between gap-4 flex-wrap">
+                    <div>
+                      <p className="font-semibold text-gray-900 dark:text-gray-100">
+                        {f.empresa_informada || f.email_informado || "Sem identificação"}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{f.email_informado}</p>
+                      {f.erro_detalhe && <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">{f.erro_detalhe}</p>}
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => { setConciliarAtivo(f); setRespostaEscolhida(""); }}
+                        className="bg-[#00694E] text-white text-xs font-semibold px-3 py-2 rounded-lg whitespace-nowrap">Conciliar</button>
+                      <button onClick={() => ignorarMsForms(f.id)}
+                        className="text-xs text-gray-500 hover:underline whitespace-nowrap">Ignorar</button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <h3 className="font-bold text-gray-900 dark:text-gray-100 mb-3">Histórico de envios e respostas</h3>
+            <Card className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 dark:bg-gray-900/50 text-left text-gray-500 dark:text-gray-400">
+                  <tr>
+                    <th className="p-3">Data</th><th className="p-3">Cliente</th><th className="p-3">Evento</th><th className="p-3">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-700 dark:text-gray-300">
+                  {logEnvios.map((e, idx) => (
+                    <tr key={idx} className="border-t border-gray-100 dark:border-gray-700">
+                      <td className="p-3 text-xs">{new Date(e.data).toLocaleString("pt-BR")}</td>
+                      <td className="p-3">{e.cliente_nome}</td>
+                      <td className="p-3">{TIPO_LOG_LABELS[e.tipo] || e.tipo}</td>
+                      <td className="p-3"><Badge color={e.sucesso ? "green" : "red"}>{e.sucesso ? "OK" : "Falha"}</Badge></td>
+                    </tr>
+                  ))}
+                  {logEnvios.length === 0 && <tr><td colSpan={4} className="p-6 text-center text-gray-400">Nenhum evento registrado ainda.</td></tr>}
+                </tbody>
+              </table>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      <ModalWrapper open={!!editarCampanha} onClose={() => setEditarCampanha(null)} title="Editar campanha">
+        {editarCampanha && (
+          <div className="space-y-3">
+            <input type="text" placeholder="Título" value={editarCampanha.titulo}
+              onChange={(e) => setEditarCampanha({ ...editarCampanha, titulo: e.target.value })}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+            <input type="url" placeholder="Link do Microsoft Forms" value={editarCampanha.ms_forms_url}
+              onChange={(e) => setEditarCampanha({ ...editarCampanha, ms_forms_url: e.target.value })}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+            <button onClick={salvarEdicaoCampanha} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Salvar</button>
+          </div>
+        )}
+      </ModalWrapper>
+
+      <ModalWrapper open={!!conciliarAtivo} onClose={() => setConciliarAtivo(null)} title="Conciliar resposta do Microsoft Forms">
+        {conciliarAtivo && (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Identificação recebida: <strong>{conciliarAtivo.empresa_informada || conciliarAtivo.email_informado || "—"}</strong>
+              {conciliarAtivo.email_informado && <><br />{conciliarAtivo.email_informado}</>}
+            </p>
+            <select value={respostaEscolhida} onChange={(e) => setRespostaEscolhida(e.target.value)}
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+              <option value="">Selecione o cliente correto...</option>
+              {respostas.filter((r) => r.status !== "respondido").map((r) => (
+                <option key={r.id} value={r.id}>{r.sat_clientes.empresa_nome} — {r.sat_clientes.contato_nome}</option>
+              ))}
+            </select>
+            <button disabled={!respostaEscolhida} onClick={conciliarMsForms}
+              className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm disabled:opacity-50">Conciliar</button>
+          </div>
+        )}
+      </ModalWrapper>
 
       <ModalWrapper open={!!lancarManual} onClose={() => setLancarManual(null)} title="Lançar resposta manual">
         {lancarManual && (

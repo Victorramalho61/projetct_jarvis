@@ -910,6 +910,7 @@ services:
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
       SGI_EMAIL: ${SGI_EMAIL:-sgi@voetur.com.br}
+      MS_FORMS_WEBHOOK_SECRET: ${MS_FORMS_WEBHOOK_SECRET:-}
     networks:
       - app_net
     healthcheck:

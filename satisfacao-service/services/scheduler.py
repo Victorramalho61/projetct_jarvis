@@ -61,7 +61,7 @@ def _job_verificar_aderencia():
                 )
                 for resposta in (pendentes.data or []):
                     cliente = resposta.get("sat_clientes") or {}
-                    if not cliente.get("contato_email") or not resposta.get("token"):
+                    if not cliente.get("contato_email"):
                         continue
                     ok = send_reforco_adesao(cliente, campanha, resposta)
                     log_email(sb, resposta["id"], cliente["contato_email"], "reforco_adesao", ok)

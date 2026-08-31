@@ -23,7 +23,7 @@ from limiter import limiter
 from routes.health import router as health_router
 from routes.cadastro import router as cadastro_router
 from routes.admin import router as admin_router
-from routes.public import router as public_router
+from routes.webhook import router as webhook_router
 
 
 @asynccontextmanager
@@ -77,4 +77,4 @@ async def unhandled(request: Request, exc: Exception) -> JSONResponse:
 app.include_router(health_router)
 app.include_router(cadastro_router)
 app.include_router(admin_router)
-app.include_router(public_router)
+app.include_router(webhook_router)

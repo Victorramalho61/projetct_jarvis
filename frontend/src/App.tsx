@@ -52,7 +52,6 @@ const RhRelatorioPrintPage = lazyWithReload(() => import("./pages/RhRelatorioPri
 const SatisfacaoDashboardPage = lazyWithReload(() => import("./pages/SatisfacaoDashboardPage"));
 const SatisfacaoEnvioPage = lazyWithReload(() => import("./pages/SatisfacaoEnvioPage"));
 const SatisfacaoCadastroPage = lazyWithReload(() => import("./pages/SatisfacaoCadastroPage"));
-const PublicSatisfacaoPage = lazyWithReload(() => import("./pages/PublicSatisfacaoPage"));
 
 // agents-service foi removido do stack — placeholder evita que as páginas do módulo
 // (que fariam polling contra o serviço inexistente) sejam montadas.
@@ -93,7 +92,6 @@ export default function App() {
           <Route path="/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
           <Route path="/desempenho/auto-avaliacao-presencial" element={<PublicAutoAvaliacaoPresencialPage />} />
           <Route path="/experiencia/avaliar/:token" element={<PublicExperienciaPage />} />
-          <Route path="/satisfacao/responder/:token" element={<PublicSatisfacaoPage />} />
           <Route
             path="/rh/vagas/:id/imprimir"
             element={

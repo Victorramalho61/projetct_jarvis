@@ -3,6 +3,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 
 from db import get_settings
 
@@ -126,10 +127,7 @@ def _cta_button(link: str, label: str = "Responder Pesquisa") -> str:
       {label}
     </a>
   </td></tr>
-</table>
-<p style="text-align:center;font-size:11px;color:#9CA3AF;margin:0 0 8px;">
-  Link pessoal e intransferível.
-</p>"""
+</table>"""
 
 
 def _send(to_email: str, to_name: str, subject: str, html: str) -> bool:
@@ -139,7 +137,8 @@ def _send(to_email: str, to_name: str, subject: str, html: str) -> bool:
         return False
     try:
         msg = MIMEMultipart("alternative")
-        msg["From"]    = f"Sistema Jarvis <{s.smtp_from}>"
+        smtp_from_val = s.smtp_from or s.smtp_user
+        msg["From"] = smtp_from_val if "<" in smtp_from_val else formataddr(("Sistema Jarvis", smtp_from_val))
         msg["To"]      = f"{to_name} <{to_email}>"
         msg["Subject"] = subject
         msg.attach(MIMEText("Visualize este e-mail em um cliente que suporte HTML.", "plain", "utf-8"))
@@ -157,14 +156,13 @@ def _send(to_email: str, to_name: str, subject: str, html: str) -> bool:
 
 # ─── Templates públicos ───────────────────────────────────────────────────────
 
-def send_primeiro_envio(cliente: dict, campanha: dict, token: str) -> bool:
-    s = get_settings()
+def send_primeiro_envio(cliente: dict, campanha: dict) -> bool:
     contato_nome  = cliente.get("contato_nome") or "Cliente"
     contato_email = cliente.get("contato_email") or ""
-    if not contato_email:
+    link = campanha.get("ms_forms_url") or ""
+    if not contato_email or not link:
         return False
 
-    link = f"{s.frontend_url}/satisfacao/responder/{token}"
     card = _cliente_card(cliente, campanha.get("titulo", ""))
     btn  = _cta_button(link)
 
@@ -185,14 +183,12 @@ def send_primeiro_envio(cliente: dict, campanha: dict, token: str) -> bool:
 
 
 def send_cobranca(cliente: dict, campanha: dict, resposta: dict) -> bool:
-    s = get_settings()
     contato_nome  = cliente.get("contato_nome") or "Cliente"
     contato_email = cliente.get("contato_email") or ""
-    token = resposta.get("token") or ""
-    if not contato_email or not token:
+    link = campanha.get("ms_forms_url") or ""
+    if not contato_email or not link:
         return False
 
-    link = f"{s.frontend_url}/satisfacao/responder/{token}"
     total_envios = resposta.get("total_envios", 0)
     card = _cliente_card(cliente, campanha.get("titulo", ""))
     btn  = _cta_button(link, "Responder Agora")
@@ -223,14 +219,12 @@ def send_cobranca(cliente: dict, campanha: dict, resposta: dict) -> bool:
 
 def send_reforco_adesao(cliente: dict, campanha: dict, resposta: dict) -> bool:
     """Reforço enviado pelo Comercial quando a aderência geral está abaixo da meta."""
-    s = get_settings()
     contato_nome  = cliente.get("contato_nome") or "Cliente"
     contato_email = cliente.get("contato_email") or ""
-    token = resposta.get("token") or ""
-    if not contato_email or not token:
+    link = campanha.get("ms_forms_url") or ""
+    if not contato_email or not link:
         return False
 
-    link = f"{s.frontend_url}/satisfacao/responder/{token}"
     card = _cliente_card(cliente, campanha.get("titulo", ""))
     btn  = _cta_button(link, "Responder Pesquisa")
 

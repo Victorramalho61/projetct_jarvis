@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     smtp_from: str = ""
     frontend_url: str = "https://jarvis.voetur.com.br"
     sgi_email: str = ""
+    ms_forms_webhook_secret: str = ""
 
     model_config = {"env_file": ".env"}
 

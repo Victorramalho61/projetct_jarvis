@@ -28,6 +28,7 @@ def build_campanha_dashboard(sb, campanha_id: str) -> dict:
     respostas_resp = sb.table("sat_respostas").select("*").eq("campanha_id", campanha_id).execute()
     respostas = respostas_resp.data or []
     total_convidados = len(respostas)
+    total_enviados = len([r for r in respostas if r["status"] != "pendente"])
     total_respondidos = len([r for r in respostas if r["status"] == "respondido"])
 
     cp_ids = [cp["id"] for cp in campanha_perguntas]
@@ -78,13 +79,32 @@ def build_campanha_dashboard(sb, campanha_id: str) -> dict:
         prazo = date.fromisoformat(campanha["data_prazo"])
         dias_restantes = (prazo - date.today()).days
 
+    todas_notas = [i["nota"] for i in itens]
+    total_avaliacoes = len(todas_notas)
+    distribuicao_geral = {str(n): todas_notas.count(n) for n in range(1, 6)}
+    qtd_ruim = distribuicao_geral["1"] + distribuicao_geral["2"]
+    qtd_bom = distribuicao_geral["4"] + distribuicao_geral["5"]
+
     return {
         "campanha": campanha,
+        "envio": {
+            "total_convidados": total_convidados,
+            "total_enviados": total_enviados,
+            "percentual_enviado": _pct(total_enviados, total_convidados),
+        },
         "aderencia": {
             "total_convidados": total_convidados,
             "total_respondidos": total_respondidos,
             "percentual": _pct(total_respondidos, total_convidados),
             "atingiu_minimo": _pct(total_respondidos, total_convidados) >= 30.0,
+        },
+        "notas_gerais": {
+            "total_avaliacoes": total_avaliacoes,
+            "media": round(sum(todas_notas) / total_avaliacoes, 2) if total_avaliacoes else None,
+            "distribuicao": distribuicao_geral,
+            "percentual_ruim": _pct(qtd_ruim, total_avaliacoes),
+            "percentual_neutro": _pct(distribuicao_geral["3"], total_avaliacoes),
+            "percentual_bom": _pct(qtd_bom, total_avaliacoes),
         },
         "dias_restantes": dias_restantes,
         "perguntas": perguntas_out,

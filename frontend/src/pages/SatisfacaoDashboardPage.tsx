@@ -32,7 +32,12 @@ type PerguntaDashboard = {
 
 type Dashboard = {
   campanha: Campanha;
+  envio: { total_convidados: number; total_enviados: number; percentual_enviado: number };
   aderencia: { total_convidados: number; total_respondidos: number; percentual: number; atingiu_minimo: boolean };
+  notas_gerais: {
+    total_avaliacoes: number; media: number | null; distribuicao: Record<string, number>;
+    percentual_ruim: number; percentual_neutro: number; percentual_bom: number;
+  };
   dias_restantes: number | null;
   perguntas: PerguntaDashboard[];
 };
@@ -159,17 +164,54 @@ export default function SatisfacaoDashboardPage() {
 
       {dashboard && (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <KPICard label="Convidados" value={dashboard.aderencia.total_convidados} />
-            <KPICard
-              label="Aderência"
-              value={`${dashboard.aderencia.percentual}%`}
-              sub={dashboard.aderencia.atingiu_minimo ? "Meta de 30% atingida" : "Abaixo da meta de 30%"}
-              colorClass={dashboard.aderencia.atingiu_minimo ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
-            />
-            <KPICard label="Dias restantes" value={dashboard.dias_restantes ?? "—"} />
-            <KPICard label="Planos de ação abertos" value={totalPlanosAbertos} colorClass={totalPlanosAbertos > 0 ? "text-amber-600 dark:text-amber-400" : undefined} />
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-2">Funil de envio</p>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+              <KPICard label="Convidados" value={dashboard.envio.total_convidados} />
+              <KPICard
+                label="% Enviados"
+                value={`${dashboard.envio.percentual_enviado}%`}
+                sub={`${dashboard.envio.total_enviados} de ${dashboard.envio.total_convidados}`}
+              />
+              <KPICard
+                label="% Respondidos"
+                value={`${dashboard.aderencia.percentual}%`}
+                sub={dashboard.aderencia.atingiu_minimo ? "Meta de 30% atingida" : "Abaixo da meta de 30%"}
+                colorClass={dashboard.aderencia.atingiu_minimo ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}
+              />
+              <KPICard label="Dias restantes" value={dashboard.dias_restantes ?? "—"} />
+              <KPICard label="Planos de ação abertos" value={totalPlanosAbertos} colorClass={totalPlanosAbertos > 0 ? "text-amber-600 dark:text-amber-400" : undefined} />
+            </div>
           </div>
+
+          <Card className="p-5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-3">Satisfação Geral</p>
+            <div className="flex items-center gap-6 flex-wrap">
+              <div>
+                <p className="text-4xl font-bold text-gray-900 dark:text-gray-100">{dashboard.notas_gerais.media ?? "—"}</p>
+                <p className="text-xs text-gray-400 mt-1">{dashboard.notas_gerais.total_avaliacoes} avaliações no total</p>
+              </div>
+              <div className="flex-1 min-w-[220px]">
+                <div className="flex gap-1 h-4 rounded-full overflow-hidden mb-2">
+                  {dashboard.notas_gerais.percentual_ruim > 0 && (
+                    <div className="bg-red-400" style={{ width: `${dashboard.notas_gerais.percentual_ruim}%` }} title="Ruim (notas 1-2)" />
+                  )}
+                  {dashboard.notas_gerais.percentual_neutro > 0 && (
+                    <div className="bg-amber-400" style={{ width: `${dashboard.notas_gerais.percentual_neutro}%` }} title="Neutro (nota 3)" />
+                  )}
+                  {dashboard.notas_gerais.percentual_bom > 0 && (
+                    <div className="bg-green-500" style={{ width: `${dashboard.notas_gerais.percentual_bom}%` }} title="Bom (notas 4-5)" />
+                  )}
+                  {dashboard.notas_gerais.total_avaliacoes === 0 && <div className="bg-gray-100 dark:bg-gray-700 w-full" />}
+                </div>
+                <div className="flex gap-4 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
+                  <span>🔴 Ruim: {dashboard.notas_gerais.percentual_ruim}%</span>
+                  <span>🟡 Neutro: {dashboard.notas_gerais.percentual_neutro}%</span>
+                  <span>🟢 Bom: {dashboard.notas_gerais.percentual_bom}%</span>
+                </div>
+              </div>
+            </div>
+          </Card>
 
           <div className="grid gap-4">
             {dashboard.perguntas.map((p) => (

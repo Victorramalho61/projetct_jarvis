@@ -2,18 +2,28 @@
 -- Não faz parte do schema oficial — script utilitário, pode ser reexecutado (idempotente via ON CONFLICT).
 
 -- Clientes de teste
-INSERT INTO sat_clientes (empresa_nome, contato_nome, contato_cargo, contato_email, contato_telefone) VALUES
+-- Nota: sat_clientes não tem UNIQUE em empresa_nome/e-mail (por design — um cliente pode
+-- trocar de contato entre campanhas), então usamos NOT EXISTS em vez de ON CONFLICT
+-- (que seria um no-op sem uma constraint pra servir de "arbiter" e duplicaria a cada execução).
+INSERT INTO sat_clientes (empresa_nome, contato_nome, contato_cargo, contato_email, contato_telefone)
+SELECT v.empresa_nome, v.contato_nome, v.contato_cargo, v.contato_email, v.contato_telefone
+FROM (VALUES
   ('Empresa Teste Alfa',    'Ana Souza',   'Gerente de Viagens',        'ana.alfa@teste.voetur.com.br',     '(11) 90000-0001'),
   ('Empresa Teste Beta',    'Bruno Lima',  'Coordenador Financeiro',    'bruno.beta@teste.voetur.com.br',   '(11) 90000-0002'),
   ('Empresa Teste Gamma',   'Carla Dias',  'Analista de Compras',       'carla.gamma@teste.voetur.com.br',  '(11) 90000-0003'),
   ('Empresa Teste Delta',   'Diego Alves', 'Supervisor Administrativo', 'diego.delta@teste.voetur.com.br',  '(11) 90000-0004'),
   ('Empresa Teste Epsilon', 'Elisa Rocha', 'Gestora de Contrato',       'elisa.epsilon@teste.voetur.com.br','(11) 90000-0005')
-ON CONFLICT DO NOTHING;
+) AS v(empresa_nome, contato_nome, contato_cargo, contato_email, contato_telefone)
+WHERE NOT EXISTS (SELECT 1 FROM sat_clientes WHERE empresa_nome = v.empresa_nome);
 
 -- Campanha de teste (ano 2026), já em andamento
-INSERT INTO sat_campanhas (ano, titulo, status, data_inicio, data_prazo, data_prazo_original, created_by)
-VALUES (2026, 'Pesquisa de Satisfação 2026 (dados de teste)', 'em_andamento', CURRENT_DATE - 5, CURRENT_DATE + 16, CURRENT_DATE + 16, 'seed_teste')
+INSERT INTO sat_campanhas (ano, titulo, status, data_inicio, data_prazo, data_prazo_original, ms_forms_url, created_by)
+VALUES (2026, 'Pesquisa de Satisfação 2026 (dados de teste)', 'em_andamento', CURRENT_DATE - 5, CURRENT_DATE + 16, CURRENT_DATE + 16, 'https://forms.office.com/r/exemplo-teste', 'seed_teste')
 ON CONFLICT (ano) DO NOTHING;
+
+-- Garante o link do Forms mesmo se a campanha já existia de uma rodada anterior do seed
+UPDATE sat_campanhas SET ms_forms_url = 'https://forms.office.com/r/exemplo-teste'
+WHERE ano = 2026 AND (ms_forms_url IS NULL OR ms_forms_url = '');
 
 -- Snapshot das 5 perguntas ativas nesta campanha
 INSERT INTO sat_campanha_perguntas (campanha_id, pergunta_id, ordem, texto_snapshot)
@@ -31,12 +41,23 @@ WHERE c.ano = 2026
   AND cl.empresa_nome IN ('Empresa Teste Alfa','Empresa Teste Beta','Empresa Teste Gamma','Empresa Teste Delta')
 ON CONFLICT (campanha_id, cliente_id) DO NOTHING;
 
--- 1 cliente ainda pendente, com link válido de verdade (dá pra testar o formulário público)
-INSERT INTO sat_respostas (campanha_id, cliente_id, status, token, token_expires_at, primeiro_envio_at, total_envios)
-SELECT c.id, cl.id, 'enviado', 'sKrA7lkDtQigVAaIfnbUChEQGqvXH2TetQDcic_H-WE', now() + interval '60 days', now() - interval '2 days', 1
+-- 1 cliente ainda pendente de resposta (convite já "enviado")
+INSERT INTO sat_respostas (campanha_id, cliente_id, status, primeiro_envio_at, total_envios)
+SELECT c.id, cl.id, 'enviado', now() - interval '2 days', 1
 FROM sat_campanhas c, sat_clientes cl
 WHERE c.ano = 2026 AND cl.empresa_nome = 'Empresa Teste Epsilon'
 ON CONFLICT (campanha_id, cliente_id) DO NOTHING;
+
+-- Simula uma resposta do Microsoft Forms que chegou com e-mail que não bate com nenhum
+-- cliente cadastrado — testa a fila de conciliação manual na aba "Log de Envios".
+INSERT INTO sat_ms_forms_log (campanha_id, ano_informado, email_informado, empresa_informada, ms_forms_response_id, payload_bruto, matched, status, erro_detalhe)
+SELECT c.id, 2026, 'contato@empresa-desconhecida-teste.com.br', 'Empresa Desconhecida Teste',
+       'seed-teste-response-id-001',
+       '{"itens": [{"ordem":1,"nota":2,"comentario":"Teste de conciliação manual"},{"ordem":2,"nota":4,"comentario":null},{"ordem":3,"nota":5,"comentario":null},{"ordem":4,"nota":4,"comentario":null},{"ordem":5,"nota":3,"comentario":null}]}'::jsonb,
+       false, 'recebido', 'Nenhum cliente convidado encontrado com esse e-mail/empresa'
+FROM sat_campanhas c
+WHERE c.ano = 2026
+ON CONFLICT (ms_forms_response_id) WHERE ms_forms_response_id IS NOT NULL DO NOTHING;
 
 -- Notas por pergunta — inclui notas ruins propositalmente em "Comercial" (2 de 4 = 50%) e "Atendimento" (1 de 4 = 25%)
 -- para exercitar o alerta de >30%, a fila de triagem e o cálculo de aderência (4 de 5 = 80%).
