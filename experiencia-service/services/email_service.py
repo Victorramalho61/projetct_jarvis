@@ -3,6 +3,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.utils import formataddr
 
 from db import get_settings
 
@@ -154,7 +155,8 @@ def _send(to_email: str, to_name: str, subject: str, html: str) -> bool:
         return False
     try:
         msg = MIMEMultipart("alternative")
-        msg["From"]    = f"Sistema Jarvis <{s.smtp_from}>"
+        smtp_from_val = s.smtp_from or s.smtp_user
+        msg["From"] = smtp_from_val if "<" in smtp_from_val else formataddr(("Sistema Jarvis", smtp_from_val))
         msg["To"]      = f"{to_name} <{to_email}>"
         msg["Subject"] = subject
         msg.attach(MIMEText("Visualize este e-mail em um cliente que suporte HTML.", "plain", "utf-8"))
