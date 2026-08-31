@@ -147,7 +147,7 @@ class FreshserviceConnector:
             "subject": subject,
             "description": description,
             "workspace_id": workspace_id,
-            "source": 1,
+            "source": 4,
             "status": 2,
             "priority": 2,
         }
