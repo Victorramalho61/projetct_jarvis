@@ -2357,4 +2357,58 @@ Contrato JSON esperado pelo webhook (usa `ordem` 1-5 em vez de UUID de pergunta,
 
 **Dashboard mais inteligente**: `services/dashboard.py` ganhou os blocos `envio` (funil Convidados → % Enviados → % Respondidos) e `notas_gerais` (média geral + distribuição agregada ruim/neutro/bom de **todas** as perguntas juntas, não só por pergunta) — dá uma leitura de saúde geral da campanha antes de abrir o detalhe por pergunta.
 
-**Fix incidental**: `_send()` em `email_service.py` montava `From: Sistema Jarvis <{smtp_from}>`, mas `SMTP_FROM` já vem formatado como `Nome <e-mail>` — gerava `Sistema Jarvis <Jarvis <noreply@voetur.com.br>>` (inválido), rejeitado pelo Office365 com `501 5.1.7`. Corrigido com o mesmo padrão já usado em `performance-service/services/email.py` (usa `smtp_from` direto se já contém `<`, senão `formataddr`). **O mesmo bug existia em `experiencia-service/services/email_service.py`** — lá agravado por `SMTP_FROM` nem estar no `docker-compose.yml` desse serviço (ficava vazio, gerando `Sistema Jarvis <>`); ambos corrigidos em 2026-08-31 (`docker-compose.yml` + `experiencia-service/services/email_service.py`).
+**Fix incidental de e-mail**: descoberto durante o teste manual deste módulo — ver seção dedicada "Bug: e-mails rejeitados pelo Office365 (From malformado)" mais abaixo para o detalhamento completo (causa, serviços afetados, auditoria dos demais).
+
+## Bug: e-mails rejeitados pelo Office365 (From malformado) — 2026-08-31
+
+### Como foi descoberto
+
+Durante o teste manual do módulo de Pesquisa de Satisfação, o e-mail de "nova resposta recebida" (`send_confirmacao_sgi`) não chegava à caixa configurada. Investigando o log do container (`docker logs jarvis-satisfacao-service-1`), apareceu:
+
+```
+ERROR services.email_service Falha ao enviar e-mail para sgi@voetur.com.br:
+(501, b'5.1.7 Invalid address', 'Sistema Jarvis <Jarvis <noreply@voetur.com.br>>')
+```
+
+O Office365 rejeitava a mensagem inteira por causa de um cabeçalho `From` sintaticamente inválido — endereço aninhado em colchetes duplicados.
+
+### Causa raiz
+
+A env var `SMTP_FROM` já vem formatada como `"Nome <e-mail>"` (ex.: `Jarvis <noreply@voetur.com.br>`, ver `.env`). Alguns serviços, ao montar a mensagem, faziam:
+
+```python
+msg["From"] = f"Sistema Jarvis <{s.smtp_from}>"
+```
+
+Isso envolve o valor **já formatado** de novo em colchetes, produzindo `Sistema Jarvis <Jarvis <noreply@voetur.com.br>>` — inválido pra qualquer parser de e-mail, e o Office365 rejeita a mensagem inteira (não é um bounce silencioso: é uma rejeição na conexão SMTP, capturada pelo `try/except` de cada `_send()` e só visível no log do container, nunca para quem tentou usar a funcionalidade).
+
+### Serviços afetados e auditoria completa
+
+Buscado `smtplib`/`msg["From"]`/`smtp_from` em todo o repositório (5 serviços enviam e-mail hoje):
+
+| Serviço | Arquivo | Situação antes | Ação |
+|---|---|---|---|
+| `satisfacao-service` | `services/email_service.py` | **Bug** — `From` duplicava os colchetes | ✅ Corrigido |
+| `experiencia-service` | `services/email_service.py` | **Bug** — mesmo problema, agravado por `SMTP_FROM` nem estar no `docker-compose.yml` desse serviço (ficava `""`, gerando `Sistema Jarvis <>`) | ✅ Corrigido (`_send()` + `docker-compose.yml`) |
+| `performance-service` | `services/email.py` | OK — já verificava `if "<" in smtp_from_val` antes de decidir entre usar direto ou `formataddr` | Nenhuma ação (padrão de referência usado no fix) |
+| `rh-service` | `services/email_service.py` | OK — `msg["From"] = s.smtp_from or "Sistema Jarvis <noreply@voetur.com.br>"` (usa o valor já formatado direto, sem reenvolver) | Nenhuma ação |
+| `core-service` | `routes/auth.py` (reset de senha) | OK — `msg["From"] = s.smtp_from or s.smtp_user`, com `parseaddr()` extraindo só o endereço pro envelope SMTP | Nenhuma ação |
+
+### Correção aplicada
+
+Em `satisfacao-service/services/email_service.py` e `experiencia-service/services/email_service.py`:
+```python
+smtp_from_val = s.smtp_from or s.smtp_user
+msg["From"] = smtp_from_val if "<" in smtp_from_val else formataddr(("Sistema Jarvis", smtp_from_val))
+```
+Se `smtp_from` já vem no formato `"Nome <e-mail>"`, usa direto; senão (string vazia ou só o e-mail puro) monta com `email.utils.formataddr`. Mesmo padrão já validado em produção pelo `performance-service`.
+
+Em `docker-compose.yml`, adicionado `SMTP_FROM: ${SMTP_FROM}` ao bloco do `experiencia-service` (não existia antes).
+
+### Verificação
+
+Testado diretamente dentro de cada container após o rebuild (`docker exec ... python -c "from services.email_service import send_...; print(send_...(...))"`) — ambos retornaram `True` sem erro no log, confirmando que o Office365 aceitou o envio.
+
+### Pendências
+
+Nenhuma — os 5 serviços que enviam e-mail foram auditados; só 2 tinham o bug e ambos foram corrigidos. Se novos serviços passarem a enviar e-mail no futuro, usar o trecho de código acima (ou copiar de `performance-service/services/email.py`) como referência, em vez de reimplementar `msg["From"]` do zero.
