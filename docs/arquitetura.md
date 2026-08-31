@@ -26,7 +26,6 @@ Sistema interno da Voetur/VTCLog com autenticação própria e dez módulos:
 |---|---|---|
 | `agents-service` | Consumo CPU/RAM excessivo causava lentidão geral | `agents-service/DISABLED.md` |
 | `hermes-service` | CPU alta (>80%) | `hermes-service/DISABLED.md` |
-| `evolution-api` | 52% CPU constante sem usuários ativos | `evolution-api-patched/DISABLED.md` |
 | `ollama` | 2 GB RAM reservado em servidor com recursos limitados | `ollama/DISABLED.md` |
 
 > ⚠️ **NÃO religar sem autorização humana explícita.** Todos usam `restart: "no"` + `profiles: ["agents"]` — não sobem no `docker compose up -d` padrão.
@@ -87,10 +86,10 @@ Supabase Self-Hosted (Docker app_net):
 |---|---|---|---|
 | 443 | nginx (HTTPS) | 0.0.0.0 | sim |
 | 80 | nginx (redirect) | 0.0.0.0 | sim |
-| 8181 | nginx (Evolution API proxy) | 127.0.0.1 | **não** (restrito localhost) |
+| 8181 | nginx (proxy WAHA) | 127.0.0.1 | **não** (restrito localhost) |
 | 5432 | PostgreSQL | 127.0.0.1 | bloqueado |
 | 9100 | Monitor Agent | 127.0.0.1 | bloqueado |
-| 8080 | Evolution API | 127.0.0.1 | bloqueado |
+| 3000 | WAHA | 127.0.0.1 | bloqueado |
 | 54321 | Supabase Kong | 127.0.0.1 | bloqueado |
 | 54323 | Supabase Studio | 127.0.0.1 | bloqueado |
 
@@ -915,7 +914,7 @@ erDiagram
 ### support-service:8007
 | Método | Rota | Acesso | Descrição |
 |---|---|---|---|
-| POST | `/api/support/webhooks/whatsapp` | Evolution API | recebe mensagem WhatsApp |
+| POST | `/api/support/webhooks/whatsapp` | WAHA | recebe mensagem WhatsApp |
 | POST | `/api/support/webhooks/freshservice` | Freshservice | recebe evento de ticket |
 | GET | `/api/support/conversations` | admin/support | lista conversas |
 | GET | `/api/support/tickets` | admin/support | lista tickets |
@@ -1005,7 +1004,7 @@ Bot de suporte via WhatsApp que gerencia onboarding de usuários e abertura/acom
 
 **Fluxo geral:**
 ```
-WhatsApp user → Evolution API → POST /api/support/webhooks/whatsapp
+WhatsApp user → WAHA → POST /api/support/webhooks/whatsapp
                                        │
                                        ▼
                               ConversationFSM (13 estados)
@@ -1014,13 +1013,13 @@ WhatsApp user → Evolution API → POST /api/support/webhooks/whatsapp
                                └── chama FreshserviceConnector
                                        │ resposta
                                        ▼
-                              Evolution API POST /message/sendText/voetur-support
+                              WAHA POST /api/sendText (session voetur-support)
 
 Freshservice evento → POST /api/support/webhooks/freshservice?secret=…
                               │
                               ▼
                       notification_worker (idempotente)
-                       └── Evolution API POST /message/sendText/voetur-support
+                       └── WAHA POST /api/sendText (session voetur-support)
 ```
 
 **FSM — estados:**
@@ -1041,6 +1040,9 @@ Freshservice evento → POST /api/support/webhooks/freshservice?secret=…
 - Agents (admins) devem usar `requester_id` na criação de ticket — campo `email` é silenciosamente ignorado pela API
 - Busca de usuário: `/requesters` primeiro, fallback `/agents` com resolução de `location_id` e `department_ids`
 - `category`/`sub_category` não enviados — valores do catálogo interno não correspondem aos do Freshservice
+- `source` do ticket = `4` (Chat) — **nunca usar `1` (Email)**: workspace tem automação que fecha sozinho chamados com origem Email
+
+**Dívida técnica conhecida (migração Evolution API → WAHA, 2026-08-24):** `moneypenny-service` (lembretes de calendário) e `monitoring-service` (`check_evolution` em `services/monitor.py`, tipo `evolution` em `monitored_systems`) ainda falam o protocolo antigo da Evolution API (`/message/sendText/{instance}`, `/instance/connectionState/{instance}`, header `apikey`) — incompatível com os endpoints do WAHA. Não corrigido porque **nunca foram usados em produção** (`notification_prefs` e `monitored_systems` sem nenhuma linha desses tipos até 2026-08-24). `WHATSAPP_API_URL` hoje aponta pro WAHA (`http://waha:3000`) para todos os serviços — se algum dia habilitarem WhatsApp no Moneypenny ou o monitor `evolution`, ajustar esse código para o formato WAHA (`/api/sendText`, `session`/`chatId`, header `X-Api-Key`) antes de usar.
 
 **Deduplicação de webhook:** cache `OrderedDict` TTL 60s, limite 1000 entradas — retorna 200 imediatamente para mensagens duplicadas.
 
@@ -1052,6 +1054,18 @@ Freshservice evento → POST /api/support/webhooks/freshservice?secret=…
 ---
 
 ## VoeIA — Changelog
+
+### 2026-08-24 — Fix fechamento automático de chamados criados via WhatsApp
+
+**Problema:** Chamados de teste (#241488, #241489) abertos pelo bot fechavam sozinhos no Freshservice pouco depois da criação. Causa: `create_ticket()` enviava `source: 1` (Email); o workspace tem uma automação (Freshservice Automator) que fecha automaticamente chamados com origem Email.
+
+**Arquivo:** `support-service/services/freshservice_connector.py`
+
+- `create_ticket()`: `source` alterado de `1` (Email) para `4` (Chat)
+
+**Deploy:** `docker compose up -d --build --no-deps support-service`
+
+---
 
 ### 2026-05-13 — Fix deduplicação webhook + health check Docker
 
@@ -1622,7 +1636,7 @@ Após isso: `_get_ndd_token(company_id)` em `nfse_fetcher.py` auto-renova usando
 - **Benner RH**: SQL Server `10.141.0.111:1444`, banco configurado via `SQL_SERVER_BENNER_HR_DB`, user `usr_jarvis_read`
 - **Freshservice**: `voetur1.freshservice.com`, autenticação via API key
 - **Freshdesk Omni**: `voeturomni.freshdesk.com` (API — login em `voeturomni.myfreshworks.com`), autenticação via API key (`FRESHDESK_API_KEY`). Relatório mensal ACCIONA: ver `docs/relatorio-acciona-freshdesk.md`
-- **WhatsApp**: Evolution API (instâncias `voetur` e `voetur-support`)
+- **WhatsApp**: WAHA (sessions `voetur` e `voetur-support`)
 - **SMTP**: `smtp.office365.com`, `noreply@voetur.com.br`
 - **NDD Digital**: `spaceportalprod.e-datacenter.nddigital.com.br` — portal fiscal NFe/CTe/NFSe; OAuth2 PKCE via `ndd-identity-space-gateway`; token TTL 1800s + refresh automático
 
@@ -2157,3 +2171,15 @@ A query que decide quem está pendente de avaliação do gestor contava qualquer
 Medido no banco antes do fix (ciclo aberto 2025/2026): 204 colaboradores apareciam como pendentes; o número correto era 527 — **323 colaboradores com avaliação do gestor pendente estavam escondidos** do card. Fix: adicionado `.eq("is_self_evaluation", False)` na query de `reviewed_ids`, no mesmo padrão já usado em `dashboard()` e `dashboard_pending_self_eval`.
 
 Auditoria adicional confirmou que nenhum outro submenu do AVD (Ciclo, Avaliações, Gestão RH, Plano de Ação) nem nenhum outro dashboard do Jarvis (RH, Governance, Fiscal, Expenses, Financeiro, Agents, Monitoring) reproduz esse padrão hoje — riscos latentes anotados mas não corrigidos por não serem alcançáveis pela UI atual: `indicators.py::update_indicator` (`exclude_none=True`) e os campos `jarvis_username`/`name`/`active` de `update_branch` em `admin.py`.
+
+## Dashboard AVD: "Completude" mostrava 100%/0 pendentes com gestores tendo pendências reais (2026-08-31)
+
+Investigação disparada por relato de usuário: o drilldown "Gestores com Avaliações Pendentes" listava 9 gestores com pendências (ex.: Tatiana com 1), mas o card agregado "Completude" do mesmo dashboard mostrava 100% e "Avaliações Pendentes" mostrava 0.
+
+**Causa raiz** (`admin.py::dashboard`): `without_evaluation = total_employees - len(reviewed_ids)` e `completion_pct = len(completed) / total_employees` comparavam **tamanhos de conjunto**, não a interseção real entre "quem tem review completo no ciclo" e "quem está ativo hoje" (`all_emp_ids`). `performance_reviews` do ciclo acumula reviews de colaboradores que já saíram da empresa (inativos), e esse número coincidia, por acaso, com o total de ativos atuais — mascarando pendências de gente ativa que nunca foi avaliada (Diretoria L4 e recém-transferidos).
+
+Medido no banco antes do fix (ciclo aberto 2025/2026, "Todas as empresas"): 994 reviews concluídas no ciclo = 994 colaboradores ativos → dashboard lia 100%/0 pendentes. Interseção real com ativos: 937 — **57 colaboradores ativos sem avaliação escondidos** (13 Diretoria L4 + 44 batendo exatamente com a soma do drilldown por gestor). Fix: `reviewed_ids` passou a ser `{employee_id de completed} & all_emp_ids`; `completion_pct` passou a usar `len(reviewed_ids)` (interseção) em vez de `len(completed)` (bruto).
+
+Bug secundário no mesmo endpoint: `dashboard_pending_evaluators` filtrava `hierarchy_level in [1,2,3]`, excluindo Diretoria (L4) do drilldown por gestor, enquanto `dashboard()` sempre contou L4 no `total_employees` (sem filtro de hierarquia) — universo diferente entre os dois endpoints. Fix: filtro de hierarquia removido do `pending-evaluators`; diretores sem `manager_id` caem no bucket "Sem gestor definido" do drilldown, tornando a pendência visível ao RH.
+
+**Lição:** qualquer métrica agregada que cruze "quem tem X" vs. "quem é elegível/está ativo hoje" precisa de interseção de sets (`&`), nunca subtração de `len()` — a subtração só é seguro quando as duas listas partem exatamente do mesmo universo de IDs, o que raramente é garantido quando uma delas vem de uma tabela histórica (reviews) e a outra de um snapshot do estado atual (employees ativos).

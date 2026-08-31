@@ -161,9 +161,13 @@ def dashboard(
         )
 
     completed = [r for r in reviews if r.get("status") in ("completed", "calibrated")]
-    reviewed_ids = {r["employee_id"] for r in reviews if r.get("employee_id")}
+    # Interseção com all_emp_ids (não só len()): reviews concluídas de gente que já saiu
+    # da empresa (inativa hoje) não podem "cobrir" ativos atuais sem avaliação — subtrair
+    # apenas tamanhos de conjunto mascarava pendências reais (ex.: Diretoria e recém-
+    # transferidos) sempre que o nº de reviews concluídas coincidia com o total de ativos.
+    reviewed_ids = {r["employee_id"] for r in completed if r.get("employee_id")} & all_emp_ids
     without_evaluation = max(0, total_employees - len(reviewed_ids))
-    completion_pct = round(len(completed) / total_employees * 100, 1) if total_employees else 0
+    completion_pct = round(len(reviewed_ids) / total_employees * 100, 1) if total_employees else 0
 
     review_ids = [r["id"] for r in completed]
     acked_ids: set[str] = set()
@@ -299,11 +303,13 @@ def dashboard_pending_evaluators(
     if not cycle_id:
         return []
 
-    # Employees that should be evaluated (L1 Gerente + L2 + L3 — L4 Diretoria não é avaliada)
+    # Todos os níveis ativos — inclui L4 Diretoria, que já entra no total_employees
+    # do /dashboard (sem filtro de hierarchy_level). Excluí-los aqui fazia o card
+    # "Avaliações Pendentes" contar diretores sem avaliação que nunca apareciam
+    # neste drilldown (eles caem em "Sem gestor definido" quando não têm manager_id).
     emp_q = (
         db.table("performance_employees")
         .select("id,name,cargo,manager_id")
-        .in_("hierarchy_level", [1, 2, 3])
         .eq("active", True)
     )
     if company_id:
