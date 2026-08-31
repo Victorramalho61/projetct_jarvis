@@ -231,15 +231,15 @@ export default function SatisfacaoCadastroPage() {
         {clienteEdit && (
           <div className="space-y-3">
             <input type="text" placeholder="Empresa" value={clienteEdit.empresa_nome || ""} onChange={(e) => setClienteEdit({ ...clienteEdit, empresa_nome: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="text" placeholder="Nome do contato" value={clienteEdit.contato_nome || ""} onChange={(e) => setClienteEdit({ ...clienteEdit, contato_nome: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="text" placeholder="Cargo (opcional)" value={clienteEdit.contato_cargo || ""} onChange={(e) => setClienteEdit({ ...clienteEdit, contato_cargo: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="email" placeholder="E-mail" value={clienteEdit.contato_email || ""} onChange={(e) => setClienteEdit({ ...clienteEdit, contato_email: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="text" placeholder="Telefone (opcional)" value={clienteEdit.contato_telefone || ""} onChange={(e) => setClienteEdit({ ...clienteEdit, contato_telefone: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <button onClick={salvarCliente} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Salvar</button>
           </div>
         )}
@@ -249,9 +249,9 @@ export default function SatisfacaoCadastroPage() {
         {perguntaEdit && (
           <div className="space-y-3">
             <textarea placeholder="Texto da pergunta" value={perguntaEdit.texto || ""} onChange={(e) => setPerguntaEdit({ ...perguntaEdit, texto: e.target.value })}
-              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="text" placeholder="Categoria (opcional)" value={perguntaEdit.categoria || ""} onChange={(e) => setPerguntaEdit({ ...perguntaEdit, categoria: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <button onClick={salvarPergunta} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Salvar</button>
           </div>
         )}
@@ -261,9 +261,9 @@ export default function SatisfacaoCadastroPage() {
         {pontoEdit && (
           <div className="space-y-3">
             <input type="text" placeholder="Título" value={pontoEdit.titulo || ""} onChange={(e) => setPontoEdit({ ...pontoEdit, titulo: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <textarea placeholder="Descrição (o que verificar)" value={pontoEdit.descricao || ""} onChange={(e) => setPontoEdit({ ...pontoEdit, descricao: e.target.value })}
-              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <button onClick={salvarPonto} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Salvar</button>
           </div>
         )}

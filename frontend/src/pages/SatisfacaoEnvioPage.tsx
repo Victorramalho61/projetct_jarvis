@@ -252,12 +252,12 @@ export default function SatisfacaoEnvioPage() {
               <div>
                 <label className="block text-xs text-gray-500 mb-1">Ano</label>
                 <input type="number" value={novoAno} onChange={(e) => setNovoAno(Number(e.target.value))}
-                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm w-28 bg-white dark:bg-gray-800" />
+                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm w-28 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
               <div className="flex-1 min-w-[200px]">
                 <label className="block text-xs text-gray-500 mb-1">Título</label>
                 <input type="text" value={novoTitulo} onChange={(e) => setNovoTitulo(e.target.value)}
-                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm w-full bg-white dark:bg-gray-800" />
+                  className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
               <button disabled={busy} onClick={criarCampanha} className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                 Criar
@@ -354,7 +354,7 @@ export default function SatisfacaoEnvioPage() {
                 <p className="text-xs text-gray-500 mt-1">Responsável: {p.responsavel} · Prazo: {p.prazo} · {p.percentual_notas_ruins}% notas ruins</p>
               </div>
               <select value={p.status} onChange={(e) => atualizarStatusPlano(p.id, e.target.value)}
-                className="border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 text-xs bg-white dark:bg-gray-800">
+                className="border border-gray-300 dark:border-gray-600 rounded-lg px-2 py-1 text-xs bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
                 <option value="aberto">Aberto</option>
                 <option value="em_andamento">Em andamento</option>
                 <option value="concluido">Concluído</option>
@@ -383,7 +383,7 @@ export default function SatisfacaoEnvioPage() {
                 <input type="text" placeholder="Comentário (opcional)"
                   value={notasManuais[cp.id]?.comentario || ""}
                   onChange={(e) => setNotasManuais((prev) => ({ ...prev, [cp.id]: { ...prev[cp.id], nota: prev[cp.id]?.nota || 3, comentario: e.target.value } }))}
-                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+                  className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
               </div>
             ))}
             <button onClick={salvarLancamentoManual} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Salvar</button>
@@ -396,12 +396,12 @@ export default function SatisfacaoEnvioPage() {
           <div className="space-y-3">
             <p className="text-sm text-gray-600 dark:text-gray-400">{triagemAtiva.comentario || "Sem comentário"}</p>
             <select value={pontoSelecionado} onChange={(e) => setPontoSelecionado(e.target.value)}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800">
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
               <option value="">Selecione o ponto de avaliação...</option>
               {pontosAvaliacao.map((p) => <option key={p.id} value={p.id}>{p.titulo}</option>)}
             </select>
             <textarea placeholder="Observação (opcional)" value={observacaoTriagem} onChange={(e) => setObservacaoTriagem(e.target.value)}
-              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <button disabled={!pontoSelecionado} onClick={salvarTriagem} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm disabled:opacity-50">Salvar classificação</button>
           </div>
         )}
@@ -411,15 +411,15 @@ export default function SatisfacaoEnvioPage() {
         {novoPlano && (
           <div className="space-y-3">
             <select value={novoPlano.pergunta_id} onChange={(e) => setNovoPlano({ ...novoPlano, pergunta_id: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800">
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
               {campanhaPerguntas.map((cp) => <option key={cp.id} value={cp.id}>{cp.texto_snapshot}</option>)}
             </select>
             <textarea placeholder="Descrição do plano de ação" value={novoPlano.descricao} onChange={(e) => setNovoPlano({ ...novoPlano, descricao: e.target.value })}
-              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="text" placeholder="Responsável" value={novoPlano.responsavel} onChange={(e) => setNovoPlano({ ...novoPlano, responsavel: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <input type="date" value={novoPlano.prazo} onChange={(e) => setNovoPlano({ ...novoPlano, prazo: e.target.value })}
-              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800" />
+              className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
             <button onClick={criarPlanoAcao} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Criar</button>
           </div>
         )}
