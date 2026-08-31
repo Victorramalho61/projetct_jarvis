@@ -2228,3 +2228,12 @@ Adicionado:
 ## Módulo Desempenho — Fix de performance na busca de avaliações (2026-08-27)
 
 `PerformancePage.tsx` (aba Gestão RH) disparava uma requisição a `GET /api/performance/admin/evaluations?search=...` a cada tecla digitada, sem debounce nem cancelamento da anterior — nome longo digitado rápido gerou ~40 requisições concorrentes, 11 delas com "upstream prematurely closed connection" no Kong. Fix: debounce de 350ms na busca + `AbortController` cancelando a requisição anterior a cada novo `loadList()`. Filtros de dropdown (status, empresa) continuam instantâneos.
+
+## Diversos — WhatsApp/WAHA, modelos LLM, avaliador em lote, source do chamado (2026-08-27)
+
+Commits de correções que já estavam prontas no working tree antes desta sessão (não geradas por ela), commitadas/documentadas nesta rodada por pedido do Victor:
+
+- **Rename Evolution API → WAHA**: `WHATSAPP_API_URL` já apontava pra WAHA (`waha:3000`) há tempo, mas `.env.example`, `core-service/routes/health.py` (health check) e `docs/manual-usuario.md` ainda citavam o nome do serviço anterior ("Evolution API") em comentário/label. Sem mudança de comportamento, só nomenclatura. `moneypenny-service` continua falando o protocolo Evolution API legado separadamente (não confundir com o bot de WhatsApp).
+- **`expenses-service` — modelos LLM descontinuados** (`services/media_classifier.py`, `media_pipeline.py`): `gemini-2.0-flash` e `llama-3.1-8b-instant` passaram a retornar 404 (Groq removeu toda a linha `llama-3.x-instant/versatile` do catálogo). Primário agora `gemini-2.5-flash`, fallback `openai/gpt-oss-20b`.
+- **`performance-service` — `POST /cycle/tokens/send-for-evaluator`** (`routes/admin.py`): envia num único e-mail todas as avaliações pendentes de um avaliador — cobre gestores Diretoria (nível 4), que o disparo em massa (`/cycle/send-tokens`) pula deliberadamente (token fica criado mas pendente, sem e-mail — ver "performance-service — Disparo em massa de tokens de avaliação" acima). Já estava em uso: foi o endpoint usado nesta sessão pra enviar avaliação de equipe pra Andréia, Rafael e Humberto antes mesmo de estar commitado. `GET /cycle/self-evaluation-tokens` passou a retornar `hierarchy_level` no payload, pra permitir filtro por nível na tela admin.
+- **`support-service` — `source` do chamado Freshservice** (`services/freshservice_connector.py`): chamados abertos pelo bot de WhatsApp eram classificados com `source=1` (Email), mascarando a origem real; corrigido para `source=4` (Chat).
