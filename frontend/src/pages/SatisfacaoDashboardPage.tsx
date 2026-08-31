@@ -228,8 +228,8 @@ export default function SatisfacaoDashboardPage() {
         {detalhe && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><p className="text-gray-400 text-xs">Média</p><p className="font-semibold">{detalhe.media ?? "—"}</p></div>
-              <div><p className="text-gray-400 text-xs">% Notas ruins</p><p className="font-semibold">{detalhe.percentual_ruim}%</p></div>
+              <div><p className="text-gray-400 text-xs">Média</p><p className="font-semibold text-gray-900 dark:text-gray-100">{detalhe.media ?? "—"}</p></div>
+              <div><p className="text-gray-400 text-xs">% Notas ruins</p><p className="font-semibold text-gray-900 dark:text-gray-100">{detalhe.percentual_ruim}%</p></div>
             </div>
             <div>
               <h4 className="font-semibold text-sm text-gray-700 dark:text-gray-300 mb-2">Comentários pendentes de triagem</h4>
@@ -249,7 +249,7 @@ export default function SatisfacaoDashboardPage() {
                 <div className="space-y-2">
                   {detalhe.planos_acao.map((pl: any) => (
                     <div key={pl.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3 text-sm flex items-center justify-between">
-                      <span>{pl.descricao}</span>
+                      <span className="text-gray-700 dark:text-gray-300">{pl.descricao}</span>
                       <Badge color={pl.status === "concluido" ? "green" : pl.status === "em_andamento" ? "amber" : "red"}>{pl.status}</Badge>
                     </div>
                   ))}

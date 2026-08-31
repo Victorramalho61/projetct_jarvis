@@ -294,13 +294,13 @@ export default function SatisfacaoEnvioPage() {
       {tab === "respostas" && (
         <Card className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-900/50 text-left text-gray-500">
+            <thead className="bg-gray-50 dark:bg-gray-900/50 text-left text-gray-500 dark:text-gray-400">
               <tr>
                 <th className="p-3">Empresa</th><th className="p-3">Contato</th><th className="p-3">Status</th>
                 <th className="p-3">Canal</th><th className="p-3">Envios</th><th className="p-3">Ações</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="text-gray-700 dark:text-gray-300">
               {respostas.map((r) => (
                 <tr key={r.id} className="border-t border-gray-100 dark:border-gray-700">
                   <td className="p-3">{r.sat_clientes.empresa_nome}</td>

@@ -147,10 +147,10 @@ export default function SatisfacaoCadastroPage() {
           </div>
           <Card className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-gray-50 dark:bg-gray-900/50 text-left text-gray-500">
+              <thead className="bg-gray-50 dark:bg-gray-900/50 text-left text-gray-500 dark:text-gray-400">
                 <tr><th className="p-3">Empresa</th><th className="p-3">Contato</th><th className="p-3">E-mail</th><th className="p-3">Status</th><th className="p-3">Ações</th></tr>
               </thead>
-              <tbody>
+              <tbody className="text-gray-700 dark:text-gray-300">
                 {clientes.map((c) => (
                   <tr key={c.id} className="border-t border-gray-100 dark:border-gray-700">
                     <td className="p-3">{c.empresa_nome}</td>
