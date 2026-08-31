@@ -2252,7 +2252,8 @@ Novo microsserviço que leva o procedimento oficial **VTG.CM.PGP.01 — Pesquisa
 - `SatisfacaoDashboardPage.tsx` (`/satisfacao`) — KPIs (convidados, aderência, dias restantes, planos de ação abertos), distribuição de notas por pergunta com badge de alerta (>30% notas ruins), drilldown em modal com comentários pendentes de triagem, comparativo anual (recharts).
 - `SatisfacaoEnvioPage.tsx` (`/satisfacao/envio`) — uso do SGI: criar/iniciar/postergar/encerrar campanha, tabela de respostas por cliente (reenviar cobrança, lançar resposta manual como fallback de quem responde fora do sistema), fila de triagem de notas ruins (classificação por causa-raiz), CRUD de planos de ação.
 - `SatisfacaoCadastroPage.tsx` (`/satisfacao/cadastro`) — cadastro de clientes/contatos/e-mails, CRUD do template de perguntas e dos "pontos de avaliação" (taxonomia de causa-raiz usada na triagem).
-- `PublicSatisfacaoPage.tsx` (`/satisfacao/responder/:token`, fora do `ProtectedRoute`) — formulário público sem login, token opaco (`secrets.token_urlsafe(32)`, expira em 60 dias), mesmo padrão de `PublicExperienciaPage.tsx`.
+
+> ⚠️ O formulário público próprio (`PublicSatisfacaoPage.tsx`, `/satisfacao/responder/:token`) descrito originalmente aqui foi **removido em 2026-08-31** — ver seção "Integração Microsoft Forms" abaixo para o motivo e o que substituiu.
 
 **Schema** (`satisfacao-service/migration_001_satisfacao.sql` + seed em `migration_002_satisfacao_seed_pontos.sql`, prefixo `sat_`):
 
@@ -2328,3 +2329,32 @@ erDiagram
 **E-mail**: `services/email_service.py` — SMTP direto (`smtplib`), reaproveitando as env vars `SMTP_*` já usadas por outros serviços + nova `SGI_EMAIL` (destinatário das notificações de nova resposta/notas ruins, default `sgi@voetur.com.br`). Templates: `send_primeiro_envio`, `send_cobranca`, `send_reforco_adesao` (pós-postergação), `send_confirmacao_sgi`. Log de envio em `sat_email_log`, mesmo padrão de `exp_email_log` do `experiencia-service`.
 
 **Documentos-fonte**: as 5 perguntas oficiais e a taxonomia de causa-raiz (53 "pontos de avaliação") vieram da planilha "Questões da Pesquisa e Notas Ruins.xlsx" e do procedimento oficial "VTG.CM.PGP.01 - Pesquisa de Satisfação de Clientes.docx", fornecidos pelo Victor.
+
+## Pesquisa de Satisfação — Integração Microsoft Forms (2026-08-31)
+
+O Jarvis **não é acessível de forma confiável pela internet pública** para clientes externos à rede da Voetur (só a rede interna/VPN acessa de verdade, apesar do domínio existir) — o formulário público próprio descrito acima nunca teria funcionado de verdade para os clientes reais (empresas externas). Substituído por **Microsoft Forms** (público de verdade), com as respostas chegando ao Jarvis via **Power Automate** (fluxo do Victor no M365, gatilho "nova resposta no Forms") chamando um webhook novo — o Graph API não tem endpoint estável para ler respostas de Forms diretamente.
+
+**Removido**: `satisfacao-service/routes/public.py`, `frontend/src/pages/PublicSatisfacaoPage.tsx`, rota `/satisfacao/responder/:token`. As colunas `token`/`token_expires_at` de `sat_respostas` ficam órfãs (sem migration destrutiva).
+
+**Webhook** — `POST /api/satisfacao/webhooks/ms-forms?secret=...` (`satisfacao-service/routes/webhook.py`), sem JWT, autenticado por secret compartilhado via query string (`MS_FORMS_WEBHOOK_SECRET`), mesmo padrão de `support-service/routes/webhook.py` (Freshservice) — sempre retorna `{"ok": true}`, nunca 4xx/5xx, pra não gerar retry agressivo do Power Automate. Como o Forms não gera link único por destinatário, o formulário pede e-mail/empresa como pergunta, e o Jarvis concilia a resposta com o `sat_clientes` certo por esse dado (idempotente via `ms_forms_response_id`, índice único parcial). Sem match automático (0 ou >1 candidatos, ou cliente já respondido/campanha encerrada), a resposta cai em `sat_ms_forms_log` (`status='recebido'`) para conciliação manual do SGI — nunca é descartada.
+
+Contrato JSON esperado pelo webhook (usa `ordem` 1-5 em vez de UUID de pergunta, e `ano_campanha` em vez de UUID de campanha — mais simples de montar manualmente numa ação HTTP do Power Automate):
+```json
+{
+  "ano_campanha": 2026,
+  "ms_forms_response_id": "<dynamic: Response Id>",
+  "email_informado": "<dynamic: pergunta 'Seu e-mail'>",
+  "empresa_informada": "<dynamic: pergunta 'Sua empresa' (opcional)>",
+  "itens": [{ "ordem": 1, "nota": 4, "comentario": "" }, ...]
+}
+```
+
+**Nova tabela `sat_ms_forms_log`** (`migration_003_satisfacao_ms_forms.sql`): registra toda chamada de webhook (payload bruto, `matched`, `status` recebido/conciliado/erro/ignorado, `erro_detalhe`). `sat_campanhas.ms_forms_url` guarda o link do Form por campanha (exigido em `POST /campanhas`, com `PATCH /campanhas/{id}` novo pra corrigir depois — erro de digitação num link colado à mão é praticamente garantido). `canal_resposta` ganhou o valor `'ms_forms'` no CHECK — usado tanto na conciliação automática quanto na manual (nunca `'manual_sgi'`, pra não distorcer a métrica de canal quando a origem real é o cliente via Forms, só a identificação que foi manual).
+
+**Refactor**: `_aplicar_itens()` extraído em `routes/admin.py` — valida notas, grava `sat_respostas_itens`, marca `sat_respostas` como respondida. Reaproveitado por `lancar-manual`, pelo webhook e pela conciliação manual (`POST /ms-forms-log/{id}/conciliar`), evitando triplicar a lógica de triagem.
+
+**Aba "Log de Envios"** nova em `SatisfacaoEnvioPage.tsx`: histórico combinado de `sat_email_log` + `sat_ms_forms_log` por campanha (`GET /campanhas/{id}/log-envios`), com seção destacada de conciliação pendente (escolher manualmente qual cliente pertence a uma resposta não identificada, ou ignorar).
+
+**Dashboard mais inteligente**: `services/dashboard.py` ganhou os blocos `envio` (funil Convidados → % Enviados → % Respondidos) e `notas_gerais` (média geral + distribuição agregada ruim/neutro/bom de **todas** as perguntas juntas, não só por pergunta) — dá uma leitura de saúde geral da campanha antes de abrir o detalhe por pergunta.
+
+**Fix incidental**: `_send()` em `email_service.py` montava `From: Sistema Jarvis <{smtp_from}>`, mas `SMTP_FROM` já vem formatado como `Nome <e-mail>` — gerava `Sistema Jarvis <Jarvis <noreply@voetur.com.br>>` (inválido), rejeitado pelo Office365 com `501 5.1.7`. Corrigido com o mesmo padrão já usado em `performance-service/services/email.py` (usa `smtp_from` direto se já contém `<`, senão `formataddr`). **O mesmo bug existe em `experiencia-service/services/email_service.py` e não foi corrigido** (fora do escopo desta sessão) — vale corrigir se notificações desse serviço também estiverem falhando silenciosamente.
