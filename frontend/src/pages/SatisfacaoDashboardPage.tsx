@@ -132,19 +132,30 @@ export default function SatisfacaoDashboardPage() {
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Pesquisa de Satisfação — Dashboard</h1>
-        <select
-          value={campanhaId}
-          onChange={(e) => setCampanhaId(e.target.value)}
-          className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
-        >
-          {campanhas.map((c) => (
-            <option key={c.id} value={c.id}>{c.titulo} ({c.status})</option>
-          ))}
-        </select>
+        {campanhas.length > 0 && (
+          <select
+            value={campanhaId}
+            onChange={(e) => setCampanhaId(e.target.value)}
+            className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          >
+            {campanhas.map((c) => (
+              <option key={c.id} value={c.id}>{c.titulo} ({c.status})</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {loading && <p className="text-sm text-gray-400">Carregando...</p>}
       {error && <p className="text-sm text-red-500">{error}</p>}
+
+      {!loading && !error && campanhas.length === 0 && (
+        <Card className="p-8 text-center">
+          <p className="text-gray-500 dark:text-gray-400 mb-3">Nenhuma campanha de pesquisa foi criada ainda.</p>
+          <a href="/satisfacao/envio" className="text-sm font-semibold text-[#00694E] hover:underline">
+            Ir para Envio e Tratamento para criar a primeira campanha →
+          </a>
+        </Card>
+      )}
 
       {dashboard && (
         <>
