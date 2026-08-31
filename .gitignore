@@ -57,8 +57,8 @@ volumes/api/kong.yml
 volumes/api/kong.yml.new
 volumes/api/kong_backups/
 
-# Logs de backup (gerado localmente, não deve ir pro git)
-backups/backup.log
+# Backups locais (snapshots diários, gerado localmente, não deve ir pro git)
+backups/
 
 # Scratch de auditorias de dados (pode conter PII de clientes)
 _tmp_*.csv
