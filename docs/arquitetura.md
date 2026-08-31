@@ -2172,6 +2172,29 @@ Medido no banco antes do fix (ciclo aberto 2025/2026): 204 colaboradores apareci
 
 Auditoria adicional confirmou que nenhum outro submenu do AVD (Ciclo, Avaliações, Gestão RH, Plano de Ação) nem nenhum outro dashboard do Jarvis (RH, Governance, Fiscal, Expenses, Financeiro, Agents, Monitoring) reproduz esse padrão hoje — riscos latentes anotados mas não corrigidos por não serem alcançáveis pela UI atual: `indicators.py::update_indicator` (`exclude_none=True`) e os campos `jarvis_username`/`name`/`active` de `update_branch` em `admin.py`.
 
+## Investigação — Espaço em disco C: do servidor Windows (2026-08-31)
+
+### Problema
+
+Monitoramento de rotina detectou disco C: caindo de forma consistente: 24.65GB → 23.45GB → 20.93GB livres em 5 dias (~0.7GB/dia). Sem sintoma funcional ainda — só tendência.
+
+### Causas descartadas (verificado, não é isso)
+
+- **Volume Shadow Copy (VSS)** — `vssadmin list shadowstorage` (elevado) retornou "No items found" — nenhum shadow storage configurado.
+- **Cache do Windows Update** (`C:\Windows\SoftwareDistribution\Download`) — 0GB.
+- **Docker Desktop** — o disco de dados real (`docker_data.vhdx`, containers/imagens/volumes) está em **`E:\Docker\wsl\disk\docker_data.vhdx` (45.86GB)**, não em C:. Os `.vhdx` que existem em `C:\Users\<user>\AppData\Local\Docker\wsl\` (`main\ext4.vhdx` 0.1GB, `disk\docker_data.vhdx` 0 bytes) são só a VM utilitária — Docker não é o consumidor de C:.
+- **Bundle de VM sandbox do Claude Code** (`AppData\Local\Packages\Claude_pzs8sxrjxfjjc\...\vm_bundles`, 11.34GB) — é o maior item isolado encontrado, mas parado desde 28/05/2026 — não é a causa da queda recente, só peso morto histórico.
+
+### Status
+
+Não identificada uma causa única e ativa — provável acúmulo distribuído normal (cache de navegador ~4.5GB, npm-cache ~2.5GB, extensões/updates de apps). Recomendado ao Victor rodar `Configurações → Sistema → Armazenamento` (Storage) do Windows para uma varredura completa de categorias não acessíveis via PowerShell não-elevado (relatórios de erro, temporários de instalação, cache de sistema). Não urgente: ritmo atual dá ~3-4 semanas de margem antes de virar crítico.
+
+## Revisão — `frontend/nginx.conf` (2026-08-31)
+
+Mudança pendente (não commitada) no `nginx.conf` investigada a pedido do Victor: é só rename cosmético de variável (`$upstream_evo` → `$upstream_waha`, no proxy do WAHA/porta 8181), sem nenhuma mudança funcional.
+
+Não tem relação com o mecanismo de chunk stale documentado em "Frontend — Auto-reload em chunk stale pós-deploy (2026-07-02)" acima — esse mecanismo já está corretamente implementado e ativo (`index.html` sempre `no-cache`; assets JS/CSS `immutable` + `error_page 404` → `/?reload=1`). Dois 404 de chunk antigo vistos no log do nginx em 31/08 são o comportamento esperado desse mecanismo se autocurando, não um bug.
+
 ## Dashboard AVD: "Completude" mostrava 100%/0 pendentes com gestores tendo pendências reais (2026-08-31)
 
 Investigação disparada por relato de usuário: o drilldown "Gestores com Avaliações Pendentes" listava 9 gestores com pendências (ex.: Tatiana com 1), mas o card agregado "Completude" do mesmo dashboard mostrava 100% e "Avaliações Pendentes" mostrava 0.
