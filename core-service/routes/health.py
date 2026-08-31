@@ -42,7 +42,7 @@ async def ready():
     except Exception:
         components["smtp"] = {"status": "down", "latency_ms": None}
 
-    # WhatsApp (Evolution API)
+    # WhatsApp (WAHA)
     if getattr(s, "whatsapp_api_url", None):
         t0 = time.monotonic()
         try:

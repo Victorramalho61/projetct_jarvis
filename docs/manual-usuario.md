@@ -67,7 +67,7 @@ Acompanhamento em tempo real dos sistemas e serviços da empresa.
 │                                                              │
 │  ● ERP Benner          ✅ Online    Latência: 42ms           │
 │  ● Freshservice        ✅ Online    Latência: 180ms          │
-│  ● Evolution API       ✅ Online    Latência: 28ms           │
+│  ● WAHA (WhatsApp)     ✅ Online    Latência: 28ms           │
 │  ● Portal Voetur       ✅ Online    Latência: 310ms          │
 │  ● Servidor de E-mail  ⚠️  Lento    Latência: 1.2s           │
 │                                                              │
