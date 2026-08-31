@@ -2206,3 +2206,25 @@ Medido no banco antes do fix (ciclo aberto 2025/2026, "Todas as empresas"): 994 
 Bug secundário no mesmo endpoint: `dashboard_pending_evaluators` filtrava `hierarchy_level in [1,2,3]`, excluindo Diretoria (L4) do drilldown por gestor, enquanto `dashboard()` sempre contou L4 no `total_employees` (sem filtro de hierarquia) — universo diferente entre os dois endpoints. Fix: filtro de hierarquia removido do `pending-evaluators`; diretores sem `manager_id` caem no bucket "Sem gestor definido" do drilldown, tornando a pendência visível ao RH.
 
 **Lição:** qualquer métrica agregada que cruze "quem tem X" vs. "quem é elegível/está ativo hoje" precisa de interseção de sets (`&`), nunca subtração de `len()` — a subtração só é seguro quando as duas listas partem exatamente do mesmo universo de IDs, o que raramente é garantido quando uma delas vem de uma tabela histórica (reviews) e a outra de um snapshot do estado atual (employees ativos).
+
+## Frontend — Módulo Agentes: cleanup pós-remoção do agents-service (2026-08-27)
+
+`agents-service` foi removido do stack (não fica mais nem parado — não existe container, nem via `docker ps -a`, diferente de `hermes-service`/`ollama` que ficam parados por `restart: "no"`). O frontend continuava chamando `/api/agents/*` em 4 rotas (`/admin/agentes`, `/admin/proposals`, `/admin/cto-inbox`, `/admin/orquestrador`), com polling de 60-120s em `OrchestratorPage`/`CTOInboxPage`/`ProposalsPage`, gerando erros de DNS resolution repetidos no log do Kong.
+
+Fix (`frontend/src/App.tsx`, `AppLayout.tsx`): as 4 rotas passaram a renderizar um placeholder estático (`ModuloAgentesDesativado`) em vez de montar `AgentsDashboard`/`ProposalsPage`/`CTOInboxPage`/`OrchestratorPage` — os `lazyWithReload()` desses componentes foram removidos de `App.tsx` (chunks nem entram mais no bundle de produção), sem deletar os arquivos de página em si. Link "Agentes (desligado)" removido de `NAV_ITEMS` no menu.
+
+## Freshservice — Dashboard de Tasks Estouradas (2026-08-27)
+
+Módulo Projetos (`freshservice_projects`/`freshservice_project_tasks`, ver schema em "Módulo Freshservice" acima) não tinha nenhum conceito de "atrasada" — `planned_end_date` era só exibido, sem comparação com a data atual, e a conclusão de task depende de curadoria manual (`freshservice_project_statuses.is_done`) que nunca tinha sido feita (12 status, todos sem `label`/`is_done`).
+
+Adicionado:
+- `GET /api/freshservice/projects/overdue-summary` (`freshservice-service/routes/freshservice.py`) — agrega tasks com `planned_end_date < hoje` e status sem `is_done`, por projeto.
+- `GET /api/freshservice/projects/statuses` estendido com `task_count`/`sample_titles` por status, pra dar contexto na hora de classificar.
+- Nova tela `frontend/src/pages/FreshserviceOverdueTasksPage.tsx` (`/freshservice/projetos/estouradas`): KPIs, painel de classificação de status embutido (usa o `PATCH /projects/statuses/{id}` que já existia mas nunca tinha UI), lista de projetos expansível por task com dias de atraso.
+- KPI "Tasks estouradas" clicável em `FreshserviceProjectsPage.tsx` + badge "Estourada" na timeline de `FreshserviceProjectDetailPage.tsx`.
+
+**Cuidado ao usar**: os números só ficam corretos depois que alguém classificar quais dos ~12 `status_id` de task significam "concluído" — a tela mostra um banner de aviso enquanto isso não for feito.
+
+## Módulo Desempenho — Fix de performance na busca de avaliações (2026-08-27)
+
+`PerformancePage.tsx` (aba Gestão RH) disparava uma requisição a `GET /api/performance/admin/evaluations?search=...` a cada tecla digitada, sem debounce nem cancelamento da anterior — nome longo digitado rápido gerou ~40 requisições concorrentes, 11 delas com "upstream prematurely closed connection" no Kong. Fix: debounce de 350ms na busca + `AbortController` cancelando a requisição anterior a cada novo `loadList()`. Filtros de dropdown (status, empresa) continuam instantâneos.
