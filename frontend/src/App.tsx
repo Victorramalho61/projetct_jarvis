@@ -20,16 +20,13 @@ const AccessManagementPage = lazyWithReload(() => import("./pages/admin/AccessMa
 const LogsPage = lazyWithReload(() => import("./pages/admin/LogsPage"));
 const MonitoringPage = lazyWithReload(() => import("./pages/admin/MonitoringPage"));
 const SystemDetailPage = lazyWithReload(() => import("./pages/admin/SystemDetailPage"));
-const AgentsDashboard = lazyWithReload(() => import("./pages/admin/AgentsDashboard"));
 const ExpensesPage = lazyWithReload(() => import("./pages/admin/ExpensesPage"));
 const GovernancePage = lazyWithReload(() => import("./pages/admin/GovernancePage"));
 const PayFlyPage = lazyWithReload(() => import("./pages/admin/PayFlyPage"));
-const ProposalsPage = lazyWithReload(() => import("./pages/admin/ProposalsPage"));
-const CTOInboxPage = lazyWithReload(() => import("./pages/admin/CTOInboxPage"));
-const OrchestratorPage = lazyWithReload(() => import("./pages/admin/OrchestratorPage"));
 const FreshservicePage = lazyWithReload(() => import("./pages/FreshservicePage"));
 const FreshserviceProjectsPage = lazyWithReload(() => import("./pages/FreshserviceProjectsPage"));
 const FreshserviceProjectDetailPage = lazyWithReload(() => import("./pages/FreshserviceProjectDetailPage"));
+const FreshserviceOverdueTasksPage = lazyWithReload(() => import("./pages/FreshserviceOverdueTasksPage"));
 const MoneypennyPage = lazyWithReload(() => import("./pages/MoneypennyPage"));
 const PerformancePage = lazyWithReload(() => import("./pages/PerformancePage"));
 const FiscalPage = lazyWithReload(() => import("./pages/admin/FiscalPage"));
@@ -52,6 +49,19 @@ const RhVagasPage = lazyWithReload(() => import("./pages/RhVagasPage"));
 const RhAssinaturaPage = lazyWithReload(() => import("./pages/RhAssinaturaPage"));
 const RhFormularioPrintPage = lazyWithReload(() => import("./pages/RhFormularioPrintPage"));
 const RhRelatorioPrintPage = lazyWithReload(() => import("./pages/RhRelatorioPrintPage"));
+
+// agents-service foi removido do stack — placeholder evita que as páginas do módulo
+// (que fariam polling contra o serviço inexistente) sejam montadas.
+function ModuloAgentesDesativado() {
+  return (
+    <div className="flex min-h-[60vh] items-center justify-center text-center px-4">
+      <div>
+        <p className="text-lg font-medium text-gray-600">Módulo de Agentes desativado</p>
+        <p className="mt-1 text-sm text-gray-400">agents-service não está em execução.</p>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   return (
@@ -116,18 +126,19 @@ export default function App() {
             <Route path="/admin/monitoramento/:id" element={<SystemDetailPage />} />
             <Route path="/freshservice" element={<FreshservicePage />} />
             <Route path="/freshservice/projetos" element={<FreshserviceProjectsPage />} />
+            <Route path="/freshservice/projetos/estouradas" element={<FreshserviceOverdueTasksPage />} />
             <Route path="/freshservice/projetos/:id" element={<FreshserviceProjectDetailPage />} />
-            {/* Módulo de Agentes consolidado — abas via ?tab= */}
-            <Route path="/admin/agentes" element={<AgentsDashboard />} />
+            {/* Módulo de Agentes consolidado — desativado, agents-service removido do stack (2026-08-26) */}
+            <Route path="/admin/agentes" element={<ModuloAgentesDesativado />} />
             <Route path="/admin/gastos" element={<ExpensesPage />} />
             <Route path="/admin/fiscal" element={<FiscalPage />} />
             <Route path="/admin/benner" element={<BennerIntegracaoPage />} />
             <Route path="/admin/benner-evolucao" element={<BennerEvolucaoPage />} />
             <Route path="/admin/governanca" element={<GovernancePage />} />
             <Route path="/admin/payfly" element={<PayFlyPage />} />
-            <Route path="/admin/proposals" element={<ProposalsPage />} />
-            <Route path="/admin/cto-inbox" element={<CTOInboxPage />} />
-            <Route path="/admin/orquestrador" element={<OrchestratorPage />} />
+            <Route path="/admin/proposals" element={<ModuloAgentesDesativado />} />
+            <Route path="/admin/cto-inbox" element={<ModuloAgentesDesativado />} />
+            <Route path="/admin/orquestrador" element={<ModuloAgentesDesativado />} />
             <Route path="/admin/hermes" element={<HermesPage />} />
             <Route path="/desempenho" element={<PerformancePage />} />
             <Route path="/cartoes" element={<CartaoPage />} />

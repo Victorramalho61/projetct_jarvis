@@ -152,7 +152,6 @@ const NAV_ITEMS: NavItem[] = [
   { id: "benner-evolucao", label: "Acompanhamento RPA", path: "/admin/benner-evolucao", icon: "chart",     roles: ["admin"], sub: true },
   { id: "freshservice", label: "Freshservice",    path: "/freshservice",         icon: "briefcase", roles: ["admin"] },
   { id: "freshservice-projetos", label: "Projetos", path: "/freshservice/projetos", icon: "clipboard", roles: ["admin"], sub: true },
-  { id: "agents",     label: "Agentes (desligado)", path: "/admin/agentes",      icon: "cpu",       roles: ["admin"] },
   { id: "expenses",   label: "Gastos TI",         path: "/admin/gastos",         icon: "wallet",    roles: ["admin"] },
   { id: "fiscal",     label: "Validação NFe/NFSe",  path: "/admin/fiscal",         icon: "file",      roles: ["admin"] },
   { id: "governance", label: "Governança",         path: "/admin/governanca",    icon: "shield",    roles: ["admin"] },
