@@ -1,8 +1,12 @@
 """
 Classificação LLM de artigos PayFly.
-Primário: Google Gemini 2.0 Flash (grátis).
-Fallback: Groq llama-3.1-8b-instant (grátis).
+Primário: Google Gemini 2.5 Flash (grátis).
+Fallback: Groq openai/gpt-oss-20b (grátis).
 Usa httpx diretamente — sem dependência de langchain.
+
+Modelos atualizados em 2026-08-19 — gemini-2.0-flash e llama-3.1-8b-instant
+foram descontinuados pelos provedores (404). Groq removeu toda a linha
+llama-3.x-instant/versatile do catálogo; gpt-oss-20b é o substituto direto.
 """
 import asyncio
 import json
@@ -97,7 +101,7 @@ async def classify_articles_llm(
 
 
 async def _gemini(prompt: str, api_key: str) -> str | None:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=40) as client:
@@ -129,7 +133,7 @@ async def _groq(prompt: str, api_key: str) -> str | None:
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}"},
                 json={
-                    "model": "llama-3.1-8b-instant",
+                    "model": "openai/gpt-oss-20b",
                     "messages": [{"role": "user", "content": prompt}],
                     "temperature": 0.1,
                 },

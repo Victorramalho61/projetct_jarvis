@@ -4,7 +4,7 @@ Orquestração do pipeline diário de mídia PayFly.
 Ordem:
   1. fetch_all()             — todas as fontes em paralelo (feedparser + httpx async)
   2. extract_full_articles() — newspaper3k/BS4 nos top 10 mais relevantes
-  3. classify_articles_llm() — Gemini 2.0 Flash → category + sentiment_label
+  3. classify_articles_llm() — Gemini 2.5 Flash → category + sentiment_label
   4. embed_articles()        — text-embedding-004 → vector(768) para pgvector
   5. store()                 — bulk upsert no Supabase
   6. aggregate_metrics()     — recalcula payfly_media_metrics e payfly_media_daily_metrics
