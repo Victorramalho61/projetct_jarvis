@@ -112,6 +112,28 @@ interface BennerReconciliation {
   not_in_benner: BennerReconciliationItem[];
 }
 
+interface NfseBennerReconciliationItem {
+  chave_acesso: string;
+  numero: string;
+  data_emissao: string | null;
+  destinatario_cnpj: string;
+  destinatario_nome: string;
+  valor_total: number;
+  status: string;
+  company_id: string;
+  company_nome: string;
+  motivo: string;
+}
+
+interface NfseBennerReconciliation {
+  aproximado: boolean;
+  criterio: string;
+  desde: string;
+  total_nfse_emitida: number;
+  not_in_benner_count: number;
+  not_in_benner: NfseBennerReconciliationItem[];
+}
+
 interface NfseDoc {
   id: string;
   company_id: string;
@@ -301,6 +323,16 @@ export default function FiscalPage() {
   const [bennerReconLoading, setBennerReconLoading] = useState(false);
   const [bennerReconError, setBennerReconError] = useState("");
   const [bennerReconExporting, setBennerReconExporting] = useState(false);
+  const [bennerReconFilter, setBennerReconFilter] = useState("");
+  const bennerReconSearchRef = useRef<HTMLInputElement | null>(null);
+
+  // dashboard — indicador aproximado NFSe emitida x Benner (CNPJ + valor + data, isolado)
+  const [nfseRecon, setNfseRecon] = useState<NfseBennerReconciliation | null>(null);
+  const [nfseReconLoading, setNfseReconLoading] = useState(false);
+  const [nfseReconError, setNfseReconError] = useState("");
+  const [nfseReconExporting, setNfseReconExporting] = useState(false);
+  const [nfseReconFilter, setNfseReconFilter] = useState("");
+  const nfseReconSearchRef = useRef<HTMLInputElement | null>(null);
 
   // nfse
   const [docs, setDocs]             = useState<NfseDoc[]>([]);
@@ -494,6 +526,71 @@ export default function FiscalPage() {
       setBennerReconExporting(false);
     }
   };
+
+  const focusBennerReconSearch = () => {
+    bennerReconSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    bennerReconSearchRef.current?.focus();
+  };
+
+  const bennerReconFiltered = useMemo(() => {
+    const list = bennerRecon?.not_in_benner ?? [];
+    const q = bennerReconFilter.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((d) =>
+      d.chave_acesso.toLowerCase().includes(q) ||
+      d.numero.toLowerCase().includes(q) ||
+      d.emitente_nome.toLowerCase().includes(q) ||
+      d.company_nome.toLowerCase().includes(q)
+    );
+  }, [bennerRecon, bennerReconFilter]);
+
+  // ── Load indicador aproximado NFSe emitida x Benner (isolado) ──
+  const loadNfseRecon = useCallback((refresh = false) => {
+    if (!token) return;
+    setNfseReconLoading(true);
+    setNfseReconError("");
+    apiFetch<NfseBennerReconciliation>(
+      `/api/fiscal/benner-reconciliation/nfse-emitida${refresh ? "?refresh=true" : ""}`,
+      { token, timeoutMs: 60_000 },
+    )
+      .then(setNfseRecon)
+      .catch((e) => setNfseReconError(e instanceof ApiError ? e.message : "Falha ao carregar indicador Benner (NFSe)"))
+      .finally(() => setNfseReconLoading(false));
+  }, [token]);
+
+  useEffect(() => { if (tab === "dashboard") loadNfseRecon(); }, [tab, loadNfseRecon]);
+
+  const exportNfseReconCsv = async () => {
+    if (!token) return;
+    setNfseReconExporting(true);
+    try {
+      const resp = await fetch("/api/fiscal/benner-reconciliation/nfse-emitida/export", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!resp.ok) return;
+      downloadBlob(await resp.blob(), "nao_encontrados_benner_nfse_emitida.csv");
+    } finally {
+      setNfseReconExporting(false);
+    }
+  };
+
+  const focusNfseReconSearch = () => {
+    nfseReconSearchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    nfseReconSearchRef.current?.focus();
+  };
+
+  const nfseReconFiltered = useMemo(() => {
+    const list = nfseRecon?.not_in_benner ?? [];
+    const q = nfseReconFilter.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((d) =>
+      d.chave_acesso.toLowerCase().includes(q) ||
+      d.numero.toLowerCase().includes(q) ||
+      d.destinatario_nome.toLowerCase().includes(q) ||
+      d.destinatario_cnpj.toLowerCase().includes(q) ||
+      d.company_nome.toLowerCase().includes(q)
+    );
+  }, [nfseRecon, nfseReconFilter]);
 
   // ── Load docs ───────────────────────────────────────────────────────────────
   const loadDocs = useCallback(() => {
@@ -1308,9 +1405,19 @@ export default function FiscalPage() {
             ) : bennerRecon ? (
               <>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  <KPICard label="Total NFe/CTe" value={FMT_NUM.format(bennerRecon.total_nfe_cte)} isDark={isDark} />
-                  <div
-                    className={`rounded-xl border p-5 flex flex-col gap-1 ${
+                  <button
+                    type="button"
+                    onClick={focusBennerReconSearch}
+                    className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-transform hover:-translate-y-0.5"
+                    title="Clique para buscar na lista abaixo"
+                  >
+                    <KPICard label="Total NFe/CTe" value={FMT_NUM.format(bennerRecon.total_nfe_cte)} isDark={isDark} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={focusBennerReconSearch}
+                    title="Clique para buscar na lista abaixo"
+                    className={`text-left rounded-xl border p-5 flex flex-col gap-1 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-transform hover:-translate-y-0.5 ${
                       bennerRecon.not_in_benner_count > 0
                         ? (isDark ? "bg-amber-900/20 border-amber-700/60" : "bg-amber-50 border-amber-300")
                         : (isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200")
@@ -1322,7 +1429,7 @@ export default function FiscalPage() {
                     <span className={`text-2xl font-bold ${bennerRecon.not_in_benner_count > 0 ? (isDark ? "text-amber-400" : "text-amber-700") : (isDark ? "text-white" : "text-gray-900")}`}>
                       {FMT_NUM.format(bennerRecon.not_in_benner_count)}
                     </span>
-                  </div>
+                  </button>
                   <KPICard
                     label="% Não Encontrados"
                     value={bennerRecon.total_nfe_cte > 0
@@ -1333,42 +1440,182 @@ export default function FiscalPage() {
                 </div>
 
                 {bennerRecon.not_in_benner.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs">
-                      <thead>
-                        <tr className={isDark ? "text-gray-400" : "text-gray-500"}>
-                          <th className="text-left py-1.5 pr-3">Empresa</th>
-                          <th className="text-left py-1.5 pr-3">Tipo</th>
-                          <th className="text-left py-1.5 pr-3">Número</th>
-                          <th className="text-left py-1.5 pr-3">Emitente</th>
-                          <th className="text-left py-1.5 pr-3">Data</th>
-                          <th className="text-right py-1.5 pr-3">Valor</th>
-                          <th className="text-left py-1.5 pr-3">Status</th>
-                          <th className="text-left py-1.5">Chave de Acesso</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {bennerRecon.not_in_benner.slice(0, 100).map((d) => (
-                          <tr key={d.chave_acesso} className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"}`}>
-                            <td className="py-1.5 pr-3 truncate max-w-[160px]">{d.company_nome}</td>
-                            <td className="py-1.5 pr-3">{d.tipo}</td>
-                            <td className="py-1.5 pr-3 font-mono">{d.numero || "—"}</td>
-                            <td className="py-1.5 pr-3 truncate max-w-[220px]">{d.emitente_nome || "—"}</td>
-                            <td className="py-1.5 pr-3">{d.data_emissao || "—"}</td>
-                            <td className="py-1.5 pr-3 text-right font-mono">{FMT_BRL.format(d.valor_total || 0)}</td>
-                            <td className="py-1.5 pr-3">
-                              <Badge label={d.status} cls={STATUS_BADGE[d.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
-                            </td>
-                            <td className="py-1.5 font-mono text-[10px]">{d.chave_acesso}</td>
+                  <div className="space-y-2">
+                    <input
+                      ref={bennerReconSearchRef}
+                      type="text"
+                      value={bennerReconFilter}
+                      onChange={(e) => setBennerReconFilter(e.target.value)}
+                      placeholder="Buscar por chave, número, emitente ou empresa…"
+                      className={`${inp} w-full`}
+                    />
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className={isDark ? "text-gray-400" : "text-gray-500"}>
+                            <th className="text-left py-1.5 pr-3">Empresa</th>
+                            <th className="text-left py-1.5 pr-3">Tipo</th>
+                            <th className="text-left py-1.5 pr-3">Número</th>
+                            <th className="text-left py-1.5 pr-3">Emitente</th>
+                            <th className="text-left py-1.5 pr-3">Data</th>
+                            <th className="text-right py-1.5 pr-3">Valor</th>
+                            <th className="text-left py-1.5 pr-3">Status</th>
+                            <th className="text-left py-1.5">Chave de Acesso</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                    {bennerRecon.not_in_benner.length > 100 && (
-                      <p className={`text-xs mt-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                        Mostrando 100 de {FMT_NUM.format(bennerRecon.not_in_benner.length)}. Exporte o CSV para ver todos.
-                      </p>
-                    )}
+                        </thead>
+                        <tbody>
+                          {bennerReconFiltered.slice(0, 100).map((d) => (
+                            <tr key={d.chave_acesso} className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"}`}>
+                              <td className="py-1.5 pr-3 truncate max-w-[160px]">{d.company_nome}</td>
+                              <td className="py-1.5 pr-3">{d.tipo}</td>
+                              <td className="py-1.5 pr-3 font-mono">{d.numero || "—"}</td>
+                              <td className="py-1.5 pr-3 truncate max-w-[220px]">{d.emitente_nome || "—"}</td>
+                              <td className="py-1.5 pr-3">{d.data_emissao || "—"}</td>
+                              <td className="py-1.5 pr-3 text-right font-mono">{FMT_BRL.format(d.valor_total || 0)}</td>
+                              <td className="py-1.5 pr-3">
+                                <Badge label={d.status} cls={STATUS_BADGE[d.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300"} />
+                              </td>
+                              <td className="py-1.5 font-mono text-[10px]">{d.chave_acesso}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {bennerReconFiltered.length === 0 && (
+                        <p className={`text-xs py-3 ${isDark ? "text-gray-400" : "text-gray-500"}`}>Nenhum resultado para essa busca.</p>
+                      )}
+                      {bennerReconFiltered.length > 100 && (
+                        <p className={`text-xs mt-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                          Mostrando 100 de {FMT_NUM.format(bennerReconFiltered.length)}. Refine a busca ou exporte o CSV para ver todos.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : null}
+          </div>
+
+          {/* ── Indicador: NFSe Emitida sem lançamento equivalente no Benner (aproximado) ── */}
+          <div className={`rounded-xl border p-5 space-y-4 ${card}`}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
+                NFSe Emitida sem Lançamento no Benner (aproximado) — todas as empresas
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => loadNfseRecon(true)}
+                  disabled={nfseReconLoading}
+                  className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors disabled:opacity-40 ${isDark ? "bg-gray-700 text-gray-200 hover:bg-gray-600" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+                >
+                  {nfseReconLoading ? "Atualizando…" : "Atualizar"}
+                </button>
+                <button
+                  onClick={exportNfseReconCsv}
+                  disabled={nfseReconExporting || !nfseRecon?.not_in_benner_count}
+                  className={`px-3 py-1.5 text-xs rounded-lg flex items-center gap-1.5 font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${isDark ? "bg-emerald-900/30 border border-emerald-700/60 text-emerald-400 hover:bg-emerald-900/50" : "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100"}`}
+                >
+                  {nfseReconExporting
+                    ? <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                    : (<svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>)}
+                  CSV
+                </button>
+              </div>
+            </div>
+            <div className={`text-xs rounded-lg px-3 py-2 ${isDark ? "bg-amber-900/20 text-amber-300 border border-amber-700/40" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
+              ⚠ Indicador de <strong>baixa confiança</strong> (melhor esforço). O Benner não guarda a chave de acesso da NFSe,
+              então o cruzamento é aproximado: CNPJ do tomador + valor (±R$0,05) + data (±30 dias) contra lançamentos de saída
+              no Benner desde {nfseRecon?.desde ?? "2025-01-01"}. Pode haver falso positivo/negativo — valide manualmente antes de tratar como divergência real.
+            </div>
+
+            {nfseReconError ? (
+              <p className="text-sm text-red-500">{nfseReconError}</p>
+            ) : nfseReconLoading && !nfseRecon ? (
+              <div className={`h-20 rounded-lg animate-pulse ${isDark ? "bg-gray-700" : "bg-gray-100"}`} />
+            ) : nfseRecon ? (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  <button
+                    type="button"
+                    onClick={focusNfseReconSearch}
+                    className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-transform hover:-translate-y-0.5"
+                    title="Clique para buscar na lista abaixo"
+                  >
+                    <KPICard label="Total NFSe Emitida" value={FMT_NUM.format(nfseRecon.total_nfse_emitida)} isDark={isDark} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={focusNfseReconSearch}
+                    title="Clique para buscar na lista abaixo"
+                    className={`text-left rounded-xl border p-5 flex flex-col gap-1 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-transform hover:-translate-y-0.5 ${
+                      nfseRecon.not_in_benner_count > 0
+                        ? (isDark ? "bg-amber-900/20 border-amber-700/60" : "bg-amber-50 border-amber-300")
+                        : (isDark ? "bg-gray-800 border-gray-700" : "bg-white border-gray-200")
+                    }`}
+                  >
+                    <span className={`text-xs font-medium uppercase tracking-wide ${isDark ? "text-gray-300" : "text-gray-500"}`}>
+                      Sem Lançamento no Benner
+                    </span>
+                    <span className={`text-2xl font-bold ${nfseRecon.not_in_benner_count > 0 ? (isDark ? "text-amber-400" : "text-amber-700") : (isDark ? "text-white" : "text-gray-900")}`}>
+                      {FMT_NUM.format(nfseRecon.not_in_benner_count)}
+                    </span>
+                  </button>
+                  <KPICard
+                    label="% Sem Lançamento"
+                    value={nfseRecon.total_nfse_emitida > 0
+                      ? `${((nfseRecon.not_in_benner_count / nfseRecon.total_nfse_emitida) * 100).toFixed(1)}%`
+                      : "—"}
+                    isDark={isDark}
+                  />
+                </div>
+
+                {nfseRecon.not_in_benner.length > 0 && (
+                  <div className="space-y-2">
+                    <input
+                      ref={nfseReconSearchRef}
+                      type="text"
+                      value={nfseReconFilter}
+                      onChange={(e) => setNfseReconFilter(e.target.value)}
+                      placeholder="Buscar por chave, número, tomador (nome/CNPJ) ou empresa…"
+                      className={`${inp} w-full`}
+                    />
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className={isDark ? "text-gray-400" : "text-gray-500"}>
+                            <th className="text-left py-1.5 pr-3">Empresa</th>
+                            <th className="text-left py-1.5 pr-3">Número</th>
+                            <th className="text-left py-1.5 pr-3">Tomador</th>
+                            <th className="text-left py-1.5 pr-3">CNPJ Tomador</th>
+                            <th className="text-left py-1.5 pr-3">Data</th>
+                            <th className="text-right py-1.5 pr-3">Valor</th>
+                            <th className="text-left py-1.5 pr-3">Motivo</th>
+                            <th className="text-left py-1.5">Chave de Acesso</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {nfseReconFiltered.slice(0, 100).map((d) => (
+                            <tr key={d.chave_acesso} className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"}`}>
+                              <td className="py-1.5 pr-3 truncate max-w-[160px]">{d.company_nome}</td>
+                              <td className="py-1.5 pr-3 font-mono">{d.numero || "—"}</td>
+                              <td className="py-1.5 pr-3 truncate max-w-[200px]">{d.destinatario_nome || "—"}</td>
+                              <td className="py-1.5 pr-3 font-mono">{d.destinatario_cnpj || "—"}</td>
+                              <td className="py-1.5 pr-3">{d.data_emissao || "—"}</td>
+                              <td className="py-1.5 pr-3 text-right font-mono">{FMT_BRL.format(d.valor_total || 0)}</td>
+                              <td className="py-1.5 pr-3 truncate max-w-[220px]">{d.motivo}</td>
+                              <td className="py-1.5 font-mono text-[10px]">{d.chave_acesso}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {nfseReconFiltered.length === 0 && (
+                        <p className={`text-xs py-3 ${isDark ? "text-gray-400" : "text-gray-500"}`}>Nenhum resultado para essa busca.</p>
+                      )}
+                      {nfseReconFiltered.length > 100 && (
+                        <p className={`text-xs mt-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
+                          Mostrando 100 de {FMT_NUM.format(nfseReconFiltered.length)}. Refine a busca ou exporte o CSV para ver todos.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </>
