@@ -62,3 +62,6 @@ backups/
 
 # Scratch de auditorias de dados (pode conter PII de clientes)
 _tmp_*.csv
+
+# Schema do banco VoeSync (sistema de terceiro — não commitar estrutura/dados)
+docs/voesync_schema/
