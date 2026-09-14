@@ -30,6 +30,7 @@ from routes.apuration import router as apuration_router
 from routes.ndd_auth import router as ndd_auth_router
 from routes.nfse_search import router as nfse_search_router
 from routes.fiscal_export import router as fiscal_export_router
+from routes.benner_reconciliation import router as benner_reconciliation_router
 
 
 @asynccontextmanager
@@ -77,6 +78,7 @@ app.include_router(certificates_router)
 # capture "portal-nfse" como parâmetro antes de bater na rota literal
 app.include_router(nfse_search_router)
 app.include_router(fiscal_export_router)
+app.include_router(benner_reconciliation_router)
 app.include_router(sync_router)
 app.include_router(municipalities_router)
 app.include_router(documents_router)

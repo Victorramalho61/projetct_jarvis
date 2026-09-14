@@ -251,6 +251,7 @@ async def _sync_municipalities_background(company_id: str):
                     for doc in docs:
                         doc["company_id"] = company_id
                         doc["fonte"] = "municipal_direto"
+                        doc["direcao"] = "emitida"
                         _ensure_period(sb, company_id, doc.get("data_emissao"), doc)
                         try:
                             sb.table("fiscal_documents").upsert(

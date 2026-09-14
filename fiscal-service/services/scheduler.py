@@ -12,6 +12,25 @@ _portal_syncing: set[str] = set()   # guard: evita sync concorrente por empresa
 TZ_BR = pytz.timezone("America/Sao_Paulo")
 
 
+def _only_digits(s: str | None) -> str:
+    return "".join(c for c in (s or "") if c.isdigit())
+
+
+def _derive_direcao(company_cnpj: str, emitente_cnpj: str | None, destinatario_cnpj: str | None) -> str | None:
+    """Compara o CNPJ da empresa com emitente/destinatário do documento para
+    classificar a nota como 'emitida' (empresa é prestadora) ou 'recebida'
+    (empresa é tomadora). Usado para fontes que misturam os dois papéis (ex:
+    Portal Nacional NFS-e), onde a direção não é conhecida a priori."""
+    my_cnpj = _only_digits(company_cnpj)
+    if not my_cnpj:
+        return None
+    if _only_digits(emitente_cnpj) == my_cnpj:
+        return "emitida"
+    if _only_digits(destinatario_cnpj) == my_cnpj:
+        return "recebida"
+    return None
+
+
 async def start_scheduler():
     global _scheduler
     _scheduler = AsyncIOScheduler(timezone=TZ_BR)
@@ -382,6 +401,7 @@ async def _sync_nfse(sb, settings, company, janela):
                 "chave_acesso": nota["chave_acesso"],
                 "emitente_cnpj": nota["cnpj_prestador"],
                 "destinatario_cnpj": cnpj_tom,
+                "direcao": "recebida",
                 "data_emissao": nota["data_emissao"],
                 "valor_total": nota["valor_total"],
                 "xml_content": nota["xml"],
@@ -469,6 +489,7 @@ async def _sync_nfse_ndd_incremental():
                 "emitente_nome": nota.get("nome_prestador"),
                 "destinatario_cnpj": cnpj_tom,
                 "destinatario_nome": nota.get("nome_tomador"),
+                "direcao": "recebida",
                 "data_emissao": nota["data_emissao"],
                 "valor_total": nota["valor_total"],
                 "valor_iss": nota.get("valor_iss"),
@@ -553,6 +574,7 @@ def sync_ndd_for_company(company_id: str, janela: str = "manual") -> dict:
                 "emitente_nome": nota.get("nome_prestador"),
                 "destinatario_cnpj": cnpj_tom,
                 "destinatario_nome": nota.get("nome_tomador"),
+                "direcao": "recebida",
                 "data_emissao": nota["data_emissao"],
                 "valor_total": nota["valor_total"],
                 "valor_iss": nota.get("valor_iss"),
@@ -693,6 +715,9 @@ def _sync_portal_nfse_company(company: dict, janela: str = "manual"):
                         "tipo_schema":  doc.get("tipo_schema", "completo"),
                         "xml_hash":     doc.get("xml_hash") or _compute_hash(doc.get("xml", "")),
                         "xml_content":  doc.get("xml", ""),
+                        "direcao":      _derive_direcao(
+                            cnpj, parsed.get("emitente_cnpj"), parsed.get("destinatario_cnpj")
+                        ),
                     })
                     # chave_acesso da API ADN é autoritativa — usa como fallback se parser não extraiu
                     if not parsed.get("chave_acesso") and doc.get("chave_acesso"):

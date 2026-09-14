@@ -24,7 +24,7 @@ _CSV_FIELDS = [
     "destinatario_cnpj", "destinatario_nome",
     "valor_total", "valor_produtos", "valor_icms",
     "valor_pis", "valor_cofins", "valor_iss", "valor_iss_retido",
-    "municipio_nome", "status", "fonte", "tipo_schema",
+    "municipio_nome", "status", "fonte", "direcao", "tipo_schema",
     "natureza_operacao", "created_at",
 ]
 
@@ -36,6 +36,7 @@ def export_csv(
     data_fim:    Optional[str]  = Query(None, description="YYYY-MM-DD"),
     fonte:       Optional[str]  = Query(None, description="ndd | portal_nacional | sefaz"),
     status:      Optional[str]  = Query(None, description="pendente | conferido | divergencia | cancelado"),
+    direcao:     Optional[str]  = Query(None, description="emitida | recebida"),
     tipo:        Optional[str]  = Query(None, description="NFSe | NFe | CTe — padrão: todos"),
     _user: dict = Depends(get_current_user),
 ):
@@ -58,6 +59,7 @@ def export_csv(
     if data_fim:    q = q.lte("data_emissao", data_fim)
     if fonte:       q = q.eq("fonte", fonte)
     if status:      q = q.eq("status", status)
+    if direcao:     q = q.eq("direcao", direcao)
 
     rows = q.execute().data or []
     _logger.info("export_csv: %d linhas para company_id=%s", len(rows), company_id[:8])
@@ -81,6 +83,7 @@ def export_xml_zip(
     data_inicio: Optional[str]  = Query(None, description="YYYY-MM-DD"),
     data_fim:    Optional[str]  = Query(None, description="YYYY-MM-DD"),
     fonte:       Optional[str]  = Query(None, description="ndd | portal_nacional | sefaz"),
+    direcao:     Optional[str]  = Query(None, description="emitida | recebida"),
     tipo:        Optional[str]  = Query(None, description="NFSe | NFe | CTe — padrão: todos"),
     _user: dict = Depends(get_current_user),
 ):
@@ -103,6 +106,7 @@ def export_xml_zip(
     if data_inicio: q = q.gte("data_emissao", data_inicio)
     if data_fim:    q = q.lte("data_emissao", data_fim)
     if fonte:       q = q.eq("fonte", fonte)
+    if direcao:     q = q.eq("direcao", direcao)
 
     if not data_inicio and not data_fim:
         from fastapi import HTTPException as _HTTPEx

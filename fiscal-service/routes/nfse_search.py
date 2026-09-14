@@ -75,13 +75,16 @@ _nfse_stats_cache: dict[str, tuple[dict, float]] = {}
 
 @router.get("/nfse/stats")
 def nfse_stats(
-    company_id: Optional[str] = Query(None),
-    ano:        Optional[int] = Query(None),
-    mes:        Optional[int] = Query(None),
+    company_id:  Optional[str] = Query(None),
+    ano:         Optional[int] = Query(None),
+    mes:         Optional[int] = Query(None),
+    data_inicio: Optional[str] = Query(None, description="YYYY-MM-DD — tem prioridade sobre ano/mes"),
+    data_fim:    Optional[str] = Query(None, description="YYYY-MM-DD — tem prioridade sobre ano/mes"),
+    direcao:     Optional[str] = Query(None, description="emitida | recebida"),
     _user: dict = Depends(get_current_user),
 ):
     """Totais agregados via SQL — sem varredura full-table no Python."""
-    cache_key = f"{company_id}:{ano}:{mes}"
+    cache_key = f"{company_id}:{ano}:{mes}:{data_inicio}:{data_fim}:{direcao}"
     now = time.monotonic()
     cached = _nfse_stats_cache.get(cache_key)
     if cached and now - cached[1] < _NFSE_STATS_TTL:
@@ -90,9 +93,12 @@ def nfse_stats(
     sb = get_supabase()
     try:
         result = sb.rpc("fiscal_nfse_stats", {
-            "p_company_id": company_id,
-            "p_ano": ano,
-            "p_mes": mes,
+            "p_company_id":  company_id,
+            "p_ano":         ano,
+            "p_mes":         mes,
+            "p_data_inicio": data_inicio,
+            "p_data_fim":    data_fim,
+            "p_direcao":     direcao,
         }).execute()
     except Exception as exc:
         msg = str(exc)
@@ -137,6 +143,7 @@ def search_nfse(
     municipio:        Optional[str]   = Query(None, description="Nome do município (parcial)"),
     status:           Optional[str]   = Query(None, description="pendente | conferido | divergencia | cancelado"),
     fonte:            Optional[str]   = Query(None, description="ndd | portal_nacional | sefaz"),
+    direcao:          Optional[str]   = Query(None, description="emitida | recebida"),
     tipo:             Optional[str]   = Query(None, description="NFSe | NFe | CTe"),
     valor_min:        Optional[float] = Query(None),
     valor_max:        Optional[float] = Query(None),
@@ -155,6 +162,7 @@ def search_nfse(
                 "p_company_id": company_id,
                 "p_limit":      limit,
                 "p_offset":     offset,
+                "p_direcao":    direcao,
             }).execute()
             data = rpc_result.data or []
         except Exception:
@@ -166,7 +174,7 @@ def search_nfse(
         "id,company_id,tipo,chave_acesso,numero,serie,"
         "emitente_cnpj,emitente_nome,destinatario_cnpj,destinatario_nome,"
         "natureza_operacao,data_emissao,valor_total,valor_iss,valor_iss_retido,"
-        "municipio_nome,status,fonte,tipo_schema,ndd_id,ndd_sync_at,created_at"
+        "municipio_nome,status,fonte,direcao,tipo_schema,ndd_id,ndd_sync_at,created_at"
     )
 
     # tipo pode ser: "NFSe", "NFe", "CTe" ou "NFe,CTe" para múltiplos
@@ -180,6 +188,7 @@ def search_nfse(
     if company_id:              query = query.eq("company_id", company_id)
     if status:                  query = query.eq("status", status)
     if fonte:                   query = query.eq("fonte", fonte)
+    if direcao:                 query = query.eq("direcao", direcao)
     if data_inicio:             query = query.gte("data_emissao", data_inicio)
     if data_fim:                query = query.lte("data_emissao", data_fim)
     if valor_min is not None:   query = query.gte("valor_total", valor_min)
@@ -385,11 +394,15 @@ async def fetch_document_by_key(
             if xml_str:
                 parsed = parse_nfse_portal(xml_str)
                 if parsed:
+                    from services.scheduler import _derive_direcao
                     parsed.update({
                         "company_id":  company_id,
                         "fonte":       "portal_nacional",
                         "xml_content": xml_str,
                         "xml_hash":    _compute_hash(xml_str),
+                        "direcao":     _derive_direcao(
+                            company["cnpj"], parsed.get("emitente_cnpj"), parsed.get("destinatario_cnpj")
+                        ),
                     })
                     parsed.pop("_items", None)
                     sb.table("fiscal_documents").upsert(parsed, on_conflict="chave_acesso").execute()
