@@ -66,6 +66,8 @@ interface CheckinItem {
   item_id: string;
   indicator_name: string;
   plan_text: string;
+  meta_esperada?: string | null;
+  acoes?: string | null;
   cumulative_pct_before: number;
 }
 
@@ -232,7 +234,12 @@ export default function PublicActionPlanCheckinPage() {
                 return (
                   <div key={item.item_id} className="border border-gray-200 dark:border-gray-700 rounded-xl p-4">
                     <h3 className="font-semibold text-gray-900 dark:text-white">{item.indicator_name}</h3>
-                    {item.plan_text && (
+                    {item.meta_esperada || item.acoes ? (
+                      <div className="mt-1 mb-2 space-y-0.5">
+                        {item.meta_esperada && <p className="text-xs text-gray-500"><strong>Meta esperada:</strong> {item.meta_esperada}</p>}
+                        {item.acoes && <p className="text-xs text-gray-500"><strong>Ações:</strong> {item.acoes}</p>}
+                      </div>
+                    ) : item.plan_text && (
                       <p className="text-xs text-gray-500 mt-1 mb-2">Plano: {item.plan_text}</p>
                     )}
                     <p className="text-xs text-gray-400 mb-3">

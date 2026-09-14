@@ -236,6 +236,9 @@ def set_cycle_config(
 # ── Geração dos planos (disparo inicial manual) ────────────────────────────────
 
 def _create_action_plan(db, cycle_id: str, cand: dict, phase_base_date: date, actor: str) -> dict | None:
+    """Cria o cabeçalho do plano + as 4 fases. Os itens (competências) NÃO são mais
+    pré-criados aqui — o gestor escolhe exatamente 2, de todo o catálogo de
+    indicadores, ao preencher o formulário inicial (routes/action_plans_public.py)."""
     plan_res = db.table("performance_action_plans").insert({
         "cycle_id": cycle_id,
         "employee_id": cand["employee_id"],
@@ -247,16 +250,6 @@ def _create_action_plan(db, cycle_id: str, cand: dict, phase_base_date: date, ac
     if not plan_res.data:
         return None
     plan = plan_res.data[0]
-
-    items_payload = [
-        {
-            "action_plan_id": plan["id"],
-            "indicator_id": ind["indicator_id"],
-            "original_score": ind["score"],
-        }
-        for ind in cand["indicators"]
-    ]
-    db.table("performance_action_plan_items").insert(items_payload).execute()
 
     phases_payload = [
         {
@@ -398,12 +391,17 @@ def resend_initial(
     if not mgr or not mgr.get("has_corporate_email") or not mgr.get("email"):
         raise HTTPException(400, detail="Gestor não possui e-mail corporativo")
 
-    items = db.table("performance_action_plan_items").select(
-        "performance_indicators(name)"
-    ).eq("action_plan_id", action_plan_id).execute().data or []
+    # Itens só existem depois que o gestor preenche o formulário (agora escolhido
+    # por ele, não mais pré-criado) — para o e-mail de convite, mostramos as
+    # competências que motivaram o plano (nota 1/2), a mesma lógica de _build_candidates.
+    scores = (
+        db.table("performance_indicator_scores")
+        .select("indicator_id,score,performance_indicators(name)")
+        .eq("review_id", p["review_id"]).execute().data
+    ) or []
     item_names = [
-        {"indicator_name": (i.get("performance_indicators") or {}).get("name", "")}
-        for i in items
+        {"indicator_name": (s.get("performance_indicators") or {}).get("name", "")}
+        for s in scores if float(s.get("score") or 0) in (1.0, 2.0)
     ]
 
     company_name = ""
@@ -541,7 +539,7 @@ def _send_one_phase(db, action_plan_id: str, phase_number: int, frontend_url: st
 
     items = (
         db.table("performance_action_plan_items")
-        .select("id,plan_text,cumulative_pct,performance_indicators(name)")
+        .select("id,plan_text,cumulative_pct,meta_esperada,acoes,performance_indicators(name)")
         .eq("action_plan_id", action_plan_id).execute().data
     ) or []
 
@@ -570,6 +568,8 @@ def _send_one_phase(db, action_plan_id: str, phase_number: int, frontend_url: st
         {
             "indicator_name": (it.get("performance_indicators") or {}).get("name", ""),
             "plan_text": it.get("plan_text") or "",
+            "meta_esperada": it.get("meta_esperada"),
+            "acoes": it.get("acoes"),
             "cumulative_pct_before": it.get("cumulative_pct", 0),
         }
         for it in items
@@ -674,7 +674,7 @@ def resend_phase(
 
     items = (
         db.table("performance_action_plan_items")
-        .select("plan_text,cumulative_pct,performance_indicators(name)")
+        .select("plan_text,cumulative_pct,meta_esperada,acoes,performance_indicators(name)")
         .eq("action_plan_id", action_plan_id).execute().data
     ) or []
     emp_map = _resolve_employees(db, [p["employee_id"], p["manager_id"]])
@@ -690,6 +690,8 @@ def resend_phase(
         {
             "indicator_name": (it.get("performance_indicators") or {}).get("name", ""),
             "plan_text": it.get("plan_text") or "",
+            "meta_esperada": it.get("meta_esperada"),
+            "acoes": it.get("acoes"),
             "cumulative_pct_before": it.get("cumulative_pct", 0),
         }
         for it in items
@@ -750,12 +752,33 @@ def _build_overview(db, filters: dict) -> list[dict]:
     for chunk in _chunks(plan_ids):
         items.extend(
             db.table("performance_action_plan_items")
-            .select("id,action_plan_id,indicator_id,plan_text,cumulative_pct,performance_indicators(name)")
+            .select(
+                "id,action_plan_id,indicator_id,plan_text,cumulative_pct,"
+                "situacao_observada,meta_esperada,acoes,responsavel_acompanhamento,como_sera_verificado,"
+                "performance_indicators(name)"
+            )
             .in_("action_plan_id", chunk).execute().data or []
         )
     items_by_plan: dict[str, list[dict]] = {}
     for it in items:
         items_by_plan.setdefault(it["action_plan_id"], []).append(it)
+
+    acks = []
+    for chunk in _chunks(plan_ids):
+        acks.extend(
+            db.table("performance_action_plan_acknowledgments").select("action_plan_id,acknowledged_at,acknowledged_via")
+            .in_("action_plan_id", chunk).execute().data or []
+        )
+    ack_by_plan = {a["action_plan_id"]: a for a in acks}
+    ack_tokens = []
+    for chunk in _chunks(plan_ids):
+        ack_tokens.extend(
+            db.table("performance_action_plan_ack_tokens").select("action_plan_id,sent_at")
+            .in_("action_plan_id", chunk).order("sent_at", desc=True).execute().data or []
+        )
+    ack_token_by_plan: dict[str, dict] = {}
+    for t in ack_tokens:
+        ack_token_by_plan.setdefault(t["action_plan_id"], t)  # primeiro = mais recente (order desc)
 
     if filters.get("indicator_id"):
         wanted_plan_ids = {it["action_plan_id"] for it in items if it["indicator_id"] == filters["indicator_id"]}
@@ -793,6 +816,14 @@ def _build_overview(db, filters: dict) -> list[dict]:
             continue
         emp = emp_map.get(p["employee_id"], {})
         mgr = emp_map.get(p["manager_id"], {})
+        ack = ack_by_plan.get(p["id"])
+        ack_token = ack_token_by_plan.get(p["id"])
+        if ack:
+            employee_ciencia_status = "confirmed"
+        elif ack_token and ack_token.get("sent_at"):
+            employee_ciencia_status = "sent"
+        else:
+            employee_ciencia_status = "not_sent"
         result.append({
             "action_plan_id": p["id"],
             "employee_id": p["employee_id"],
@@ -802,11 +833,19 @@ def _build_overview(db, filters: dict) -> list[dict]:
             "status": p["status"],
             "current_phase": p.get("current_phase", 0),
             "progress_pct": avg_pct,
+            "employee_ciencia_status": employee_ciencia_status,
+            "employee_ciencia_at": ack.get("acknowledged_at") if ack else None,
+            "employee_ciencia_via": ack.get("acknowledged_via") if ack else None,
             "indicators": [
                 {
                     "indicator_id": i["indicator_id"],
                     "name": (i.get("performance_indicators") or {}).get("name", ""),
                     "cumulative_pct": i.get("cumulative_pct", 0),
+                    "situacao_observada": i.get("situacao_observada"),
+                    "meta_esperada": i.get("meta_esperada"),
+                    "acoes": i.get("acoes"),
+                    "responsavel_acompanhamento": i.get("responsavel_acompanhamento"),
+                    "como_sera_verificado": i.get("como_sera_verificado"),
                 }
                 for i in plan_items
             ],
@@ -877,6 +916,125 @@ def export_overview(
     )
 
 
+# ── Ciência do colaborador sobre o plano (disparo manual pelo RH) ─────────────
+
+def _send_employee_ciencia(db, action_plan_id: str, frontend_url: str) -> bool:
+    from services.action_plan_email import send_action_plan_ciencia_email
+
+    plan = db.table("performance_action_plans").select("*").eq("id", action_plan_id).execute()
+    if not plan.data:
+        raise HTTPException(404, detail="Plano não encontrado")
+    p = plan.data[0]
+    if p["status"] == "pending_manager_fill":
+        raise HTTPException(400, detail="O gestor ainda não preencheu o plano inicial.")
+
+    existing_ack = db.table("performance_action_plan_acknowledgments").select("id").eq(
+        "action_plan_id", action_plan_id
+    ).execute()
+    if existing_ack.data:
+        raise HTTPException(400, detail="O colaborador já deu ciência deste plano.")
+
+    emp_map = _resolve_employees(db, [p["employee_id"], p["manager_id"]])
+    employee = emp_map.get(p["employee_id"])
+    if not employee:
+        raise HTTPException(404, detail="Colaborador não encontrado")
+
+    items = (
+        db.table("performance_action_plan_items")
+        .select("indicator_id,situacao_observada,meta_esperada,acoes,"
+                "responsavel_acompanhamento,como_sera_verificado,performance_indicators(name)")
+        .eq("action_plan_id", action_plan_id).execute().data
+    ) or []
+    email_items = [
+        {
+            "indicator_name": (it.get("performance_indicators") or {}).get("name", ""),
+            "situacao_observada": it.get("situacao_observada"),
+            "meta_esperada": it.get("meta_esperada"),
+            "acoes": it.get("acoes"),
+            "responsavel_acompanhamento": it.get("responsavel_acompanhamento"),
+            "como_sera_verificado": it.get("como_sera_verificado"),
+        }
+        for it in items
+    ]
+
+    cycle = db.table("performance_cycles").select("name").eq("id", p["cycle_id"]).execute()
+    cycle_name = cycle.data[0]["name"] if cycle.data else ""
+
+    token_row = db.table("performance_action_plan_ack_tokens").insert({
+        "action_plan_id": action_plan_id,
+        "employee_id": p["employee_id"],
+    }).execute()
+    if not token_row.data:
+        return False
+    token = str(token_row.data[0]["token"])
+
+    if not employee.get("has_corporate_email") or not employee.get("email"):
+        # Sem e-mail corporativo — token fica registrado, colaborador usa a via
+        # presencial (busca por nome+CPF) para dar ciência.
+        db.table("performance_action_plan_ack_tokens").update(
+            {"sent_at": "now()"}
+        ).eq("token", token).execute()
+        return True
+
+    ok = send_action_plan_ciencia_email(
+        employee_name=employee["name"], employee_email=employee["email"],
+        manager_name=emp_map.get(p["manager_id"], {}).get("name", ""),
+        cycle_name=cycle_name, items=email_items, frequencia_alinhamento=p.get("frequencia_alinhamento"),
+        token=token, frontend_url=frontend_url,
+    )
+    if ok:
+        db.table("performance_action_plan_ack_tokens").update(
+            {"sent_at": "now()"}
+        ).eq("token", token).execute()
+    return ok
+
+
+@router.post("/{action_plan_id}/send-employee-ciencia")
+def send_employee_ciencia(
+    action_plan_id: str,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    ok = _send_employee_ciencia(get_supabase(), action_plan_id, _frontend_url())
+    log_action("action_plan", action_plan_id, "send_employee_ciencia", None,
+               {"ok": ok}, current_user["username"], request)
+    return {"ok": ok}
+
+
+class SendCienciaBatchBody(BaseModel):
+    action_plan_ids: list[str]
+
+
+@router.post("/employee-ciencia/send-batch")
+def send_employee_ciencia_batch(
+    body: SendCienciaBatchBody,
+    background_tasks: BackgroundTasks,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    if not body.action_plan_ids:
+        raise HTTPException(400, detail="Nenhum plano selecionado.")
+    frontend_url = _frontend_url()
+    actor = current_user["username"]
+    ids = list(dict.fromkeys(body.action_plan_ids))
+
+    def _run() -> None:
+        db2 = get_supabase()
+        sent = 0
+        for i, pid in enumerate(ids):
+            if i > 0:
+                time.sleep(EMAIL_PACING_SECONDS)
+            try:
+                if _send_employee_ciencia(db2, pid, frontend_url):
+                    sent += 1
+            except HTTPException:
+                continue
+        log_action("action_plan", "batch", "send_employee_ciencia_batch", None,
+                   {"sent": sent, "total": len(ids)}, actor, None)
+
+    background_tasks.add_task(_run)
+    return {"queued": len(ids)}
+
+
 @router.get("/{action_plan_id}/detail")
 def get_plan_detail(
     action_plan_id: str,
@@ -891,10 +1049,21 @@ def get_plan_detail(
 
     items = (
         db.table("performance_action_plan_items")
-        .select("id,indicator_id,original_score,plan_text,cumulative_pct,performance_indicators(name)")
+        .select(
+            "id,indicator_id,original_score,plan_text,cumulative_pct,"
+            "situacao_observada,meta_esperada,acoes,responsavel_acompanhamento,como_sera_verificado,"
+            "performance_indicators(name)"
+        )
         .eq("action_plan_id", action_plan_id).execute().data
     ) or []
     item_name = {i["id"]: (i.get("performance_indicators") or {}).get("name", "") for i in items}
+
+    ack = db.table("performance_action_plan_acknowledgments").select("*").eq(
+        "action_plan_id", action_plan_id
+    ).execute().data
+    ack_token = db.table("performance_action_plan_ack_tokens").select("sent_at").eq(
+        "action_plan_id", action_plan_id
+    ).order("sent_at", desc=True).execute().data
 
     phases = (
         db.table("performance_action_plan_phases").select("*")
@@ -915,6 +1084,10 @@ def get_plan_detail(
         "employee_name": emp_map.get(p["employee_id"], {}).get("name", ""),
         "manager_name": emp_map.get(p["manager_id"], {}).get("name", ""),
         "current_phase": p.get("current_phase", 0),
+        "frequencia_alinhamento": p.get("frequencia_alinhamento"),
+        "employee_ciencia_status": "confirmed" if ack else ("sent" if ack_token and ack_token[0].get("sent_at") else "not_sent"),
+        "employee_ciencia_at": ack[0]["acknowledged_at"] if ack else None,
+        "employee_ciencia_via": ack[0]["acknowledged_via"] if ack else None,
         "items": [
             {
                 "indicator_id": i["indicator_id"],
@@ -922,6 +1095,11 @@ def get_plan_detail(
                 "original_score": i["original_score"],
                 "plan_text": i.get("plan_text"),
                 "cumulative_pct": i.get("cumulative_pct", 0),
+                "situacao_observada": i.get("situacao_observada"),
+                "meta_esperada": i.get("meta_esperada"),
+                "acoes": i.get("acoes"),
+                "responsavel_acompanhamento": i.get("responsavel_acompanhamento"),
+                "como_sera_verificado": i.get("como_sera_verificado"),
             }
             for i in items
         ],

@@ -39,6 +39,8 @@ const PublicCienciaPresencialPage = lazyWithReload(() => import("./pages/PublicC
 const PublicSelfEvaluationPage = lazyWithReload(() => import("./pages/PublicSelfEvaluationPage"));
 const PublicActionPlanPage = lazyWithReload(() => import("./pages/PublicActionPlanPage"));
 const PublicActionPlanCheckinPage = lazyWithReload(() => import("./pages/PublicActionPlanCheckinPage"));
+const PublicActionPlanCienciaPage = lazyWithReload(() => import("./pages/PublicActionPlanCienciaPage"));
+const PublicActionPlanCienciaPresencialPage = lazyWithReload(() => import("./pages/PublicActionPlanCienciaPresencialPage"));
 const PublicAutoAvaliacaoPresencialPage = lazyWithReload(() => import("./pages/PublicAutoAvaliacaoPresencialPage"));
 const CartaoPage = lazyWithReload(() => import("./pages/CartaoPage"));
 const FinanceiroPage = lazyWithReload(() => import("./pages/FinanceiroPage"));
@@ -112,6 +114,10 @@ export default function App() {
           <Route path="/desempenho/plano-acao/:token" element={<PublicActionPlanPage />} />
           <Route path="/plano-acao/checkin/:token" element={<PublicActionPlanCheckinPage />} />
           <Route path="/desempenho/plano-acao/checkin/:token" element={<PublicActionPlanCheckinPage />} />
+          <Route path="/plano-acao/ciencia/:token" element={<PublicActionPlanCienciaPage />} />
+          <Route path="/desempenho/plano-acao/ciencia/:token" element={<PublicActionPlanCienciaPage />} />
+          <Route path="/plano-acao/ciencia-presencial" element={<PublicActionPlanCienciaPresencialPage />} />
+          <Route path="/desempenho/plano-acao/ciencia-presencial" element={<PublicActionPlanCienciaPresencialPage />} />
 
           <Route
             element={

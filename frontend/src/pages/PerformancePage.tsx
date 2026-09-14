@@ -164,6 +164,42 @@ function CienciaViewModal({ reviewId, onClose, token }: { reviewId: string | nul
 
 type DrilldownModal = "pending-evaluators" | "pending-ciencia" | "pending-self-eval" | "calibrated" | null;
 
+// Bloco isolado e aditivo — não compartilha estado/consulta com os StatCards
+// gerais do dashboard, só soma dados do Plano de Ação de Feedback.
+function ActionPlanDashboardCard() {
+  const { token } = useAuth();
+  const [summary, setSummary] = useState<{ active: number; pendingFill: number; pendingCiencia: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!token) return;
+    apiFetch<any[]>("/api/performance/action-plans/overview", { token })
+      .then(rows => {
+        const list = rows || [];
+        setSummary({
+          active: list.filter(r => r.status === "active" || r.status === "completed").length,
+          pendingFill: list.filter(r => r.status === "pending_manager_fill").length,
+          pendingCiencia: list.filter(r => r.status !== "pending_manager_fill" && r.employee_ciencia_status === "not_sent").length,
+        });
+      })
+      .catch(() => setSummary(null))
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading || !summary) return null;
+
+  return (
+    <Card className="p-5">
+      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Planos de Ação de Feedback</h3>
+      <div className="grid grid-cols-3 gap-4">
+        <StatCard label="Planos Ativos/Concluídos" value={summary.active} color="blue" />
+        <StatCard label="Aguard. Preench. Gestor" value={summary.pendingFill} color="amber" />
+        <StatCard label="Ciência do Colaborador Pendente" value={summary.pendingCiencia} color="violet" />
+      </div>
+    </Card>
+  );
+}
+
 function TabDashboard({ companies }: { companies: any[] }) {
   const { token } = useAuth();
   const { theme } = useTheme();
@@ -277,6 +313,8 @@ function TabDashboard({ companies }: { companies: any[] }) {
           Exportar XLSX
         </button>
       </Card>
+
+      <ActionPlanDashboardCard />
 
       {loading ? (
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>
@@ -1163,6 +1201,31 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   const [resetConfirm, setResetConfirm] = useState("");
   const [resetting, setResetting] = useState(false);
 
+  // Coluna "Plano de Ação" — bloco isolado e aditivo, busca própria (não altera
+  // loadList/visibleList nem o endpoint de avaliações já usado por esta aba).
+  const [actionPlanByEmployee, setActionPlanByEmployee] = useState<Record<string, any>>({});
+  const [sendingCienciaFor, setSendingCienciaFor] = useState<string | null>(null);
+
+  function loadActionPlans() {
+    if (!token) return;
+    apiFetch<any[]>("/api/performance/action-plans/overview", { token })
+      .then(rows => {
+        const map: Record<string, any> = {};
+        for (const r of rows || []) map[r.employee_id] = r;
+        setActionPlanByEmployee(map);
+      })
+      .catch(() => {});
+  }
+  useEffect(() => { loadActionPlans(); }, [token]);
+
+  async function sendCienciaFromGestaoRH(actionPlanId: string) {
+    setSendingCienciaFor(actionPlanId);
+    try {
+      await apiFetch(`/api/performance/action-plans/${actionPlanId}/send-employee-ciencia`, { token, method: "POST" });
+      loadActionPlans();
+    } catch {} finally { setSendingCienciaFor(null); }
+  }
+
   // Nova Avaliação / Nova Auto-Avaliação — loading por colaborador
   const [novaAvalFor,     setNovaAvalFor]     = useState<string | null>(null);
   const [novaSelfAvalFor, setNovaSelfAvalFor] = useState<string | null>(null);
@@ -1341,10 +1404,11 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
     <div className="space-y-4">
 
       {/* ── Links para páginas presenciais (para distribuir aos colaboradores) ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {[
           { icon: "📋", title: "Ciência Presencial", desc: "Colaboradores consultam e registram ciência da avaliação via CPF.", href: "/ciencia-presencial" },
           { icon: "✏️", title: "Auto-Avaliação Presencial", desc: "Colaboradores preenchem a auto-avaliação via CPF (sem precisar de e-mail).", href: "/auto-avaliacao-presencial" },
+          { icon: "📈", title: "Ciência do Plano de Ação (Presencial)", desc: "Colaboradores consultam e registram ciência do plano de ação via CPF.", href: "/plano-acao/ciencia-presencial" },
         ].map(link => (
           <div key={link.href} className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 dark:border-[#00694E]/30 rounded-xl p-4 flex items-start justify-between gap-3">
             <div className="flex items-start gap-3">
@@ -1487,6 +1551,41 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex flex-wrap gap-1.5 items-center">
+                        {/* Plano de Ação — status compacto + botão de ciência sempre visível (não abre coluna nova, evita estourar a tabela) */}
+                        {(() => {
+                          const ap = actionPlanByEmployee[ev.employee_id];
+                          const label = !ap ? "Plano: nenhum"
+                            : ap.status === "pending_manager_fill" ? "Plano: aguard. gestor"
+                            : ap.status === "completed" ? "Plano: concluído" : "Plano: ativo";
+                          const cienciaSendable = !!ap && ap.status !== "pending_manager_fill" && ap.employee_ciencia_status === "not_sent";
+                          const cienciaTitle = !ap
+                            ? "Colaborador ainda não tem Plano de Ação (gere um em Plano de Ação > Central de Alertas)"
+                            : ap.status === "pending_manager_fill"
+                            ? "Aguardando o gestor preencher o plano inicial"
+                            : ap.employee_ciencia_status === "confirmed"
+                            ? "Colaborador já confirmou ciência"
+                            : ap.employee_ciencia_status === "sent"
+                            ? "Ciência já enviada, aguardando confirmação do colaborador"
+                            : "Enviar ciência do plano de ação ao colaborador";
+                          return (
+                            <>
+                              <span title="Status do Plano de Ação de Feedback"
+                                className="text-xs font-semibold px-2.5 py-1 rounded bg-gray-50 text-gray-600 border border-gray-200 dark:bg-gray-900/40 dark:text-gray-400 dark:border-gray-700">
+                                {label}
+                                {ap && ap.status !== "pending_manager_fill" && (
+                                  <> · Ciência {ap.employee_ciencia_status === "confirmed" ? "✅" : ap.employee_ciencia_status === "sent" ? "✉️" : "não enviada"}</>
+                                )}
+                              </span>
+                              <button
+                                onClick={() => cienciaSendable && ap && sendCienciaFromGestaoRH(ap.action_plan_id)}
+                                disabled={!cienciaSendable || sendingCienciaFor === ap?.action_plan_id}
+                                title={cienciaTitle}
+                                className="text-xs font-semibold px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800 transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-emerald-50 dark:disabled:hover:bg-emerald-900/20">
+                                {sendingCienciaFor === ap?.action_plan_id ? "Enviando..." : "📧 Ciência Plano"}
+                              </button>
+                            </>
+                          );
+                        })()}
                         {/* Ver Avaliação */}
                         <button onClick={() => openView(ev)}
                           title="Ver avaliação do gestor e auto-avaliação"
@@ -3196,6 +3295,8 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [selectedCiencia, setSelectedCiencia] = useState<Set<string>>(new Set());
+  const [sendingCiencia, setSendingCiencia] = useState(false);
 
   useEffect(() => {
     if (!filters.company_id) { setBranches([]); return; }
@@ -3209,8 +3310,39 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
     if (cycleId) params.set("cycle_id", cycleId);
     Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, String(v)); });
     apiFetch<any[]>(`/api/performance/action-plans/overview?${params}`, { token })
-      .then(r => setRows(r || [])).catch(() => setRows([])).finally(() => setLoading(false));
+      .then(r => { setRows(r || []); setSelectedCiencia(new Set()); })
+      .catch(() => setRows([])).finally(() => setLoading(false));
   }, [cycleId, filters, token]);
+
+  function toggleCienciaSelect(id: string) {
+    setSelectedCiencia(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+
+  async function sendEmployeeCiencia(ids: string[]) {
+    if (ids.length === 0) return;
+    setSendingCiencia(true);
+    try {
+      if (ids.length === 1) {
+        await apiFetch(`/api/performance/action-plans/${ids[0]}/send-employee-ciencia`, { token, method: "POST" });
+      } else {
+        await apiFetch("/api/performance/action-plans/employee-ciencia/send-batch", {
+          token, method: "POST", json: { action_plan_ids: ids },
+        });
+      }
+      const params = new URLSearchParams();
+      if (cycleId) params.set("cycle_id", cycleId);
+      Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, String(v)); });
+      const r = await apiFetch<any[]>(`/api/performance/action-plans/overview?${params}`, { token });
+      setRows(r || []);
+      setSelectedCiencia(new Set());
+    } catch {} finally { setSendingCiencia(false); }
+  }
+
+  const cienciaEligible = rows.filter((r: any) => r.status !== "pending_manager_fill" && r.employee_ciencia_status === "not_sent");
 
   async function handleExportCSV() {
     try {
@@ -3300,6 +3432,14 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
           onChange={e => setFilters(f => ({ ...f, max_progress: e.target.value }))}
           className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]" />
         <div className="flex-1" />
+        <button onClick={() => sendEmployeeCiencia([...selectedCiencia])} disabled={sendingCiencia || selectedCiencia.size === 0}
+          className="px-3 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all disabled:opacity-50">
+          📧 Enviar Ciência ({selectedCiencia.size})
+        </button>
+        <button onClick={() => sendEmployeeCiencia(cienciaEligible.map((r: any) => r.action_plan_id))} disabled={sendingCiencia || cienciaEligible.length === 0}
+          className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all disabled:opacity-50">
+          Enviar ciência a todos pendentes ({cienciaEligible.length})
+        </button>
         <button onClick={handleExportCSV}
           className="px-3 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-semibold rounded-lg transition-all">
           ⬇ Exportar CSV
@@ -3315,13 +3455,19 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-sm">
               <thead><tr className="border-b border-gray-100 dark:border-gray-700">
-                {["Colaborador", "Gestor", "Status", "Fase Atual", "Progresso", "Ações"].map(h => (
+                {["", "Colaborador", "Gestor", "Status", "Fase Atual", "Progresso", "Ciência Colaborador", "Ações"].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
                 ))}
               </tr></thead>
               <tbody>
-                {rows.map((r: any) => (
+                {rows.map((r: any) => {
+                  const cienciaSendable = r.status !== "pending_manager_fill" && r.employee_ciencia_status === "not_sent";
+                  return (
                   <tr key={r.action_plan_id} className="border-b border-gray-50 dark:border-gray-800">
+                    <td className="px-4 py-3">
+                      <input type="checkbox" disabled={!cienciaSendable} checked={selectedCiencia.has(r.action_plan_id)}
+                        onChange={() => toggleCienciaSelect(r.action_plan_id)} />
+                    </td>
                     <td className="px-4 py-3 font-medium text-gray-800 dark:text-gray-200">{r.employee_name}</td>
                     <td className="px-4 py-3 text-gray-500">{r.manager_name}</td>
                     <td className="px-4 py-3">
@@ -3334,14 +3480,36 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
                       </div>
                       <span className="text-xs text-gray-500">{r.progress_pct}%</span>
                     </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {r.employee_ciencia_status === "confirmed"
+                        ? <Badge color="green">✅ Confirmada</Badge>
+                        : r.employee_ciencia_status === "sent"
+                        ? <Badge color="amber">✉️ Enviada</Badge>
+                        : <Badge color="gray">Não enviada</Badge>}
+                      {r.employee_ciencia_at && (
+                        <p className="text-[10px] text-gray-400 mt-0.5">
+                          {new Date(r.employee_ciencia_at).toLocaleDateString("pt-BR")}
+                          {r.employee_ciencia_via === "presencial" ? " · presencial" : r.employee_ciencia_via === "email" ? " · e-mail" : ""}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
-                      <button onClick={() => setDetailId(r.action_plan_id)}
-                        className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
-                        👁️ Ver
-                      </button>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button onClick={() => setDetailId(r.action_plan_id)}
+                          className="text-xs font-semibold px-2.5 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100 border border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800 transition-all">
+                          👁️ Ver
+                        </button>
+                        {cienciaSendable && (
+                          <button onClick={() => sendEmployeeCiencia([r.action_plan_id])} disabled={sendingCiencia}
+                            className="text-xs font-semibold px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800 transition-all disabled:opacity-50">
+                            📧 Ciência
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -3354,13 +3522,43 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
         ) : detail && (
           <div className="space-y-4">
             <p className="text-sm text-gray-500">{detail.employee_name} — gestor {detail.manager_name}</p>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400">Ciência do colaborador:</span>
+              {detail.employee_ciencia_status === "confirmed"
+                ? <Badge color="green">✅ Confirmada</Badge>
+                : detail.employee_ciencia_status === "sent"
+                ? <Badge color="amber">✉️ Enviada</Badge>
+                : <Badge color="gray">Não enviada</Badge>}
+            </div>
             {detail.items?.map((it: any) => (
               <div key={it.indicator_id} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
-                <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">{it.indicator_name} (nota original {it.original_score})</p>
-                <p className="text-xs text-gray-500 mt-1">{it.plan_text || "Sem plano de ação preenchido ainda."}</p>
+                <p className="font-semibold text-sm text-gray-800 dark:text-gray-200">{it.indicator_name} {it.original_score != null ? `(nota original ${it.original_score})` : ""}</p>
+                {it.situacao_observada || it.meta_esperada || it.acoes || it.responsavel_acompanhamento || it.como_sera_verificado ? (
+                  <div className="mt-1 space-y-0.5">
+                    {[
+                      ["Situação observada", it.situacao_observada],
+                      ["Meta esperada / Objetivo", it.meta_esperada],
+                      ["Ações", it.acoes],
+                      ["Responsável pelo acompanhamento", it.responsavel_acompanhamento],
+                      ["Como será verificado", it.como_sera_verificado],
+                    ].map(([label, value]) => value && (
+                      <p key={label as string} className="text-xs text-gray-500">
+                        <strong className="text-gray-600 dark:text-gray-300">{label}:</strong> {value as string}
+                      </p>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-500 mt-1">{it.plan_text || "Sem plano de ação preenchido ainda."}</p>
+                )}
                 <p className="text-xs mt-1 text-[#00694E] font-semibold">{it.cumulative_pct}% concluído</p>
               </div>
             ))}
+            {detail.frequencia_alinhamento && (
+              <div className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+                <p className="font-semibold text-sm text-gray-800 dark:text-gray-200 mb-1">Combinados de acompanhamento</p>
+                <p className="text-xs text-gray-500">{detail.frequencia_alinhamento}</p>
+              </div>
+            )}
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">Histórico de fases</p>
               {detail.phases?.map((ph: any) => (

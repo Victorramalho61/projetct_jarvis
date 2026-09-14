@@ -12,11 +12,23 @@ def _items_list_html(items: list[dict], show_plan_text: bool = False, show_progr
     rows = []
     for it in items:
         extra = ""
-        if show_plan_text and it.get("plan_text"):
-            extra += (
+        if show_plan_text:
+            rich_fields = [
+                ("Meta esperada", it.get("meta_esperada")),
+                ("Ações", it.get("acoes")),
+            ]
+            rich_html = "".join(
                 f'<p style="margin:4px 0 0;color:{_TEXT_MUTED};font-size:12px;line-height:1.5;">'
-                f'{it["plan_text"]}</p>'
+                f'<strong>{label}:</strong> {value}</p>'
+                for label, value in rich_fields if value
             )
+            if rich_html:
+                extra += rich_html
+            elif it.get("plan_text"):
+                extra += (
+                    f'<p style="margin:4px 0 0;color:{_TEXT_MUTED};font-size:12px;line-height:1.5;">'
+                    f'{it["plan_text"]}</p>'
+                )
         if show_progress:
             extra += (
                 f'<p style="margin:4px 0 0;color:{_TEXT_MUTED};font-size:12px;">'
@@ -164,6 +176,101 @@ def send_action_plan_checkin_email(
         manager_name, employee_name, cycle_name, phase_number, is_final_phase, items, token, frontend_url,
     )
     return send_email(manager_email, manager_name, subject, html)
+
+
+def _ciencia_items_list_html(items: list[dict]) -> str:
+    rows = []
+    for it in items:
+        fields = [
+            ("Situação observada", it.get("situacao_observada")),
+            ("Meta esperada", it.get("meta_esperada")),
+            ("Ações", it.get("acoes")),
+            ("Responsável pelo acompanhamento", it.get("responsavel_acompanhamento")),
+            ("Como será verificado", it.get("como_sera_verificado")),
+        ]
+        fields_html = "".join(
+            f'<p style="margin:4px 0 0;color:{_TEXT_MUTED};font-size:12px;line-height:1.5;">'
+            f'<strong>{label}:</strong> {value}</p>'
+            for label, value in fields if value
+        )
+        rows.append(f"""
+        <tr>
+          <td style="padding:10px 14px;border-bottom:1px solid #E5E7EB;">
+            <p style="margin:0;font-size:13px;font-weight:600;color:{_TEXT_DARK};">
+              &#8226; {it["indicator_name"]}
+            </p>
+            {fields_html}
+          </td>
+        </tr>""")
+    return f"""
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:{_BRAND_LIGHT};border-radius:8px;margin:0 0 24px;overflow:hidden;">
+      {''.join(rows)}
+    </table>"""
+
+
+def send_action_plan_ciencia_email(
+    employee_name: str, employee_email: str,
+    manager_name: str, cycle_name: str,
+    items: list[dict], frequencia_alinhamento: str | None,
+    token: str, frontend_url: str,
+) -> bool:
+    subject = f"Seu Plano de Ação de Feedback — {cycle_name}"
+    link = f"{frontend_url}/plano-acao/ciencia/{token}"
+
+    header_html = f"""
+    <p style="margin:18px 0 0;color:rgba(255,255,255,0.85);
+              font-size:13px;font-weight:600;letter-spacing:0.3px;">
+      &#128203; Plano de Ação de Feedback &mdash; {cycle_name}
+    </p>"""
+
+    freq_html = ""
+    if frequencia_alinhamento:
+        freq_html = f"""
+    <table width="100%" cellpadding="0" cellspacing="0" border="0"
+           style="background:{_BRAND_LIGHT};border-left:5px solid {_BRAND_GREEN};
+                  border-radius:0 10px 10px 0;margin:0 0 24px;">
+      <tr>
+        <td style="padding:14px 18px;">
+          <p style="margin:0;font-size:13px;color:{_TEXT_DARK};line-height:1.6;">
+            <strong>Combinado de acompanhamento:</strong> {frequencia_alinhamento}
+          </p>
+        </td>
+      </tr>
+    </table>"""
+
+    body_html = f"""
+    <p style="margin:0 0 24px;color:{_TEXT_DARK};font-size:16px;font-weight:600;line-height:1.4;">
+      Olá, <span style="color:{_BRAND_GREEN};">{employee_name}</span>!
+    </p>
+    <p style="margin:0 0 20px;color:{_TEXT_MUTED};font-size:14px;line-height:1.7;">
+      Seu(sua) gestor(a) <strong style="color:{_TEXT_DARK};">{manager_name}</strong> montou, com você,
+      um plano de ação de desenvolvimento no ciclo <strong style="color:{_TEXT_DARK};">{cycle_name}</strong>.
+      Acesse o link abaixo para ver os detalhes e confirmar que está ciente.
+    </p>
+
+    {_ciencia_items_list_html(items)}
+    {freq_html}
+
+    <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 28px;">
+      <tr>
+        <td align="center" style="border-radius:8px;background:{_BRAND_GREEN};">
+          <a href="{link}"
+             style="display:inline-block;padding:15px 44px;color:{_WHITE};
+                    font-size:16px;font-weight:bold;text-decoration:none;
+                    border-radius:8px;letter-spacing:0.3px;">
+            &#9998; Ver Plano de Ação e Confirmar Ciência
+          </a>
+        </td>
+      </tr>
+    </table>
+
+    <p style="margin:0;color:{_TEXT_MUTED};font-size:12px;text-align:center;line-height:1.6;">
+      Caso o botão não funcione, copie e cole:<br/>
+      <a href="{link}" style="color:{_BRAND_GREEN};font-size:11px;word-break:break-all;">{link}</a>
+    </p>"""
+
+    return send_email(employee_email, employee_name, subject, _email_base(header_html, body_html))
 
 
 def send_action_plan_checkin_reminder_email(
