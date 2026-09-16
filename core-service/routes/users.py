@@ -101,6 +101,13 @@ async def update_active(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível desativar seu próprio usuário")
 
     db = get_supabase()
+    if not body.active:
+        target = db.table("profiles").select("role").eq("username", username).execute()
+        if not target.data:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+        if target.data[0]["role"] == "admin":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível desativar um usuário administrador")
+
     result = db.table("profiles").update({"active": body.active}).eq("username", username).execute()
     if not result.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")

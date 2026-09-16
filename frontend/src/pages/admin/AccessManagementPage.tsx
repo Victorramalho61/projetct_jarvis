@@ -533,13 +533,21 @@ export default function AccessManagementPage() {
                       </select>
                     </td>
                     <td className="px-6 py-4">
-                      <button
-                        disabled={isSelf || isDisabled}
-                        onClick={(e) => { e.stopPropagation(); handleToggleActive(p.username, !p.active); }}
-                        className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${p.active ? "bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400"}`}
-                      >
-                        {p.active ? "Ativo" : "Pendente"}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${p.active ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}>
+                          {p.active ? "Ativo" : "Pendente"}
+                        </span>
+                        {isAdmin && (
+                          <button
+                            disabled={isSelf || isDisabled || (p.active && p.role === "admin")}
+                            title={p.active && p.role === "admin" ? "Não é possível desativar um usuário administrador" : undefined}
+                            onClick={(e) => { e.stopPropagation(); handleToggleActive(p.username, !p.active); }}
+                            className="rounded-lg border border-gray-300 dark:border-gray-700 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
+                          >
+                            {isDisabled ? "..." : p.active ? "Desativar" : "Ativar"}
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-400 dark:text-gray-500">
                       {new Date(p.created_at).toLocaleDateString("pt-BR")}
