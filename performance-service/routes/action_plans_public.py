@@ -7,20 +7,23 @@ Duplica localmente o helper de validação de UUID em vez de importar de lá.
 import logging
 import re
 import uuid as _uuid_mod
-from datetime import datetime, timedelta, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from db import get_supabase
 from limiter import limiter, get_real_ip
+from services.action_plan_initial import (
+    REQUIRED_ITEM_COUNT,
+    build_initial_form_payload,
+    validate_and_persist_initial_items,
+)
 
 router = APIRouter(prefix="/api/performance/public/action-plans")
 _logger = logging.getLogger(__name__)
 
 PHASE_PCT = {"total": 25, "parcial": 12.5, "nao_atingida": 0}
-
-REQUIRED_ITEM_COUNT = 2  # gestor escolhe exatamente 2 competências, de todo o catálogo
 
 
 def _validate_uuid(token: str, label: str = "Link") -> None:
@@ -56,66 +59,7 @@ def get_initial_form(token: str, request: Request) -> dict:
     if p.get("initial_token_used_at"):
         raise HTTPException(400, detail="Este plano de ação já foi preenchido.")
 
-    cycle = db.table("performance_cycles").select("name,period_start,period_end").eq("id", p["cycle_id"]).execute()
-    cyc = cycle.data[0] if cycle.data else {}
-
-    emp_map = _resolve_employees(db, [p["employee_id"], p["manager_id"]])
-    employee = emp_map.get(p["employee_id"])
-    manager = emp_map.get(p["manager_id"])
-    if not employee:
-        raise HTTPException(404, detail="Colaborador não encontrado.")
-
-    company_name = ""
-    if employee.get("company_id"):
-        co = db.table("performance_companies").select("name").eq("id", employee["company_id"]).execute()
-        company_name = co.data[0]["name"] if co.data else ""
-
-    # Catálogo completo de competências aplicáveis ao nível/perfil do colaborador —
-    # o gestor escolhe livremente 2 dentre todas (não só as de nota baixa).
-    emp_level = employee.get("hierarchy_level") or 3
-    emp_perfil = employee.get("perfil") or ""
-    ind_q = db.table("performance_indicators").select("id,name,description").eq("active", True).eq("hierarchy_level", emp_level)
-    if emp_level == 3 and emp_perfil in ("administrativo", "operacional"):
-        ind_q = ind_q.eq("perfil", emp_perfil)
-    indicators = ind_q.order("name").execute().data or []
-
-    scores = (
-        db.table("performance_indicator_scores").select("indicator_id,score")
-        .eq("review_id", p["review_id"]).execute().data
-    ) or []
-    score_by_indicator = {s["indicator_id"]: s["score"] for s in scores}
-
-    phase1 = (
-        db.table("performance_action_plan_phases").select("due_date")
-        .eq("action_plan_id", p["id"]).eq("phase_number", 1).execute().data
-    )
-    phase4 = (
-        db.table("performance_action_plan_phases").select("due_date")
-        .eq("action_plan_id", p["id"]).eq("phase_number", 4).execute().data
-    )
-
-    return {
-        "employee_name": employee["name"],
-        "employee_cargo": employee.get("cargo", ""),
-        "cycle_name": cyc.get("name", ""),
-        "period_start": cyc.get("period_start"),
-        "period_end": cyc.get("period_end"),
-        "company_name": company_name,
-        "manager_name": manager["name"] if manager else "",
-        "manager_cargo": manager.get("cargo", "") if manager else "",
-        "next_review_date": phase1[0]["due_date"] if phase1 else None,
-        "final_review_date": phase4[0]["due_date"] if phase4 else None,
-        "required_item_count": REQUIRED_ITEM_COUNT,
-        "indicators": [
-            {
-                "indicator_id": ind["id"],
-                "name": ind["name"],
-                "description": ind.get("description", ""),
-                "original_score": score_by_indicator.get(ind["id"]),
-            }
-            for ind in indicators
-        ],
-    }
+    return build_initial_form_payload(db, p)
 
 
 class InitialItemBody(BaseModel):
@@ -146,54 +90,181 @@ def submit_initial_form(token: str, body: InitialFormSubmit, request: Request) -
     if p.get("initial_token_used_at"):
         raise HTTPException(400, detail="Este plano de ação já foi preenchido.")
 
-    if len(body.items) != REQUIRED_ITEM_COUNT:
-        raise HTTPException(400, detail=f"Escolha exatamente {REQUIRED_ITEM_COUNT} competências prioritárias.")
-    indicator_ids = [i.indicator_id for i in body.items]
-    if len(set(indicator_ids)) != len(indicator_ids):
-        raise HTTPException(400, detail="As competências escolhidas devem ser diferentes entre si.")
-    for item in body.items:
-        for field_name in (
-            "situacao_observada", "meta_esperada", "acoes",
-            "responsavel_acompanhamento", "como_sera_verificado",
-        ):
-            if not getattr(item, field_name).strip():
-                raise HTTPException(400, detail="Preencha todos os campos de cada competência escolhida.")
-    if not body.frequencia_alinhamento.strip():
-        raise HTTPException(400, detail="Informe a frequência de alinhamento (combinados de acompanhamento).")
-
-    valid_indicators = db.table("performance_indicators").select("id").in_("id", indicator_ids).execute().data or []
-    if len(valid_indicators) != len(set(indicator_ids)):
-        raise HTTPException(400, detail="Uma ou mais competências escolhidas são inválidas.")
-
-    scores = (
-        db.table("performance_indicator_scores").select("indicator_id,score")
-        .eq("review_id", p["review_id"]).in_("indicator_id", indicator_ids).execute().data
-    ) or []
-    score_by_indicator = {s["indicator_id"]: s["score"] for s in scores}
-
-    items_payload = [
-        {
-            "action_plan_id": p["id"],
-            "indicator_id": item.indicator_id,
-            "original_score": score_by_indicator.get(item.indicator_id),
-            "situacao_observada": item.situacao_observada.strip(),
-            "meta_esperada": item.meta_esperada.strip(),
-            "acoes": item.acoes.strip(),
-            "responsavel_acompanhamento": item.responsavel_acompanhamento.strip(),
-            "como_sera_verificado": item.como_sera_verificado.strip(),
-        }
-        for item in body.items
-    ]
-    db.table("performance_action_plan_items").insert(items_payload).execute()
-
-    db.table("performance_action_plans").update({
-        "status": "active",
-        "frequencia_alinhamento": body.frequencia_alinhamento.strip(),
-        "initial_token_used_at": "now()",
-        "initial_form_filled_at": "now()",
-    }).eq("id", p["id"]).execute()
+    validate_and_persist_initial_items(db, p, [i.model_dump() for i in body.items], body.frequencia_alinhamento)
 
     _logger.info("AUDIT action_plan_initial_submitted | token=%s | action_plan_id=%s", token, p["id"])
+    return {"ok": True}
+
+
+# ── Preenchimento pelo colaborador, logo após dar ciência da avaliação ───────────
+# Mesma elegibilidade/criação de plano do fluxo em lote do RH (routes/action_plans.py
+# ::_build_candidates/_create_action_plan), mas sem e-mail pro gestor: o colaborador
+# preenche na hora, na mesma tela em que deu ciência da avaliação. Import local (não
+# no topo do arquivo) pra manter routes/action_plans.py como o dono da lógica de
+# elegibilidade/criação, sem acoplar os dois módulos no import-time.
+
+def _plan_from_ciencia_eligibility(db, review_id: str, employee_id: str) -> dict:
+    """Retorna {"eligible": False[, "reason"]} ou
+    {"eligible": True, "plan": <row>, "already_filled": bool}."""
+    from routes.action_plans import _build_candidates, _create_action_plan
+
+    review = db.table("performance_reviews").select("cycle_id").eq("id", review_id).execute()
+    if not review.data:
+        return {"eligible": False}
+    cycle_id = review.data[0]["cycle_id"]
+
+    cycle = db.table("performance_cycles").select("action_plan_start_date").eq("id", cycle_id).execute()
+    base = cycle.data[0].get("action_plan_start_date") if cycle.data else None
+    if not base:
+        return {"eligible": False, "reason": "not_configured"}
+
+    existing = (
+        db.table("performance_action_plans").select("*")
+        .eq("employee_id", employee_id).eq("cycle_id", cycle_id).execute()
+    )
+    if existing.data:
+        plan = existing.data[0]
+        return {"eligible": True, "plan": plan, "already_filled": plan["status"] != "pending_manager_fill"}
+
+    candidates = _build_candidates(db, cycle_id, employee_id=employee_id)
+    if not candidates:
+        return {"eligible": False}
+
+    plan = _create_action_plan(db, cycle_id, candidates[0], _date.fromisoformat(base), actor="colaborador_ciencia")
+    if not plan:
+        return {"eligible": False}
+    return {"eligible": True, "plan": plan, "already_filled": False}
+
+
+def _plan_from_ciencia_response(db, elig: dict) -> dict:
+    plan = elig["plan"]
+    if elig["already_filled"]:
+        payload = _build_plan_ciencia_payload(db, plan["id"]) or {}
+        return {"eligible": True, "already_filled": True, **payload}
+    payload = build_initial_form_payload(db, plan)
+    return {"eligible": True, "already_filled": False, "plan_id": plan["id"], **payload}
+
+
+@router.get("/from-ciencia/{ciencia_token}")
+@limiter.limit("20/minute")
+def get_plan_from_ciencia(ciencia_token: str, request: Request) -> dict:
+    _validate_uuid(ciencia_token, "Link de ciência")
+    db = get_supabase()
+    ack = db.table("performance_acknowledgment_tokens").select("*").eq("token", ciencia_token).execute()
+    if not ack.data:
+        raise HTTPException(404, detail="Link de ciência inválido.")
+    at = ack.data[0]
+    if not at.get("used_at"):
+        raise HTTPException(400, detail="Dê ciência da avaliação primeiro.")
+
+    elig = _plan_from_ciencia_eligibility(db, at["review_id"], at["employee_id"])
+    if not elig["eligible"]:
+        return {"eligible": False, "reason": elig.get("reason")}
+    return _plan_from_ciencia_response(db, elig)
+
+
+@router.post("/from-ciencia/{ciencia_token}")
+@limiter.limit("5/minute")
+def submit_plan_from_ciencia(ciencia_token: str, body: InitialFormSubmit, request: Request) -> dict:
+    _validate_uuid(ciencia_token, "Link de ciência")
+    db = get_supabase()
+    ack = db.table("performance_acknowledgment_tokens").select("*").eq("token", ciencia_token).execute()
+    if not ack.data:
+        raise HTTPException(404, detail="Link de ciência inválido.")
+    at = ack.data[0]
+    if not at.get("used_at"):
+        raise HTTPException(400, detail="Dê ciência da avaliação primeiro.")
+
+    elig = _plan_from_ciencia_eligibility(db, at["review_id"], at["employee_id"])
+    if not elig["eligible"]:
+        raise HTTPException(400, detail="Nenhum plano de ação disponível para preenchimento.")
+    if elig["already_filled"]:
+        raise HTTPException(400, detail="Este plano de ação já foi preenchido.")
+
+    validate_and_persist_initial_items(db, elig["plan"], [i.model_dump() for i in body.items], body.frequencia_alinhamento)
+    _logger.info(
+        "AUDIT action_plan_filled_by_employee | ciencia_token=%s | action_plan_id=%s",
+        ciencia_token, elig["plan"]["id"],
+    )
+    return {"ok": True}
+
+
+class FromCienciaPresencialBusca(BaseModel):
+    cpf: str
+    review_id: str
+
+
+class FromCienciaPresencialEnviar(BaseModel):
+    cpf: str
+    review_id: str
+    items: list[InitialItemBody]
+    frequencia_alinhamento: str
+
+
+def _resolve_employee_by_cpf_review(db, cpf: str, review_id: str, ip: str) -> dict:
+    """Autentica colaborador por CPF (mesmo padrão de ciencia-presencial/confirmar)
+    e confirma que a review pertence a ele e que a ciência já foi dada. Levanta
+    HTTPException em qualquer falha (e loga tentativa incorreta pro anti-bruteforce)."""
+    cpf_clean = re.sub(r"\D", "", cpf.strip())
+    employee = db.table("performance_employees").select("id,name").eq("cpf", cpf_clean).eq("active", True).execute()
+    if not employee.data:
+        db.table("performance_ciencia_attempts").insert({"matricula": cpf_clean, "ip_address": ip}).execute()
+        raise HTTPException(404, detail=_DADOS_NAO_ENCONTRADOS)
+    emp = employee.data[0]
+
+    review = db.table("performance_reviews").select("id,employee_id").eq("id", review_id).execute()
+    if not review.data or review.data[0]["employee_id"] != emp["id"]:
+        db.table("performance_ciencia_attempts").insert({"matricula": cpf_clean, "ip_address": ip}).execute()
+        raise HTTPException(404, detail="Avaliação não encontrada.")
+
+    ack = (
+        db.table("performance_review_acknowledgments").select("id")
+        .eq("review_id", review_id).eq("employee_id", emp["id"]).execute()
+    )
+    if not ack.data:
+        raise HTTPException(400, detail="Dê ciência da avaliação primeiro.")
+    return emp
+
+
+@router.post("/from-ciencia-presencial/buscar")
+@limiter.limit("10/minute")
+def buscar_plan_from_ciencia_presencial(body: FromCienciaPresencialBusca, request: Request) -> dict:
+    db = get_supabase()
+    ip = get_real_ip(request)
+    cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
+    attempts = db.table("performance_ciencia_attempts").select("id").eq("ip_address", ip).gte("attempted_at", cutoff).execute()
+    if len(attempts.data) >= MAX_ATTEMPTS:
+        raise HTTPException(429, detail=f"Muitas tentativas incorretas. Aguarde {BLOCK_MINUTES} minutos.")
+
+    emp = _resolve_employee_by_cpf_review(db, body.cpf, body.review_id, ip)
+    elig = _plan_from_ciencia_eligibility(db, body.review_id, emp["id"])
+    if not elig["eligible"]:
+        return {"eligible": False, "reason": elig.get("reason")}
+    return _plan_from_ciencia_response(db, elig)
+
+
+@router.post("/from-ciencia-presencial/enviar")
+@limiter.limit("5/minute")
+def enviar_plan_from_ciencia_presencial(body: FromCienciaPresencialEnviar, request: Request) -> dict:
+    db = get_supabase()
+    ip = get_real_ip(request)
+    cutoff = (datetime.now(tz=timezone.utc) - timedelta(minutes=BLOCK_MINUTES)).isoformat()
+    attempts = db.table("performance_ciencia_attempts").select("id").eq("ip_address", ip).gte("attempted_at", cutoff).execute()
+    if len(attempts.data) >= MAX_ATTEMPTS:
+        raise HTTPException(429, detail=f"Muitas tentativas incorretas. Aguarde {BLOCK_MINUTES} minutos.")
+
+    emp = _resolve_employee_by_cpf_review(db, body.cpf, body.review_id, ip)
+    elig = _plan_from_ciencia_eligibility(db, body.review_id, emp["id"])
+    if not elig["eligible"]:
+        raise HTTPException(400, detail="Nenhum plano de ação disponível para preenchimento.")
+    if elig["already_filled"]:
+        raise HTTPException(400, detail="Este plano de ação já foi preenchido.")
+
+    validate_and_persist_initial_items(db, elig["plan"], [i.model_dump() for i in body.items], body.frequencia_alinhamento)
+    _logger.info(
+        "AUDIT action_plan_filled_by_employee_presencial | cpf_suffix=%s | action_plan_id=%s",
+        re.sub(r"\D", "", body.cpf)[-4:], elig["plan"]["id"],
+    )
     return {"ok": True}
 
 

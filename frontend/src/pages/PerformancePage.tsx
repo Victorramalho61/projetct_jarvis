@@ -7,6 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { apiFetch, ApiError } from "../lib/api";
 import { ResultPanel } from "../components/CienciaResultPanel";
+import { useToast } from "../hooks/useToast";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 
@@ -1205,6 +1206,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
   // loadList/visibleList nem o endpoint de avaliações já usado por esta aba).
   const [actionPlanByEmployee, setActionPlanByEmployee] = useState<Record<string, any>>({});
   const [sendingCienciaFor, setSendingCienciaFor] = useState<string | null>(null);
+  const { toast: gestaoRHToast, showToast: showGestaoRHToast } = useToast();
 
   function loadActionPlans() {
     if (!token) return;
@@ -1223,7 +1225,9 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
     try {
       await apiFetch(`/api/performance/action-plans/${actionPlanId}/send-employee-ciencia`, { token, method: "POST" });
       loadActionPlans();
-    } catch {} finally { setSendingCienciaFor(null); }
+    } catch (e) {
+      showGestaoRHToast(e instanceof ApiError ? e.message : "Erro ao enviar ciência do plano de ação.");
+    } finally { setSendingCienciaFor(null); }
   }
 
   // Nova Avaliação / Nova Auto-Avaliação — loading por colaborador
@@ -1386,22 +1390,33 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
       if (filters.status) params.set("status_filter", filters.status);
       if (filters.company_id) params.set("company_id", filters.company_id);
       const res = await fetch(`/api/performance/admin/evaluations/export?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) { showGestaoRHToast("Erro ao exportar planilha."); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = "avaliacoes.xlsx"; a.click();
       URL.revokeObjectURL(url);
-    } catch {}
+    } catch { showGestaoRHToast("Erro ao exportar planilha."); }
   }
 
   async function handleReset() {
     if (resetConfirm !== "CONFIRMAR") return;
     setResetting(true);
-    try { await apiFetch("/api/performance/admin/reset", { token, method: "POST" }); setResetModal(false); setResetConfirm(""); loadList(); } catch {}
+    try {
+      await apiFetch("/api/performance/admin/reset", { token, method: "POST" });
+      setResetModal(false); setResetConfirm(""); loadList();
+    } catch (e) {
+      showGestaoRHToast(e instanceof ApiError ? e.message : "Erro ao resetar ciclo.");
+    }
     setResetting(false);
   }
 
   return (
     <div className="space-y-4">
+      {gestaoRHToast && (
+        <div className="fixed bottom-4 right-4 z-[60] bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg">
+          {gestaoRHToast}
+        </div>
+      )}
 
       {/* ── Links para páginas presenciais (para distribuir aos colaboradores) ── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -1490,16 +1505,16 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
             <table className="w-full min-w-[980px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
-                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Análise RH", "Ciência", "Ações"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500">{h}</th>
+                  {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Análise RH", "Ciência", "Ações"].map((h, i) => (
+                    <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 ${i === 0 ? "sticky left-0 z-10 bg-white dark:bg-gray-800" : ""}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {visibleList.length === 0 && <tr><td colSpan={9} className="px-4 py-8 text-center text-sm text-gray-400">Nenhuma avaliação encontrada.</td></tr>}
                 {visibleList.map(ev => (
-                  <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100">{ev.employee_name}</td>
+                  <tr key={ev.employee_id} className="border-b border-gray-50 dark:border-gray-700/50 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/30 group">
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-gray-100 sticky left-0 z-10 bg-white dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30">{ev.employee_name}</td>
                     <td className="px-4 py-3 text-sm text-gray-500">{ev.evaluator_name}</td>
                     <td className="px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400">
                       {ev.nota_final_combinada != null
@@ -3098,6 +3113,7 @@ function PAFAlertas({ cycleId }: { cycleId: string }) {
   const [selectedCandidates, setSelectedCandidates] = useState<Set<string>>(new Set());
   const [selectedPhases, setSelectedPhases] = useState<Set<string>>(new Set());
   const [sending, setSending] = useState(false);
+  const { toast, showToast } = useToast();
 
   function load() {
     setLoading(true);
@@ -3118,14 +3134,17 @@ function PAFAlertas({ cycleId }: { cycleId: string }) {
   }
 
   async function sendInitial(ids: string[]) {
-    if (!cycleId || ids.length === 0) return;
+    if (!cycleId) { showToast("Selecione um ciclo antes de enviar."); return; }
+    if (ids.length === 0) return;
     setSending(true);
     try {
       await apiFetch("/api/performance/action-plans/generate", {
         token, method: "POST", json: { cycle_id: cycleId, employee_ids: ids },
       });
       load();
-    } catch {} finally { setSending(false); }
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Erro ao gerar plano(s) de ação.");
+    } finally { setSending(false); }
   }
 
   async function sendPhases(ids: string[]) {
@@ -3136,14 +3155,18 @@ function PAFAlertas({ cycleId }: { cycleId: string }) {
         token, method: "POST", json: { phase_ids: ids },
       });
       load();
-    } catch {} finally { setSending(false); }
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Erro ao enviar fase(s) de acompanhamento.");
+    } finally { setSending(false); }
   }
 
   async function resendReminder(actionPlanId: string, phaseNumber: number) {
     try {
       await apiFetch(`/api/performance/action-plans/${actionPlanId}/phases/${phaseNumber}/resend`, { token, method: "POST" });
       load();
-    } catch {}
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Erro ao reenviar lembrete.");
+    }
   }
 
   if (loading) return <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" /></div>;
@@ -3155,6 +3178,11 @@ function PAFAlertas({ cycleId }: { cycleId: string }) {
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-[60] bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg">
+          {toast}
+        </div>
+      )}
       <Card className="p-5">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h3 className="font-bold text-gray-900 dark:text-white">Colaboradores aptos ao plano inicial ({candidates.length})</h3>
@@ -3297,6 +3325,7 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
   const [detailLoading, setDetailLoading] = useState(false);
   const [selectedCiencia, setSelectedCiencia] = useState<Set<string>>(new Set());
   const [sendingCiencia, setSendingCiencia] = useState(false);
+  const { toast, showToast } = useToast();
 
   useEffect(() => {
     if (!filters.company_id) { setBranches([]); return; }
@@ -3339,7 +3368,9 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
       const r = await apiFetch<any[]>(`/api/performance/action-plans/overview?${params}`, { token });
       setRows(r || []);
       setSelectedCiencia(new Set());
-    } catch {} finally { setSendingCiencia(false); }
+    } catch (e) {
+      showToast(e instanceof ApiError ? e.message : "Erro ao enviar ciência do plano de ação.");
+    } finally { setSendingCiencia(false); }
   }
 
   const cienciaEligible = rows.filter((r: any) => r.status !== "pending_manager_fill" && r.employee_ciencia_status === "not_sent");
@@ -3352,11 +3383,12 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
       const res = await fetch(`/api/performance/action-plans/overview/export?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) { showToast("Erro ao exportar CSV."); return; }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = "plano_acao_feedback.csv"; a.click();
       URL.revokeObjectURL(url);
-    } catch {}
+    } catch { showToast("Erro ao exportar CSV."); }
   }
 
   useEffect(() => {
@@ -3378,6 +3410,11 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
 
   return (
     <div className="space-y-6">
+      {toast && (
+        <div className="fixed bottom-4 right-4 z-[60] bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg">
+          {toast}
+        </div>
+      )}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         <StatCard label="Total de Planos" value={totalPlans} color="blue" />
         <StatCard label="Ativos" value={active} color="amber" />

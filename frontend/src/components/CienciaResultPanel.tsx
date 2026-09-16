@@ -32,10 +32,10 @@ export function avgLabel(avg: number): string {
 
 // ── Painel de resultado (reutilizado na tela pública de ciência e na visão interna do RH) ──
 export function ResultPanel({
-  data, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal,
+  data, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal, hideManagerComments,
 }: {
   data: any; primaryBg: string; primaryText: string; primaryBorder: string;
-  acknowledged: boolean; acknowledgedAt?: string; onOpenModal?: () => void;
+  acknowledged: boolean; acknowledgedAt?: string; onOpenModal?: () => void; hideManagerComments?: boolean;
 }) {
   function formatDate(iso: string) {
     try { return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -104,7 +104,7 @@ export function ResultPanel({
                   <div className="flex items-center gap-2">
                     {s.self_score != null && (
                       <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
-                        Auto: {s.self_score}
+                        Nota Média Final: {((displayScore + s.self_score) / 2).toFixed(2)}
                       </span>
                     )}
                     <ScoreBadge score={displayScore} />
@@ -120,19 +120,21 @@ export function ResultPanel({
                         <p className="text-xs text-amber-800 dark:text-amber-300 italic leading-relaxed">"{s.calibrated_justification}"</p>
                       )}
                     </div>
-                    <details className="group">
-                      <summary className="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 select-none list-none flex items-center gap-1">
-                        <span className="group-open:rotate-90 transition-transform inline-block">▸</span> Ver nota/comentário original do gestor
-                      </summary>
-                      <div className="mt-1.5 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
-                        <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">🟦 Nota original do gestor: {s.score}</p>
-                        <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
-                          {s.justification ? `"${s.justification}"` : "Sem comentários do gestor"}
-                        </p>
-                      </div>
-                    </details>
+                    {!hideManagerComments && (
+                      <details className="group">
+                        <summary className="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 select-none list-none flex items-center gap-1">
+                          <span className="group-open:rotate-90 transition-transform inline-block">▸</span> Ver nota/comentário original do gestor
+                        </summary>
+                        <div className="mt-1.5 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
+                          <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">🟦 Nota original do gestor: {s.score}</p>
+                          <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
+                            {s.justification ? `"${s.justification}"` : "Sem comentários do gestor"}
+                          </p>
+                        </div>
+                      </details>
+                    )}
                   </div>
-                ) : s.justification && (
+                ) : (!hideManagerComments && s.justification) && (
                   <div className="px-5 pb-3 -mt-1">
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
                       <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">
@@ -150,33 +152,41 @@ export function ResultPanel({
         </div>
       </div>
 
-      {/* Notas finais — gestor, auto-avaliação e combinada */}
+      {/* Notas — Autoavaliação | Avaliação do Gestor | Nota Final (Média), mesmo
+          estilo visual do modal de Análise RH em PerformancePage.tsx */}
       <div className={`bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 ${primaryBorder}`}>
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="font-bold text-gray-900 dark:text-white text-lg">Nota Final (Gestor)</span>
-            <p className="text-xs text-gray-400 mt-0.5">{avgLabel(data.final_score ?? 0)}</p>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 text-center">
+            <p className="text-xs text-violet-500 dark:text-violet-400 mb-0.5">Autoavaliação</p>
+            <p className="text-xl font-black text-violet-700 dark:text-violet-300">
+              {data.self_final_score != null ? Number(data.self_final_score).toFixed(2) : "—"}
+            </p>
           </div>
-          <div className="text-right">
-            <span className={`text-3xl font-black ${primaryText} dark:text-blue-400`}>
-              {data.final_score?.toFixed(2)}
-            </span>
-            <span className="text-sm text-gray-400 ml-1">/ 5,00</span>
+          <div className="bg-[#E6F4F0] dark:bg-emerald-900/20 rounded-xl p-3 text-center">
+            <p className="text-xs text-[#00694E] dark:text-emerald-400 mb-0.5">Avaliação do Gestor</p>
+            <p className="text-xl font-black text-[#00694E] dark:text-emerald-300">
+              {data.final_score != null ? Number(data.final_score).toFixed(2) : "—"}
+            </p>
+          </div>
+          <div className={`${primaryBg} rounded-xl p-3 text-center`}>
+            <p className="text-xs text-white/80 mb-0.5">Nota Final (Média)</p>
+            <p className="text-xl font-black text-white">
+              {data.nota_final_combinada != null
+                ? Number(data.nota_final_combinada).toFixed(2)
+                : data.final_score != null
+                ? <span title="Nota parcial — falta auto-avaliação">{Number(data.final_score).toFixed(2)}*</span>
+                : "—"}
+            </p>
           </div>
         </div>
-        {data.nota_final_combinada != null && (
-          <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700 flex items-center justify-between">
-            <span className="text-sm font-semibold text-gray-600 dark:text-gray-300">Nota Final (média avaliação + auto-avaliação)</span>
-            <span className="text-xl font-black text-blue-700 dark:text-blue-400">
-              {Number(data.nota_final_combinada).toFixed(2)} <span className="text-sm text-gray-400 font-normal">/ 5,00</span>
-            </span>
-          </div>
-        )}
+        <p className="text-xs text-gray-400 text-center mt-3">
+          {avgLabel((data.nota_final_combinada ?? data.final_score) ?? 0)}
+        </p>
       </div>
 
       {/* Comentários — Gestor / Colaborador / RH, empilhados e coloridos */}
       <div className="space-y-3">
-        {data.was_calibrated ? (
+        {!hideManagerComments && (data.was_calibrated ? (
           <details className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden group">
             <summary className="cursor-pointer bg-gray-50 dark:bg-gray-700/50 px-5 py-3 select-none list-none flex items-center gap-2">
               <span className="group-open:rotate-90 transition-transform inline-block text-gray-400">▸</span>
@@ -203,7 +213,7 @@ export function ResultPanel({
               </p>
             </div>
           </div>
-        )}
+        ))}
 
         {data.self_observations && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-violet-100 dark:border-violet-900/40 overflow-hidden">

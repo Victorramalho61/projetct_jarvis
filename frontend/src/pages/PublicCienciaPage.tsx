@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
 import { ResultPanel } from "../components/CienciaResultPanel";
+import { ActionPlanForm } from "../components/actionPlan/ActionPlanForm";
 
 const SOCIALS = [
   { label: "LinkedIn",  href: "https://www.linkedin.com/company/grupo-voetur/" },
@@ -65,6 +66,22 @@ export default function PublicCienciaPage() {
   const [showModal,      setShowModal]      = useState(false);
   const [submitting,     setSubmitting]     = useState(false);
   const [submitError,    setSubmitError]    = useState("");
+
+  // Plano de Ação — checado assim que a ciência é (ou já foi) confirmada. Se o
+  // colaborador for elegível (nota 1/2 em algum indicador) e o plano ainda não
+  // tiver sido preenchido, mostra o formulário logo abaixo, no mesmo fluxo.
+  const [planState,   setPlanState]   = useState<any>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+
+  useEffect(() => {
+    if (!token || !data?.already_acknowledged) return;
+    setPlanLoading(true);
+    fetch(`/api/performance/public/action-plans/from-ciencia/${token}`)
+      .then(r => r.json())
+      .then(j => setPlanState(j))
+      .catch(() => {})
+      .finally(() => setPlanLoading(false));
+  }, [token, data?.already_acknowledged]);
 
   useEffect(() => {
     if (!token) { setState("error"); setErrorMsg("Link inválido."); return; }
@@ -159,7 +176,58 @@ export default function PublicCienciaPage() {
               acknowledged={data.already_acknowledged}
               acknowledgedAt={data.acknowledged_at}
               onOpenModal={() => setShowModal(true)}
+              hideManagerComments
             />
+
+            {/* ── Plano de Ação de Feedback — logo após a ciência, no mesmo fluxo ── */}
+            {planLoading && (
+              <div className="flex justify-center py-8">
+                <div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+
+            {planState?.eligible && !planState.already_filled && (
+              <div className="mt-6">
+                <div className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 rounded-xl p-4 mb-4">
+                  <h3 className="text-sm font-bold text-[#00694E] dark:text-emerald-400 uppercase tracking-wide mb-1">
+                    Plano de Ação de Feedback
+                  </h3>
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    Com base na sua avaliação, escolha 2 competências prioritárias e defina como você
+                    vai evoluir nos próximos 12 meses.
+                  </p>
+                </div>
+                <ActionPlanForm
+                  indicators={planState.indicators || []}
+                  onSubmit={async (payload) => {
+                    const res = await fetch(`/api/performance/public/action-plans/from-ciencia/${token}`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify(payload),
+                    });
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.detail || "Erro ao enviar.");
+                  }}
+                />
+              </div>
+            )}
+
+            {planState?.eligible && planState.already_filled && (
+              <div className="mt-6 bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-5">
+                <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-3">
+                  Plano de Ação de Feedback
+                </h3>
+                <div className="space-y-3">
+                  {(planState.items || []).map((it: any, idx: number) => (
+                    <div key={idx} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+                      <p className="font-semibold text-sm text-gray-900 dark:text-white mb-1">{it.indicator_name}</p>
+                      <p className="text-xs text-gray-500"><strong>Situação observada:</strong> {it.situacao_observada}</p>
+                      <p className="text-xs text-gray-500 mt-1"><strong>Meta esperada:</strong> {it.meta_esperada}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </>
         )}
       </main>

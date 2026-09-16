@@ -24,6 +24,7 @@ from auth import require_role
 from db import get_supabase, get_settings
 from services.audit import log_action
 from routes.admin import _chunks
+from routes.action_plans_public import InitialFormSubmit
 
 router = APIRouter(prefix="/api/performance/action-plans")
 _logger = logging.getLogger(__name__)
@@ -76,16 +77,17 @@ def _resolve_employees(db, ids: list[str]) -> dict[str, dict]:
 
 # ── Candidatos ao plano inicial ────────────────────────────────────────────────
 
-def _build_candidates(db, cycle_id: str) -> list[dict]:
-    reviews = (
+def _build_candidates(db, cycle_id: str, employee_id: str | None = None) -> list[dict]:
+    reviews_q = (
         db.table("performance_reviews")
         .select("id,employee_id")
         .eq("cycle_id", cycle_id)
         .eq("is_self_evaluation", False)
         .in_("status", ["completed", "calibrated"])
-        .execute()
-        .data
-    ) or []
+    )
+    if employee_id:
+        reviews_q = reviews_q.eq("employee_id", employee_id)
+    reviews = reviews_q.execute().data or []
     if not reviews:
         return []
     review_ids = [r["id"] for r in reviews]
@@ -422,6 +424,52 @@ def resend_initial(
         db.table("performance_action_plans").update({"initial_token_sent_at": "now()"}).eq("id", action_plan_id).execute()
     log_action("action_plan", action_plan_id, "resend_initial", None, {"ok": ok}, current_user["username"], request)
     return {"ok": ok}
+
+
+# ── Preenchimento manual pelo RH (fallback) ───────────────────────────────────
+# O preenchimento principal agora é feito pelo próprio colaborador, logo após dar
+# ciência da avaliação (routes/action_plans_public.py::from-ciencia). Esses dois
+# endpoints existem só como plano B: caso o colaborador não tenha preenchido (ex:
+# deu ciência antes desta feature existir, ou pulou o passo por algum motivo), o
+# RH pode preencher em nome dele pela visão interna.
+
+@router.get("/{action_plan_id}/fill-initial-form")
+def get_fill_initial_form(
+    action_plan_id: str,
+    _: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    from services.action_plan_initial import build_initial_form_payload
+
+    db = get_supabase()
+    plan = db.table("performance_action_plans").select("*").eq("id", action_plan_id).execute()
+    if not plan.data:
+        raise HTTPException(404, detail="Plano de ação não encontrado.")
+    p = plan.data[0]
+    if p["status"] != "pending_manager_fill":
+        raise HTTPException(400, detail="Este plano já foi preenchido.")
+    return build_initial_form_payload(db, p)
+
+
+@router.post("/{action_plan_id}/fill-initial")
+def post_fill_initial(
+    action_plan_id: str,
+    body: InitialFormSubmit,
+    request: Request,
+    current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
+) -> dict:
+    from services.action_plan_initial import validate_and_persist_initial_items
+
+    db = get_supabase()
+    plan = db.table("performance_action_plans").select("*").eq("id", action_plan_id).execute()
+    if not plan.data:
+        raise HTTPException(404, detail="Plano de ação não encontrado.")
+    p = plan.data[0]
+    if p["status"] != "pending_manager_fill":
+        raise HTTPException(400, detail="Este plano já foi preenchido.")
+
+    validate_and_persist_initial_items(db, p, [i.model_dump() for i in body.items], body.frequencia_alinhamento)
+    log_action("action_plan", action_plan_id, "fill_initial_rh", None, {}, current_user["username"], request)
+    return {"ok": True}
 
 
 # ── Central de Alertas (candidatos + fases trimestrais pendentes de envio) ────

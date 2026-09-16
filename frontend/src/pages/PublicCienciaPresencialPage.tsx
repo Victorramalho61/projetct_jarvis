@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { ActionPlanForm } from "../components/actionPlan/ActionPlanForm";
 
 const SCORE_MAP: Record<number, { label: string; desc: string; color: string }> = {
   5: { label: "EE",  desc: "Excede as Expectativas",              color: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700" },
@@ -108,6 +109,25 @@ export default function PublicCienciaPresencialPage() {
   const [submitError, setSubmitError] = useState("");
   const [viewOnly,    setViewOnly]    = useState(false);   // true quando ciência já registrada
   const [acknowledgedAt, setAcknowledgedAt] = useState("");
+
+  // Plano de Ação — checado assim que a ciência é (ou já foi) confirmada.
+  const [planState,   setPlanState]   = useState<any>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const cienciaConfirmada = step === "confirmado" || (step === "resultado" && viewOnly);
+
+  useEffect(() => {
+    if (!cienciaConfirmada || !data?.review_id) return;
+    setPlanLoading(true);
+    fetch("/api/performance/public/action-plans/from-ciencia-presencial/buscar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cpf: cpf.replace(/\D/g, ""), review_id: data.review_id }),
+    })
+      .then(r => r.json())
+      .then(j => setPlanState(j))
+      .catch(() => {})
+      .finally(() => setPlanLoading(false));
+  }, [cienciaConfirmada, data?.review_id]);
 
   function validateForm(): string | null {
     const cpfDigits = cpf.replace(/\D/g, "");
@@ -350,7 +370,7 @@ export default function PublicCienciaPresencialPage() {
                         <div className="flex items-center gap-2">
                           {s.self_score != null && (
                             <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
-                              Auto: {s.self_score}
+                              Nota Média Final: {((displayScore + s.self_score) / 2).toFixed(2)}
                             </span>
                           )}
                           <ScoreBadge score={displayScore} />
@@ -366,81 +386,47 @@ export default function PublicCienciaPresencialPage() {
                               <p className="text-xs text-amber-800 dark:text-amber-300 italic leading-relaxed">"{s.calibrated_justification}"</p>
                             )}
                           </div>
-                          <details className="group">
-                            <summary className="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 select-none list-none flex items-center gap-1">
-                              <span className="group-open:rotate-90 transition-transform inline-block">▸</span> Ver nota/comentário original do gestor
-                            </summary>
-                            <div className="mt-1.5 bg-gray-50 dark:bg-gray-700/40 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
-                              <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">🟦 Nota original do gestor: {s.score}</p>
-                              <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
-                                {s.justification ? `"${s.justification}"` : "Sem comentários do gestor"}
-                              </p>
-                            </div>
-                          </details>
                         </div>
-                      ) : s.justification && (
-                        <div className="px-5 pb-3 -mt-1">
-                          <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
-                            <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">
-                              🟦 Comentário do Gestor
-                            </p>
-                            <p className="text-xs text-gray-600 dark:text-gray-400 italic leading-relaxed">
-                              "{s.justification}"
-                            </p>
-                          </div>
-                        </div>
-                      )}
+                      ) : null}
                     </div>
                   );
                 })}
               </div>
             </div>
 
-            {/* Nota final */}
-            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 border-[#00694E] flex items-center justify-between">
-              <div>
-                <span className="font-bold text-gray-900 dark:text-white text-lg">Nota Final</span>
-                <p className="text-xs text-gray-400 mt-0.5">{avgLabel(data.final_score ?? 0)}</p>
+            {/* Notas — Autoavaliação | Avaliação do Gestor | Nota Final (Média) */}
+            <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 shadow border-2 border-[#00694E]">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-violet-50 dark:bg-violet-900/20 rounded-xl p-3 text-center">
+                  <p className="text-xs text-violet-500 dark:text-violet-400 mb-0.5">Autoavaliação</p>
+                  <p className="text-xl font-black text-violet-700 dark:text-violet-300">
+                    {data.self_final_score != null ? Number(data.self_final_score).toFixed(2) : "—"}
+                  </p>
+                </div>
+                <div className="bg-[#E6F4F0] dark:bg-emerald-900/20 rounded-xl p-3 text-center">
+                  <p className="text-xs text-[#00694E] dark:text-emerald-400 mb-0.5">Avaliação do Gestor</p>
+                  <p className="text-xl font-black text-[#00694E] dark:text-emerald-300">
+                    {data.final_score != null ? Number(data.final_score).toFixed(2) : "—"}
+                  </p>
+                </div>
+                <div className="bg-[#00694E] rounded-xl p-3 text-center">
+                  <p className="text-xs text-white/80 mb-0.5">Nota Final (Média)</p>
+                  <p className="text-xl font-black text-white">
+                    {data.nota_final_combinada != null
+                      ? Number(data.nota_final_combinada).toFixed(2)
+                      : data.final_score != null
+                      ? <span title="Nota parcial — falta auto-avaliação">{Number(data.final_score).toFixed(2)}*</span>
+                      : "—"}
+                  </p>
+                </div>
               </div>
-              <div className="text-right">
-                <span className="text-3xl font-black text-[#00694E] dark:text-emerald-400">
-                  {data.final_score?.toFixed(2)}
-                </span>
-                <span className="text-sm text-gray-400 ml-1">/ 5,00</span>
-              </div>
+              <p className="text-xs text-gray-400 text-center mt-3">
+                {avgLabel((data.nota_final_combinada ?? data.final_score) ?? 0)}
+              </p>
             </div>
 
-            {/* Comentários — Gestor / Colaborador / RH, empilhados e coloridos */}
+            {/* Comentários — Colaborador / RH, empilhados e coloridos (comentário do gestor não é exibido ao colaborador) */}
             <div className="space-y-3">
-              {data.was_calibrated ? (
-                <details className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden group">
-                  <summary className="cursor-pointer bg-gray-50 dark:bg-gray-700/50 px-5 py-3 select-none list-none flex items-center gap-2">
-                    <span className="group-open:rotate-90 transition-transform inline-block text-gray-400">▸</span>
-                    <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-                      🟦 Ver comentário original do gestor
-                    </h3>
-                  </summary>
-                  <div className="px-5 py-4">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                      {data.observations || "Sem comentários do gestor"}
-                    </p>
-                  </div>
-                </details>
-              ) : data.observations && (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-blue-100 dark:border-blue-900/40 overflow-hidden">
-                  <div className="bg-blue-50 dark:bg-blue-900/20 px-5 py-3">
-                    <h3 className="text-sm font-bold text-blue-700 dark:text-blue-400 uppercase tracking-wide">
-                      🟦 Comentários sobre o desempenho do colaborador
-                    </h3>
-                  </div>
-                  <div className="px-5 py-4">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                      {data.observations}
-                    </p>
-                  </div>
-                </div>
-              )}
-
               {data.self_observations && (
                 <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-violet-100 dark:border-violet-900/40 overflow-hidden">
                   <div className="bg-violet-50 dark:bg-violet-900/20 px-5 py-3">
@@ -518,6 +504,56 @@ export default function PublicCienciaPresencialPage() {
               >
                 Consultar outro colaborador
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Plano de Ação de Feedback — logo após a ciência, no mesmo fluxo ── */}
+        {cienciaConfirmada && planLoading && (
+          <div className="flex justify-center py-8">
+            <div className="w-7 h-7 border-4 border-[#00694E] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
+        {cienciaConfirmada && planState?.eligible && !planState.already_filled && (
+          <div className="mt-6">
+            <div className="bg-[#E6F4F0] dark:bg-[#00694E]/10 border border-[#00694E]/30 rounded-xl p-4 mb-4">
+              <h3 className="text-sm font-bold text-[#00694E] dark:text-emerald-400 uppercase tracking-wide mb-1">
+                Plano de Ação de Feedback
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Com base na avaliação, escolha 2 competências prioritárias e defina como o colaborador
+                vai evoluir nos próximos 12 meses.
+              </p>
+            </div>
+            <ActionPlanForm
+              indicators={planState.indicators || []}
+              onSubmit={async (payload) => {
+                const res = await fetch("/api/performance/public/action-plans/from-ciencia-presencial/enviar", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ cpf: cpf.replace(/\D/g, ""), review_id: data?.review_id, ...payload }),
+                });
+                const json = await res.json();
+                if (!res.ok) throw new Error(json.detail || "Erro ao enviar.");
+              }}
+            />
+          </div>
+        )}
+
+        {cienciaConfirmada && planState?.eligible && planState.already_filled && (
+          <div className="mt-6 bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 p-5">
+            <h3 className="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-3">
+              Plano de Ação de Feedback
+            </h3>
+            <div className="space-y-3">
+              {(planState.items || []).map((it: any, idx: number) => (
+                <div key={idx} className="border border-gray-100 dark:border-gray-700 rounded-lg p-3">
+                  <p className="font-semibold text-sm text-gray-900 dark:text-white mb-1">{it.indicator_name}</p>
+                  <p className="text-xs text-gray-500"><strong>Situação observada:</strong> {it.situacao_observada}</p>
+                  <p className="text-xs text-gray-500 mt-1"><strong>Meta esperada:</strong> {it.meta_esperada}</p>
+                </div>
+              ))}
             </div>
           </div>
         )}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams } from "react-router-dom";
+import { IndicatorOption, ItemFields, EMPTY_ITEM, FIELD_LABELS, REQUIRED_ITEMS } from "../components/actionPlan/formFields";
 
 const SOCIALS = [
   { label: "LinkedIn",  href: "https://www.linkedin.com/company/grupo-voetur/" },
@@ -9,7 +10,6 @@ const SOCIALS = [
 ];
 
 const HR_EMAIL = "rh@voetur.com.br";
-const REQUIRED_ITEMS = 2;
 
 function CompanyLogo() {
   return (
@@ -55,34 +55,6 @@ function GrupoVoeturFooter() {
     </footer>
   );
 }
-
-interface IndicatorOption {
-  indicator_id: string;
-  name: string;
-  description: string;
-  original_score: number | null;
-}
-
-interface ItemFields {
-  situacao_observada: string;
-  meta_esperada: string;
-  acoes: string;
-  responsavel_acompanhamento: string;
-  como_sera_verificado: string;
-}
-
-const EMPTY_ITEM: ItemFields = {
-  situacao_observada: "", meta_esperada: "", acoes: "",
-  responsavel_acompanhamento: "", como_sera_verificado: "",
-};
-
-const FIELD_LABELS: { key: keyof ItemFields; label: string; placeholder: string }[] = [
-  { key: "situacao_observada", label: "Situação observada", placeholder: "Descreva o que foi observado nessa competência..." },
-  { key: "meta_esperada", label: "Meta esperada / Objetivo", placeholder: "Qual o resultado esperado ao final do acompanhamento?" },
-  { key: "acoes", label: "Ações — O quê", placeholder: "Quais ações concretas serão tomadas?" },
-  { key: "responsavel_acompanhamento", label: "Responsável pelo acompanhamento", placeholder: "Quem vai acompanhar essa ação?" },
-  { key: "como_sera_verificado", label: "Como será verificado", placeholder: "Como o progresso será medido/verificado?" },
-];
 
 export default function PublicActionPlanPage() {
   const { token } = useParams<{ token: string }>();
