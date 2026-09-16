@@ -37,6 +37,15 @@ from routes.benner_reconciliation import router as benner_reconciliation_router
 async def lifespan(app: FastAPI):
     from services.scheduler import start_scheduler, stop_scheduler
     await start_scheduler()
+
+    # Pré-aquece em background os caches de conferência Benner (nfe/cte + nfse) —
+    # sem isso, o primeiro request depois do serviço subir bloqueia esperando um
+    # varredura cara nas tabelas do Benner (visto levando dezenas de segundos).
+    import threading
+    from routes.benner_reconciliation import _cache as _benner_cache, _cache_nfse as _benner_cache_nfse
+    threading.Thread(target=_benner_cache.get, kwargs={"force": True}, daemon=True).start()
+    threading.Thread(target=_benner_cache_nfse.get, kwargs={"force": True}, daemon=True).start()
+
     yield
     await stop_scheduler()
 

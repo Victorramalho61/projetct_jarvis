@@ -10,6 +10,7 @@ import csv
 import io
 import logging
 import re
+import threading
 import time
 from datetime import date as _date, datetime as _datetime
 from typing import Optional
@@ -25,9 +26,94 @@ router = APIRouter(prefix="/api/fiscal", tags=["benner-reconciliation"])
 
 _logger = logging.getLogger(__name__)
 
-_TTL = 1800  # 30 min — comparação é cara (varre toda a tabela Benner), dado muda pouco
-_cache: dict | None = None
-_cache_at: float = 0.0
+# Consulta cara (varre tabelas do Benner com milhões de linhas, sem índice bom pro nosso
+# filtro — já visto levando 10s a mais de 1 min dependendo da carga do SQL Server no
+# momento). TTL longo + revalidação em segundo plano: uma carga de página normal (sem
+# refresh=true) nunca fica esperando o recálculo — recebe o último resultado pronto (a
+# única exceção é a 1a chamada depois do serviço subir, coberta pelo pré-aquecimento do
+# scheduler em services/scheduler.py). O botão "Atualizar" (refresh=true) continua síncrono
+# de propósito: o usuário pediu dado fresco agora e espera o spinner.
+_TTL = 1800  # 30 min — dado muda pouco
+
+
+class _StaleCache:
+    """Cache com revalidação em segundo plano: serve o último dado pronto na hora
+    (mesmo vencido) e dispara o recálculo numa thread à parte, sem nunca fazer o
+    request do usuário esperar — exceto na 1a carga do processo (sem nada pra servir)
+    ou quando `force=True` (botão "Atualizar", que deve mesmo bloquear)."""
+
+    def __init__(self, compute_fn, ttl: float = _TTL):
+        self._compute_fn = compute_fn
+        self._ttl = ttl
+        self._data: dict | None = None
+        self._at: float = 0.0
+        self._lock = threading.Lock()
+        self._refreshing = False
+
+    def get(self, force: bool = False) -> dict:
+        if force:
+            self._refresh_blocking()
+            return self._data
+        if self._data is None:
+            self._refresh_blocking()
+            return self._data
+        if time.monotonic() - self._at >= self._ttl:
+            self._refresh_background()
+        return self._data
+
+    def _refresh_blocking(self) -> None:
+        requested_at = time.monotonic()
+        with self._lock:
+            # Se outra requisição já recalculou enquanto esperávamos o lock (dois
+            # cliques em "Atualizar", ou request concorrente com o pré-aquecimento),
+            # aproveita o resultado dela em vez de recalcular de novo à toa.
+            if self._at > requested_at:
+                return
+            self._data = self._compute_fn()
+            self._at = time.monotonic()
+
+    def _refresh_background(self) -> None:
+        with self._lock:
+            if self._refreshing:
+                return
+            self._refreshing = True
+
+        def _run():
+            try:
+                self._data = self._compute_fn()
+                self._at = time.monotonic()
+            except Exception:
+                _logger.exception("benner_reconciliation: falha ao atualizar cache em segundo plano")
+            finally:
+                self._refreshing = False
+
+        threading.Thread(target=_run, daemon=True).start()
+
+
+def _filter_by_company(data: dict, list_key: str, count_key: str, total_key: str, total_by_company_key: str, company_id: str | None) -> dict:
+    if not company_id:
+        return data
+    filtered = [d for d in data[list_key] if d.get("company_id") == company_id]
+    out = dict(data)
+    out[list_key] = filtered
+    out[count_key] = len(filtered)
+    out[total_key] = data[total_by_company_key].get(company_id, 0)
+    return out
+
+
+# A tela só renderiza as 100 primeiras linhas (busca client-side refina o restante) e
+# tem exportação CSV pra ver tudo — devolver a lista inteira (pode passar de 40MB de
+# JSON quando a maior parte dos documentos não bate com o Benner) deixa a tela lenta à
+# toa. Cap só no endpoint da tela; o /export sempre recebe a lista completa.
+_JSON_LIST_CAP = 500
+
+
+def _cap_json_list(data: dict, list_key: str, limit: int = _JSON_LIST_CAP) -> dict:
+    if len(data[list_key]) <= limit:
+        return data
+    out = dict(data)
+    out[list_key] = data[list_key][:limit]
+    return out
 
 def _only_digits(s: str | None) -> str:
     return re.sub(r"\D", "", s or "")
@@ -139,34 +225,41 @@ def _compute() -> dict:
 
     not_in_benner.sort(key=lambda d: d.get("data_emissao") or "", reverse=True)
 
+    total_by_company: dict[str, int] = {}
+    for d in docs:
+        cid = d.get("company_id")
+        if cid:
+            total_by_company[cid] = total_by_company.get(cid, 0) + 1
+
     return {
         "total_nfe_cte": len(docs),
+        "total_nfe_cte_by_company": total_by_company,
         "not_in_benner_count": len(not_in_benner),
         "not_in_benner": not_in_benner,
     }
 
 
-# ── NFSe emitida: comparação aproximada (sem chave confiável) ──────────────────
-# Critério: CNPJ do tomador (via GN_PESSOAS) + valor (±R$0,05) + janela de data (±30 dias)
-# contra lançamentos de saída (ENTRADASAIDA='S') em FN_DOCUMENTOS. É "melhor esforço":
-# pode gerar falso positivo (coincidência de valor/data com outro lançamento do mesmo
-# cliente) ou falso negativo (lançamento fora da janela). Controladoria deve validar
-# manualmente os casos antes de tratar como divergência real.
+# ── NFSe recebida: comparação aproximada (sem chave confiável) ──────────────────
+# Levanta as NFSe emitidas CONTRA a VTC e demais empresas (ou seja, serviços que
+# terceiros nos venderam) sem o lançamento financeiro (contas a pagar) correspondente
+# no Benner. NFSe que NÓS emitimos (nossa receita) fica fora de propósito — não tem
+# lançamento de entrada mesmo, então comparar não diria nada útil.
+# Critério: CNPJ do emitente/fornecedor (via GN_PESSOAS) + valor (±R$0,05) + janela de
+# data (±30 dias) contra lançamentos de entrada (ENTRADASAIDA='E') em FN_DOCUMENTOS.
+# É "melhor esforço": pode gerar falso positivo (coincidência de valor/data com outro
+# lançamento do mesmo fornecedor) ou falso negativo (lançamento fora da janela).
+# Controladoria deve validar manualmente os casos antes de tratar como divergência real.
 _NFSE_MIN_DATE = "2025-01-01"
 _NFSE_LANCAMENTOS_DESDE = "2024-12-01"  # folga de 30 dias antes do início do escopo
 _NFSE_MATCH_WINDOW_DAYS = 30
 _NFSE_VALUE_TOLERANCE = 0.05
 
 _NFSE_FIELDS = [
-    "chave_acesso", "numero", "data_emissao", "emitente_nome",
-    "destinatario_cnpj", "destinatario_nome", "valor_total", "status", "company_id",
+    "chave_acesso", "numero", "data_emissao", "emitente_nome", "emitente_cnpj",
+    "destinatario_nome", "valor_total", "status", "company_id",
 ]
 
-_cache_nfse: dict | None = None
-_cache_nfse_at: float = 0.0
-
-
-def _fetch_nfse_emitidas() -> list[dict]:
+def _fetch_nfse_recebidas() -> list[dict]:
     sb = get_supabase()
     rows: list[dict] = []
     start = 0
@@ -176,7 +269,7 @@ def _fetch_nfse_emitidas() -> list[dict]:
             sb.table("fiscal_documents")
             .select(",".join(_NFSE_FIELDS))
             .eq("tipo", "NFSe")
-            .eq("direcao", "emitida")
+            .eq("direcao", "recebida")
             .gte("data_emissao", _NFSE_MIN_DATE)
             .range(start, start + page - 1)
             .execute()
@@ -222,7 +315,9 @@ def _fetch_gn_pessoas_cnpj_map() -> dict[str, list[int]]:
     return m
 
 
-def _fetch_benner_lancamentos_saida(filial_handles: list[int]) -> dict[int, list[tuple]]:
+def _fetch_benner_lancamentos_entrada(filial_handles: list[int]) -> dict[int, list[tuple]]:
+    """Lançamentos de ENTRADA (contas a pagar) do Benner — o que deveria existir quando
+    um fornecedor emite NFSe contra a gente."""
     if not filial_handles:
         return {}
     conn = get_mssql()
@@ -231,7 +326,7 @@ def _fetch_benner_lancamentos_saida(filial_handles: list[int]) -> dict[int, list
         placeholders = ",".join(str(int(h)) for h in filial_handles)
         cur.execute(
             "SELECT PESSOA, DATAEMISSAO, VALORNOMINAL FROM dbo.FN_DOCUMENTOS "
-            f"WHERE FILIAL IN ({placeholders}) AND ENTRADASAIDA='S' AND DATAEMISSAO >= %s",
+            f"WHERE FILIAL IN ({placeholders}) AND ENTRADASAIDA='E' AND DATAEMISSAO >= %s",
             (_NFSE_LANCAMENTOS_DESDE,),
         )
         rows = cur.fetchall()
@@ -257,15 +352,15 @@ def _parse_date(s) -> "_date | None":
 
 
 def _compute_nfse_aproximado() -> dict:
-    docs = _fetch_nfse_emitidas()
+    docs = _fetch_nfse_recebidas()
     cnpj_pessoa = _fetch_gn_pessoas_cnpj_map()
     filial_handles = _fetch_filial_handles()
-    lancamentos = _fetch_benner_lancamentos_saida(filial_handles)
+    lancamentos = _fetch_benner_lancamentos_entrada(filial_handles)
     names = _company_names()
 
     not_in_benner = []
     for d in docs:
-        cnpj = _only_digits(d.get("destinatario_cnpj"))
+        cnpj = _only_digits(d.get("emitente_cnpj"))
         data_emissao = _parse_date(d.get("data_emissao"))
         valor = d.get("valor_total") or 0.0
         handles = cnpj_pessoa.get(cnpj, [])
@@ -284,52 +379,60 @@ def _compute_nfse_aproximado() -> dict:
             item = dict(d)
             item["company_nome"] = names.get(d.get("company_id"), "")
             item["motivo"] = (
-                "Cliente sem cadastro localizado no Benner" if not handles
+                "Fornecedor sem cadastro localizado no Benner" if not handles
                 else "Sem lançamento compatível (mesmo valor, ±30 dias)"
             )
             not_in_benner.append(item)
 
     not_in_benner.sort(key=lambda d: d.get("data_emissao") or "", reverse=True)
 
+    total_by_company: dict[str, int] = {}
+    for d in docs:
+        cid = d.get("company_id")
+        if cid:
+            total_by_company[cid] = total_by_company.get(cid, 0) + 1
+
     return {
         "aproximado": True,
-        "criterio": "CNPJ do tomador + valor (±R$0,05) + data (±30 dias) — sem chave de acesso confiável",
+        "criterio": "CNPJ do fornecedor (emitente) + valor (±R$0,05) + data (±30 dias) — sem chave de acesso confiável",
         "desde": _NFSE_MIN_DATE,
-        "total_nfse_emitida": len(docs),
+        "total_nfse_recebida": len(docs),
+        "total_nfse_recebida_by_company": total_by_company,
         "not_in_benner_count": len(not_in_benner),
         "not_in_benner": not_in_benner,
     }
 
 
-def _get_cached_nfse() -> dict:
-    global _cache_nfse, _cache_nfse_at
-    now = time.monotonic()
-    if _cache_nfse is not None and now - _cache_nfse_at < _TTL:
-        return _cache_nfse
-    data = _compute_nfse_aproximado()
-    _cache_nfse = data
-    _cache_nfse_at = now
-    return data
+_cache_nfse = _StaleCache(_compute_nfse_aproximado)
 
 
-@router.get("/benner-reconciliation/nfse-emitida")
+@router.get("/benner-reconciliation/nfse-recebida")
 def get_benner_reconciliation_nfse(
-    refresh: bool = Query(False, description="Ignora cache e recalcula agora"),
+    refresh: bool = Query(False, description="Ignora cache e recalcula agora (bloqueia até terminar)"),
+    company_id: Optional[str] = Query(None, description="Filtra o resultado por empresa"),
     _user: dict = Depends(get_current_user),
 ):
-    if refresh:
-        global _cache_nfse
-        _cache_nfse = None
     try:
-        return _get_cached_nfse()
+        data = _cache_nfse.get(force=refresh)
+        data = _filter_by_company(
+            data, "not_in_benner", "not_in_benner_count",
+            "total_nfse_recebida", "total_nfse_recebida_by_company", company_id,
+        )
+        return _cap_json_list(data, "not_in_benner")
     except Exception:
         _logger.exception("benner_reconciliation: falha ao consultar Benner (NFSe)")
         raise
 
 
-@router.get("/benner-reconciliation/nfse-emitida/export")
-def export_benner_reconciliation_nfse_csv(_user: dict = Depends(get_current_user)):
-    data = _get_cached_nfse()
+@router.get("/benner-reconciliation/nfse-recebida/export")
+def export_benner_reconciliation_nfse_csv(
+    company_id: Optional[str] = Query(None),
+    _user: dict = Depends(get_current_user),
+):
+    data = _filter_by_company(
+        _cache_nfse.get(), "not_in_benner", "not_in_benner_count",
+        "total_nfse_recebida", "total_nfse_recebida_by_company", company_id,
+    )
     fieldnames = ["company_nome"] + _NFSE_FIELDS + ["motivo"]
 
     buf = io.StringIO()
@@ -340,39 +443,40 @@ def export_benner_reconciliation_nfse_csv(_user: dict = Depends(get_current_user
     return StreamingResponse(
         iter([buf.getvalue().encode("utf-8-sig")]),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="nao_encontrados_benner_nfse_emitida.csv"'},
+        headers={"Content-Disposition": 'attachment; filename="nao_encontrados_benner_nfse_recebida.csv"'},
     )
 
 
-def _get_cached() -> dict:
-    global _cache, _cache_at
-    now = time.monotonic()
-    if _cache is not None and now - _cache_at < _TTL:
-        return _cache
-    data = _compute()
-    _cache = data
-    _cache_at = now
-    return data
+_cache = _StaleCache(_compute)
 
 
 @router.get("/benner-reconciliation/nfe-cte")
 def get_benner_reconciliation(
-    refresh: bool = Query(False, description="Ignora cache e recalcula agora"),
+    refresh: bool = Query(False, description="Ignora cache e recalcula agora (bloqueia até terminar)"),
+    company_id: Optional[str] = Query(None, description="Filtra o resultado por empresa"),
     _user: dict = Depends(get_current_user),
 ):
-    if refresh:
-        global _cache
-        _cache = None
     try:
-        return _get_cached()
+        data = _cache.get(force=refresh)
+        data = _filter_by_company(
+            data, "not_in_benner", "not_in_benner_count",
+            "total_nfe_cte", "total_nfe_cte_by_company", company_id,
+        )
+        return _cap_json_list(data, "not_in_benner")
     except Exception:
         _logger.exception("benner_reconciliation: falha ao consultar Benner")
         raise
 
 
 @router.get("/benner-reconciliation/nfe-cte/export")
-def export_benner_reconciliation_csv(_user: dict = Depends(get_current_user)):
-    data = _get_cached()
+def export_benner_reconciliation_csv(
+    company_id: Optional[str] = Query(None),
+    _user: dict = Depends(get_current_user),
+):
+    data = _filter_by_company(
+        _cache.get(), "not_in_benner", "not_in_benner_count",
+        "total_nfe_cte", "total_nfe_cte_by_company", company_id,
+    )
     fieldnames = ["company_nome"] + _FIELDS
 
     buf = io.StringIO()

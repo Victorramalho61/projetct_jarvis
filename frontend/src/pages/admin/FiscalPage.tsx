@@ -116,7 +116,8 @@ interface NfseBennerReconciliationItem {
   chave_acesso: string;
   numero: string;
   data_emissao: string | null;
-  destinatario_cnpj: string;
+  emitente_nome: string;
+  emitente_cnpj: string;
   destinatario_nome: string;
   valor_total: number;
   status: string;
@@ -129,7 +130,7 @@ interface NfseBennerReconciliation {
   aproximado: boolean;
   criterio: string;
   desde: string;
-  total_nfse_emitida: number;
+  total_nfse_recebida: number;
   not_in_benner_count: number;
   not_in_benner: NfseBennerReconciliationItem[];
 }
@@ -497,19 +498,23 @@ export default function FiscalPage() {
 
   useEffect(() => { if (tab === "dashboard") loadStats(); }, [tab, loadStats]);
 
-  // ── Load indicador Benner (isolado — não depende de empresa/período selecionados) ──
+  // ── Load indicador Benner (cálculo é agregado/todas empresas no backend, cacheado;
+  // aqui só filtramos pra empresa selecionada no dashboard, se houver) ──
   const loadBennerRecon = useCallback((refresh = false) => {
     if (!token) return;
     setBennerReconLoading(true);
     setBennerReconError("");
+    const p = new URLSearchParams();
+    if (refresh) p.set("refresh", "true");
+    if (selectedId) p.set("company_id", selectedId);
     apiFetch<BennerReconciliation>(
-      `/api/fiscal/benner-reconciliation/nfe-cte${refresh ? "?refresh=true" : ""}`,
+      `/api/fiscal/benner-reconciliation/nfe-cte?${p.toString()}`,
       { token, timeoutMs: 60_000 },
     )
       .then(setBennerRecon)
       .catch((e) => setBennerReconError(e instanceof ApiError ? e.message : "Falha ao carregar indicador Benner"))
       .finally(() => setBennerReconLoading(false));
-  }, [token]);
+  }, [token, selectedId]);
 
   useEffect(() => { if (tab === "dashboard") loadBennerRecon(); }, [tab, loadBennerRecon]);
 
@@ -517,7 +522,9 @@ export default function FiscalPage() {
     if (!token) return;
     setBennerReconExporting(true);
     try {
-      const resp = await fetch("/api/fiscal/benner-reconciliation/nfe-cte/export", {
+      const p = new URLSearchParams();
+      if (selectedId) p.set("company_id", selectedId);
+      const resp = await fetch(`/api/fiscal/benner-reconciliation/nfe-cte/export?${p.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!resp.ok) return;
@@ -544,19 +551,23 @@ export default function FiscalPage() {
     );
   }, [bennerRecon, bennerReconFilter]);
 
-  // ── Load indicador aproximado NFSe emitida x Benner (isolado) ──
+  // ── Load indicador aproximado NFSe emitida x Benner (cálculo agregado/cacheado no
+  // backend; aqui só filtramos pra empresa selecionada no dashboard, se houver) ──
   const loadNfseRecon = useCallback((refresh = false) => {
     if (!token) return;
     setNfseReconLoading(true);
     setNfseReconError("");
+    const p = new URLSearchParams();
+    if (refresh) p.set("refresh", "true");
+    if (selectedId) p.set("company_id", selectedId);
     apiFetch<NfseBennerReconciliation>(
-      `/api/fiscal/benner-reconciliation/nfse-emitida${refresh ? "?refresh=true" : ""}`,
+      `/api/fiscal/benner-reconciliation/nfse-recebida?${p.toString()}`,
       { token, timeoutMs: 60_000 },
     )
       .then(setNfseRecon)
       .catch((e) => setNfseReconError(e instanceof ApiError ? e.message : "Falha ao carregar indicador Benner (NFSe)"))
       .finally(() => setNfseReconLoading(false));
-  }, [token]);
+  }, [token, selectedId]);
 
   useEffect(() => { if (tab === "dashboard") loadNfseRecon(); }, [tab, loadNfseRecon]);
 
@@ -564,11 +575,13 @@ export default function FiscalPage() {
     if (!token) return;
     setNfseReconExporting(true);
     try {
-      const resp = await fetch("/api/fiscal/benner-reconciliation/nfse-emitida/export", {
+      const p = new URLSearchParams();
+      if (selectedId) p.set("company_id", selectedId);
+      const resp = await fetch(`/api/fiscal/benner-reconciliation/nfse-recebida/export?${p.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!resp.ok) return;
-      downloadBlob(await resp.blob(), "nao_encontrados_benner_nfse_emitida.csv");
+      downloadBlob(await resp.blob(), "nao_encontrados_benner_nfse_recebida.csv");
     } finally {
       setNfseReconExporting(false);
     }
@@ -586,8 +599,8 @@ export default function FiscalPage() {
     return list.filter((d) =>
       d.chave_acesso.toLowerCase().includes(q) ||
       d.numero.toLowerCase().includes(q) ||
-      d.destinatario_nome.toLowerCase().includes(q) ||
-      d.destinatario_cnpj.toLowerCase().includes(q) ||
+      d.emitente_nome.toLowerCase().includes(q) ||
+      d.emitente_cnpj.toLowerCase().includes(q) ||
       d.company_nome.toLowerCase().includes(q)
     );
   }, [nfseRecon, nfseReconFilter]);
@@ -1371,7 +1384,7 @@ export default function FiscalPage() {
           <div className={`rounded-xl border p-5 space-y-4 ${card}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
-                Não Encontrados no Benner (NFe/CTe) — todas as empresas
+                Não Encontrados no Benner (NFe/CTe) — {currentCompany ? currentCompany.nome : "todas as empresas"}
               </h2>
               <div className="flex items-center gap-2">
                 <button
@@ -1450,7 +1463,7 @@ export default function FiscalPage() {
                       className={`${inp} w-full`}
                     />
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      <table className={`w-full text-xs ${isDark ? "text-gray-200" : "text-gray-900"}`}>
                         <thead>
                           <tr className={isDark ? "text-gray-400" : "text-gray-500"}>
                             <th className="text-left py-1.5 pr-3">Empresa</th>
@@ -1485,7 +1498,10 @@ export default function FiscalPage() {
                       )}
                       {bennerReconFiltered.length > 100 && (
                         <p className={`text-xs mt-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                          Mostrando 100 de {FMT_NUM.format(bennerReconFiltered.length)}. Refine a busca ou exporte o CSV para ver todos.
+                          Mostrando 100 de {FMT_NUM.format(bennerReconFiltered.length)} carregados
+                          {!!bennerRecon && bennerRecon.not_in_benner.length < bennerRecon.not_in_benner_count &&
+                            ` (de ${FMT_NUM.format(bennerRecon.not_in_benner_count)} no total — a busca aqui cobre só os mais recentes)`}
+                          . Refine a busca ou exporte o CSV para ver todos.
                         </p>
                       )}
                     </div>
@@ -1499,7 +1515,7 @@ export default function FiscalPage() {
           <div className={`rounded-xl border p-5 space-y-4 ${card}`}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className={`text-sm font-semibold ${isDark ? "text-gray-300" : "text-gray-700"}`}>
-                NFSe Emitida sem Lançamento no Benner (aproximado) — todas as empresas
+                NFSe Recebida sem Lançamento no Benner (aproximado) — {currentCompany ? currentCompany.nome : "todas as empresas"}
               </h2>
               <div className="flex items-center gap-2">
                 <button
@@ -1522,8 +1538,10 @@ export default function FiscalPage() {
               </div>
             </div>
             <div className={`text-xs rounded-lg px-3 py-2 ${isDark ? "bg-amber-900/20 text-amber-300 border border-amber-700/40" : "bg-amber-50 text-amber-800 border border-amber-200"}`}>
-              ⚠ Indicador de <strong>baixa confiança</strong> (melhor esforço). O Benner não guarda a chave de acesso da NFSe,
-              então o cruzamento é aproximado: CNPJ do tomador + valor (±R$0,05) + data (±30 dias) contra lançamentos de saída
+              ⚠ Indicador de <strong>baixa confiança</strong> (melhor esforço). Levanta as NFSe emitidas <strong>contra</strong> a empresa
+              (serviços comprados de terceiros) sem lançamento de contas a pagar no Benner — NFSe que nós emitimos não entram aqui,
+              já que não teriam esse tipo de lançamento mesmo. O Benner não guarda a chave de acesso da NFSe, então o cruzamento é
+              aproximado: CNPJ do fornecedor (emitente) + valor (±R$0,05) + data (±30 dias) contra lançamentos de entrada
               no Benner desde {nfseRecon?.desde ?? "2025-01-01"}. Pode haver falso positivo/negativo — valide manualmente antes de tratar como divergência real.
             </div>
 
@@ -1540,7 +1558,7 @@ export default function FiscalPage() {
                     className="text-left rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-transform hover:-translate-y-0.5"
                     title="Clique para buscar na lista abaixo"
                   >
-                    <KPICard label="Total NFSe Emitida" value={FMT_NUM.format(nfseRecon.total_nfse_emitida)} isDark={isDark} />
+                    <KPICard label="Total NFSe Recebida" value={FMT_NUM.format(nfseRecon.total_nfse_recebida)} isDark={isDark} />
                   </button>
                   <button
                     type="button"
@@ -1561,8 +1579,8 @@ export default function FiscalPage() {
                   </button>
                   <KPICard
                     label="% Sem Lançamento"
-                    value={nfseRecon.total_nfse_emitida > 0
-                      ? `${((nfseRecon.not_in_benner_count / nfseRecon.total_nfse_emitida) * 100).toFixed(1)}%`
+                    value={nfseRecon.total_nfse_recebida > 0
+                      ? `${((nfseRecon.not_in_benner_count / nfseRecon.total_nfse_recebida) * 100).toFixed(1)}%`
                       : "—"}
                     isDark={isDark}
                   />
@@ -1575,17 +1593,17 @@ export default function FiscalPage() {
                       type="text"
                       value={nfseReconFilter}
                       onChange={(e) => setNfseReconFilter(e.target.value)}
-                      placeholder="Buscar por chave, número, tomador (nome/CNPJ) ou empresa…"
+                      placeholder="Buscar por chave, número, fornecedor (nome/CNPJ) ou empresa…"
                       className={`${inp} w-full`}
                     />
                     <div className="overflow-x-auto">
-                      <table className="w-full text-xs">
+                      <table className={`w-full text-xs ${isDark ? "text-gray-200" : "text-gray-900"}`}>
                         <thead>
                           <tr className={isDark ? "text-gray-400" : "text-gray-500"}>
                             <th className="text-left py-1.5 pr-3">Empresa</th>
                             <th className="text-left py-1.5 pr-3">Número</th>
-                            <th className="text-left py-1.5 pr-3">Tomador</th>
-                            <th className="text-left py-1.5 pr-3">CNPJ Tomador</th>
+                            <th className="text-left py-1.5 pr-3">Fornecedor</th>
+                            <th className="text-left py-1.5 pr-3">CNPJ Fornecedor</th>
                             <th className="text-left py-1.5 pr-3">Data</th>
                             <th className="text-right py-1.5 pr-3">Valor</th>
                             <th className="text-left py-1.5 pr-3">Motivo</th>
@@ -1597,8 +1615,8 @@ export default function FiscalPage() {
                             <tr key={d.chave_acesso} className={`border-t ${isDark ? "border-gray-700" : "border-gray-100"}`}>
                               <td className="py-1.5 pr-3 truncate max-w-[160px]">{d.company_nome}</td>
                               <td className="py-1.5 pr-3 font-mono">{d.numero || "—"}</td>
-                              <td className="py-1.5 pr-3 truncate max-w-[200px]">{d.destinatario_nome || "—"}</td>
-                              <td className="py-1.5 pr-3 font-mono">{d.destinatario_cnpj || "—"}</td>
+                              <td className="py-1.5 pr-3 truncate max-w-[200px]">{d.emitente_nome || "—"}</td>
+                              <td className="py-1.5 pr-3 font-mono">{d.emitente_cnpj || "—"}</td>
                               <td className="py-1.5 pr-3">{d.data_emissao || "—"}</td>
                               <td className="py-1.5 pr-3 text-right font-mono">{FMT_BRL.format(d.valor_total || 0)}</td>
                               <td className="py-1.5 pr-3 truncate max-w-[220px]">{d.motivo}</td>
@@ -1612,7 +1630,10 @@ export default function FiscalPage() {
                       )}
                       {nfseReconFiltered.length > 100 && (
                         <p className={`text-xs mt-2 ${isDark ? "text-gray-400" : "text-gray-500"}`}>
-                          Mostrando 100 de {FMT_NUM.format(nfseReconFiltered.length)}. Refine a busca ou exporte o CSV para ver todos.
+                          Mostrando 100 de {FMT_NUM.format(nfseReconFiltered.length)} carregados
+                          {!!nfseRecon && nfseRecon.not_in_benner.length < nfseRecon.not_in_benner_count &&
+                            ` (de ${FMT_NUM.format(nfseRecon.not_in_benner_count)} no total — a busca aqui cobre só os mais recentes)`}
+                          . Refine a busca ou exporte o CSV para ver todos.
                         </p>
                       )}
                     </div>
