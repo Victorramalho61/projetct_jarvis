@@ -358,7 +358,7 @@ def confirmar_ciencia_presencial(body: CienciaPresencialConfirmar, request: Requ
         raise HTTPException(429, detail=f"Muitas tentativas incorretas. Aguarde {BLOCK_MINUTES} minutos.")
 
     cpf_clean = re.sub(r'\D', '', body.cpf.strip())
-    employee = db.table("performance_employees").select("id,name").eq("cpf", cpf_clean).eq("has_corporate_email", False).eq("active", True).execute()
+    employee = db.table("performance_employees").select("id,name").eq("cpf", cpf_clean).eq("active", True).execute()
     if not employee.data:
         # Conta como tentativa incorreta para bloquear enumeração de CPF
         db.table("performance_ciencia_attempts").insert({"matricula": cpf_clean, "ip_address": ip}).execute()
