@@ -2412,3 +2412,87 @@ Testado diretamente dentro de cada container após o rebuild (`docker exec ... p
 ### Pendências
 
 Nenhuma — os 5 serviços que enviam e-mail foram auditados; só 2 tinham o bug e ambos foram corrigidos. Se novos serviços passarem a enviar e-mail no futuro, usar o trecho de código acima (ou copiar de `performance-service/services/email.py`) como referência, em vez de reimplementar `msg["From"]` do zero.
+
+## Fiscal — Dark mode: texto ilegível nas tabelas de conciliação Benner (2026-09-15)
+
+`FiscalPage.tsx`, tabelas de "Não Encontrados no Benner" (NFe/CTe e NFSe): `<table>` não tinha classe de cor de texto, então herdava a cor padrão (escura) mesmo em dark mode — texto praticamente invisível sobre fundo escuro. Outras tabelas do mesmo arquivo já tinham o padrão certo (`text-gray-200`/`text-gray-900` condicional no elemento `<table>`, ex.: linha ~2519 antes desta correção). Fix: mesmo padrão aplicado às duas tabelas.
+
+**Lição:** ao revisar dark mode, checar especificamente elementos que dependem de herança de cor (tabelas, listas) — é fácil um componente novo esquecer a classe de cor no elemento pai e só descobrir em produção, já que em light mode o problema não aparece.
+
+## Fiscal — Indicador Benner: filtro de empresa não aplicava + payload gigante travando a tela (2026-09-15)
+
+Dois problemas descobertos ao investigar reclamação de que o filtro de empresa do dashboard não afetava os cards "Não Encontrados no Benner":
+
+1. **Os dois cards eram deliberadamente agregados ("todas as empresas")**, por design — mas o usuário esperava que respeitassem o filtro de empresa do dashboard. Fix: `fiscal-service/routes/benner_reconciliation.py` passou a aceitar `company_id` opcional nos endpoints (`/nfe-cte`, `/nfse-recebida`), filtrando a lista e os totais já computados no cache — sem custo extra de consulta ao Benner (o cálculo caro continua sendo feito uma vez, agregado; o filtro por empresa é só um recorte em memória do resultado já pronto).
+2. **A consulta ao Benner é cara** (`FN_DOCUMENTOS`/`FN_PARCELAS`, milhões de linhas, sem índice bom pro filtro usado) e rodava síncrona dentro do request HTTP — na prática, alguns segundos a mais de um minuto dependendo da carga do SQL Server no momento, travando a tela em "Atualizando...". Fix: `_StaleCache` (cache com revalidação em segundo plano) — fora do clique manual em "Atualizar", o request do usuário nunca espera o recálculo: recebe o último resultado pronto (mesmo vencido) e o recálculo roda numa thread à parte quando o TTL (30 min) vence. Pré-aquecimento automático no startup do serviço (`main.py`, lifespan) garante que o primeiro acesso do dia também não trave.
+3. **Payload de ~42,5 MB por request** quando quase 100% dos documentos ficam sem correspondência (caso do NFSe recebida, ~90 mil linhas) — a tela só renderiza 100 linhas e tem exportação CSV, então devolver a lista inteira no JSON da tela era desperdício puro. Fix: `_cap_json_list` limita a lista devolvida pelo endpoint da tela a 500 itens mais recentes (contagem/total continuam exatos, sem cap); o endpoint `/export` (CSV) continua devolvendo tudo, sem cap.
+
+**Lição:** "quase 100% não encontrado" num indicador de reconciliação pode ser sintoma de um payload gigante deixando a tela lenta (parecendo bug de UI), não só de lógica de negócio errada — vale medir tamanho de resposta (`size_download` do curl) e tempo de resposta antes de assumir que é a lógica de comparação que está errada.
+
+## Fiscal — Indicador de NFSe invertido (emitida → recebida) + investigação de gap real no Benner (2026-09-15/16)
+
+### O pedido original
+
+Indicador "NFSe sem Lançamento no Benner" comparava NFSe **emitida** (nossa receita) contra lançamentos de **saída** no Benner, casando pelo CNPJ do tomador — não fazia sentido, pois NFSe que a Voetur/VTC emite nunca teria lançamento de saída "correspondente" (é a própria origem da receita). Corrigido pra levantar NFSe **recebida** (serviço que terceiros nos venderam), casando pelo **CNPJ do emitente/fornecedor** contra lançamentos de **entrada** (`FN_DOCUMENTOS.ENTRADASAIDA='E'`) — endpoint renomeado pra `/benner-reconciliation/nfse-recebida`.
+
+### Investigação do "quase 100% sem lançamento" — duas hipóteses erradas, uma causa real
+
+Depois da correção de direção, o indicador continuou mostrando quase 100% dos documentos como "sem lançamento" pra certas empresas (ex.: VTC Operadora Logística: 2.493/2.493 = 100%). Duas explicações foram sugeridas por quem opera o Benner, e **nenhuma das duas se sustentou** depois de testada com dados reais:
+
+1. **"É fiscal sem financeiro"** (a NF vai só pro módulo fiscal, não gera parcela) — esse padrão **existe** no Benner (tabela `GN_OPERACOES`, flags `EHFISCAL`/`EHCONTASPAGAR`; ex. operação "CTE parceiros a pagar (fiscal)": 149 documentos, 0 com `FN_PARCELAS`) — mas só é usado em CT-e de frete/transportadoras, não nas NFSe de hotelaria/serviços que dominam a base.
+2. **"É fatura consolidada tipo cartão de frota"** (várias notas de fornecedores diferentes agrupadas numa única fatura, tipo "Ticket Log") — mecanismo real e confirmado visualmente (print de uma fatura consolidando dezenas de notas de oficina/pneu/diesel), mas **sem nenhuma evidência nos dados** pros fornecedores testados: nenhuma tabela de fatura de fornecedor (`K_FATURASFORNECEDORES`, `BB_FATURAS`), apontamento (`CN_APONTAMENTOS`) ou reembolso (`BB_REEMBOLSO`) tinha qualquer linha pra esses casos. O mecanismo real de consolidação do Benner (`FN_DOCUMENTOS.EHAGLUTINADOR`/`DOCTOAGLUTINADOR`, confirmado ativo e em uso — 42 mil documentos aglutinados até ago/2026) **nunca foi usado** por nenhum dos fornecedores testados, nem antes nem depois de pararem de ter lançamento.
+
+**O achado real**: pra 7 fornecedores recorrentes testados (ex.: MCO Lava Jato, San Marino, Hotelaria Brasil, Accor, Atlantica), o lançamento simples de sempre (1 NF → `FN_DOCUMENTOS` → `FN_PARCELAS`, e também `CT_LANCAMENTOS` no contábil) **funcionava normalmente até uma data específica por fornecedor** (entre jul/2024 e jun/2025) — e depois nunca mais. Confirmado com uma amostra de 60 documentos "não encontrados" de várias empresas: **0 de 60 tinham qualquer correspondência**, nem em `FN_DOCUMENTOS`, nem em `FN_PARCELAS`, nem em `CT_LANCAMENTOS`. O mais revelador: outras filiais da mesma rede (Accor, Atlantica) continuam recebendo lançamento normalmente até fev/2026 — não é o Benner que parou, é especificamente esses fornecedores/CNPJs.
+
+Um caso (MCO Lava Jato, NF de setembro/2026) foi confirmado pelo usuário como **efetivamente pago** (extrato bancário/PIX/cartão) — ou seja, o pagamento acontece, mas **fora do registro formal de Contas a Pagar do Benner**: existe saída real de dinheiro sem lançamento fiscal/contábil/financeiro correspondente no ERP, quebrando o vínculo entre NFSe recebida → lançamento → pagamento (risco de conciliação bancária e compliance, não só "relatório desatualizado").
+
+### Decisão
+
+**Nenhuma mudança na lógica de comparação** — o indicador já está correto, reproduzindo fielmente a ausência real de dado no Benner. Mudar a query "pra aceitar" esses casos mascararia um problema operacional genuíno. Resumo técnico (fornecedores, CNPJs, datas de corte) levado de volta à Controladoria/time Benner pra investigar por que o lançamento parou especificamente pra esses CNPJs — pendente de resposta.
+
+**Lição:** quando duas pessoas diferentes, que operam o sistema no dia a dia, dão explicações plausíveis e tecnicamente coerentes pra um comportamento estranho, ainda assim vale confirmar cada uma contra o dado real antes de mudar código — as duas hipóteses aqui eram plausíveis e nenhuma bateu; só bateu no chão foi comparar (a) o histórico do próprio fornecedor consigo mesmo antes/depois do corte e (b) o mesmo fornecedor contra outras filiais da mesma rede que continuam funcionando. Confirmar com uma amostra (60 casos, não só 1) também foi decisivo pra descartar "é só esse fornecedor específico" antes de reportar como padrão sistêmico.
+
+## Gestão de Acesso — Botão de inativar usuário pouco claro + sem proteção contra desativar admin (2026-09-15)
+
+Já existia a função de ativar/desativar usuário (`PATCH /api/users/{username}/active`, `core-service/routes/users.py`), mas o controle na tela (`AccessManagementPage.tsx`) era um badge "Ativo"/"Pendente" clicável — não parecia um botão de ação, e não deixava claro que clicar nele desativava a conta. Também não havia nenhuma proteção contra desativar um usuário com papel `admin` (só havia proteção contra desativar a própria conta).
+
+Fix: badge de status virou só exibição (não clicável) + botão explícito "Desativar"/"Ativar" ao lado, visível só pra admin. Backend (`update_active`) passou a rejeitar (400) desativar qualquer usuário com `role == "admin"`, mesmo se chamado direto pela API (não só desabilitado no botão).
+
+## AVD — 4 ajustes de ciência/plano de ação pedidos pelo RH (2026-09-15/16)
+
+Pedido chegou por partes ao longo da conversa, com o escopo do item 3 mudando de rumo no meio do caminho (ver "Lição" no final) — a versão final implementada é a descrita abaixo.
+
+### 1. Visibilidade de comentários — sem mudança
+
+Regra já existente mantida: `CienciaResultPanel.tsx` (prop `hideManagerComments`) esconde o comentário/justificativa do gestor da tela pública do colaborador (`PublicCienciaPage.tsx`/`PublicCienciaPresencialPage.tsx`); a visão interna do RH (`PerformancePage.tsx`) continua vendo tudo, sem restrição.
+
+### 2 + 4. Nota Final (Gestor) → layout de 3 notas lado a lado
+
+RH pediu inicialmente pra trocar a nota destacada de "Nota Final (Gestor)" pra "Nota Média Final" (média calibrada/ponderada). Investigação confirmou que **não existe ponderação por hierarquia** no sistema — o único candidato real é `nota_final_combinada` (média entre a nota do gestor pós-calibração e a autoavaliação, já calculada em `services/ciencia.py::build_ciencia_payload` e em `routes/admin.py::list_evaluations`), nome que o próprio `PerformancePage.tsx` já usa internamente como precedente ("Nota Final (média)").
+
+Pedido refinado depois pro layout final: 3 cards lado a lado — **Autoavaliação | Avaliação do Gestor | Nota Final (Média)** — no mesmo estilo visual já usado no modal de Análise RH (`PerformancePage.tsx:1844-1856`, cores emerald/violeta). Aplicado em `CienciaResultPanel.tsx` (componente compartilhado, cobre a tela pública por token e o modal de ciência do RH) e em `PublicCienciaPresencialPage.tsx` (markup duplicado, fluxo presencial). Fallback: quando não há autoavaliação ainda, "Nota Final (Média)" mostra a nota do gestor com um `*` ("nota parcial"), mesmo padrão já usado na listagem do RH.
+
+Ajuste fino seguinte: o selinho por competência que mostrava "Auto: X" (nota que o colaborador deu a si mesmo naquela competência) foi trocado pra "Nota Média Final: X" — calculado como a média entre a nota do gestor e a autoavaliação **daquela competência específica**, consistente com os cards do topo (evita a palavra "Auto" solta, que remetia só à autoavaliação).
+
+### 3. Plano de Ação preenchido pelo próprio colaborador, no mesmo fluxo da ciência
+
+**Mudança de escopo no meio da conversa** (ver lição): a primeira leitura do pedido foi "abrir um formulário de Plano de Ação na visão interna do RH" (botão "📧 Ciência Plano" em `PerformancePage.tsx`). Confirmado depois que o pedido real era outro: o **colaborador**, ao dar ciência da própria avaliação (`PublicCienciaPage.tsx`/`PublicCienciaPresencialPage.tsx`), deve ver na sequência o formulário de Plano de Ação (2 competências + 5 campos cada) pra preencher ele mesmo — substituindo o fluxo em que só o gestor preenche depois, por e-mail.
+
+**Backend** (`performance-service`):
+- `services/action_plan_initial.py` (novo) — `build_initial_form_payload`/`validate_and_persist_initial_items`, extraído de `routes/action_plans_public.py::get_initial_form`/`submit_initial_form` (fluxo do gestor, token único por e-mail — contrato externo inalterado) pra reaproveitar a mesma lógica de catálogo/validação em todos os fluxos de preenchimento.
+- `routes/action_plans.py::_build_candidates` ganhou parâmetro opcional `employee_id` (filtra elegibilidade — review completada + ciência dada + nota 1/2 em algum indicador + sem plano ainda — pra um único colaborador, sem buscar o ciclo inteiro).
+- 4 endpoints públicos novos em `action_plans_public.py`: `GET/POST /action-plans/from-ciencia/{ciencia_token}` (colaborador com e-mail, reaproveita o token de ciência já emitido por `routes/public.py`) e `POST /action-plans/from-ciencia-presencial/buscar|enviar` (colaborador sem e-mail corporativo, autenticado por CPF+review_id, mesmo padrão anti-bruteforce de `ciencia-presencial/confirmar`). Cria o plano sob demanda (`_create_action_plan`, sem e-mail ao gestor) na primeira checagem elegível.
+- 2 endpoints de fallback pro RH (`GET/POST /action-plans/{id}/fill-initial(-form)`) — plano B caso o colaborador não tenha preenchido (ex.: deu ciência antes desta feature existir).
+- **Melhoria colateral**: o preenchimento do colaborador não depende de `manager_has_corporate_email` (só o fluxo por e-mail ao gestor depende disso) — colaboradores cujo gestor não tem e-mail corporativo, que antes nunca geravam plano (`skipped_no_manager_email`), agora podem ter plano criado por esse caminho.
+
+**Frontend**: `frontend/src/components/actionPlan/` — `formFields.ts` (tipos/catálogo de campos, extraído de `PublicActionPlanPage.tsx`, agora importado por ele também) e `ActionPlanForm.tsx` (componente de formulário embutível, mesma UI/validação de dupla confirmação do fluxo do gestor). `PublicCienciaPage.tsx`/`PublicCienciaPresencialPage.tsx` chamam o endpoint `from-ciencia(-presencial)` assim que a ciência é confirmada (ou já tiver sido, numa revisita) e renderizam o formulário inline quando elegível.
+
+**O que não mudou**: o fluxo do gestor por e-mail (`PublicActionPlanPage.tsx`, geração em lote pelo RH) continua existindo — `_build_candidates` já exclui quem tem plano, então não há risco de plano duplicado quando o colaborador preenche primeiro. Pendente de decisão do RH: parar de enviar e-mail ao gestor agora que o colaborador preenche na hora?
+
+Junto, corrigidos vários `catch {}` silenciosos em `PerformancePage.tsx` (`sendInitial`, `sendPhases`, `resendReminder`, `sendEmployeeCiencia`, `handleExportCSV` ×2, `handleReset`, `sendCienciaFromGestaoRH`) que faziam os botões "Enviar selecionados"/exportar/resetar parecerem travados quando o backend retornava erro — agora mostram toast com a mensagem real.
+
+**Lição:** o mesmo pedido ("ciência deveria abrir o Plano de Ação") foi interpretado errado da primeira vez (RH interno em vez de colaborador) porque o texto sozinho era ambíguo — só ficou inequívoco depois de 2 rodadas de pergunta direta ao usuário. Vale desconfiar de pedidos que descrevem um fluxo sem dizer explicitamente **quem** realiza cada ação (RH vs. gestor vs. colaborador), principalmente quando o sistema já tem múltiplos atores possíveis pra "dar ciência"/"preencher" — perguntar antes de desenhar evita reescrever a parte mais cara do trabalho (endpoints + componente novo) depois de já ter sido implementada pro ator errado.
+
+## AVD — Responsividade da tabela de Gestão RH (2026-09-16)
+
+Tabela principal de `TabGestaoRH` (`PerformancePage.tsx`) tem 9 colunas (Colaborador, Gestor, Nota Final, Avaliação, Auto-Aval., Aderência, Análise RH, Ciência, Ações) — largura mínima fixa (`min-w-[980px]`) já forçava rolagem horizontal em monitores menores e celular, mas perdia o contexto de qual colaborador era cada linha ao rolar. Fix: primeira coluna ("Colaborador") ganhou `sticky left-0` (fixa durante o scroll horizontal, com fundo opaco casando com hover/não-hover da linha) — a rolagem lateral continua existindo (9 colunas de dado denso não cabem numa tela de celular de jeito nenhum sem esconder informação), mas agora sem perder a referência de qual linha é qual.
