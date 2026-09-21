@@ -1506,7 +1506,7 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-700">
                   {["Colaborador", "Gestor", "Nota Final", "Avaliação", "Auto-Aval.", "Aderência", "Análise RH", "Ciência", "Ações"].map((h, i) => (
-                    <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 ${i === 0 ? "sticky left-0 z-10 bg-white dark:bg-gray-800" : ""}`}>{h}</th>
+                    <th key={h} className={`px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 ${i === 0 ? "sticky left-0 z-10 bg-white dark:bg-gray-800" : ""} ${h === "Ações" ? "sticky right-0 z-10 bg-white dark:bg-gray-800 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]" : ""}`}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -1564,8 +1564,8 @@ function TabGestaoRH({ companies }: { companies: any[] }) {
                         </p>
                       )}
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1.5 items-center">
+                    <td className="px-4 py-3 sticky right-0 z-10 bg-white dark:bg-gray-800 group-hover:bg-gray-50 dark:group-hover:bg-gray-700/30 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)]">
+                      <div className="flex flex-wrap gap-1.5 items-center max-w-[300px]">
                         {/* Plano de Ação — status compacto + botão de ciência sempre visível (não abre coluna nova, evita estourar a tabela) */}
                         {(() => {
                           const ap = actionPlanByEmployee[ev.employee_id];
