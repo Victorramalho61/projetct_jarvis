@@ -189,10 +189,10 @@ def dashboard(
     calibrations_count = len(calibrated_ids)
     calibrations_pct = round(calibrations_count / len(completed) * 100, 1) if completed else 0
 
-    # Pendente de calibragem (Análise RH): reusa a mesma logica de calibragem_necessaria
-    # de list_evaluations (aderencia geral <=50% OU item individual <=50%, ainda nao calibrado).
+    # Pendente de calibragem (painel do dashboard): aderencia <=59,9%, ainda nao calibrada.
+    # Critério diferente de calibragem_necessaria (usado em Gestão RH / badges por item).
     evals_for_calib = list_evaluations({"role": "rh"}, company_id=company_id, cycle_id=cycle_id)
-    pending_calibration_count = sum(1 for e in evals_for_calib if e.get("calibragem_necessaria"))
+    pending_calibration_count = sum(1 for e in evals_for_calib if _needs_dashboard_calibration(e))
 
     # Indicator averages
     indicator_averages: list[dict] = []
@@ -666,15 +666,32 @@ def dashboard_export(
     )
 
 
+# Critério específico do painel "Pendente Calibragem RH" do dashboard — diferente de
+# calibragem_necessaria (<=50% OU item discrepante, usado em Gestão RH/badges por item).
+# RH pediu aderência <=59,9% como corte deste painel/contador; avaliações sem
+# adherence_pct calculado (falta nota de gestor ou de auto-avaliação) ficam de fora,
+# já que o pedido é especificamente sobre o valor de aderência.
+_DASHBOARD_CALIBRATION_THRESHOLD = 59.9
+
+
+def _needs_dashboard_calibration(e: dict) -> bool:
+    adherence = e.get("adherence_pct")
+    return (
+        adherence is not None
+        and adherence <= _DASHBOARD_CALIBRATION_THRESHOLD
+        and not e.get("calibrated")
+    )
+
+
 @router.get("/dashboard/pending-calibration")
 def dashboard_pending_calibration(
     current_user: Annotated[dict, Depends(require_role(*_RH_ADMIN))],
     cycle_id: str | None = None,
     company_id: str | None = None,
 ) -> list[dict]:
-    """Avaliações que precisam de Análise RH (calibragem_necessaria=True) e ainda não foram calibradas."""
+    """Avaliações com aderência <=59,9% e ainda não calibradas (painel do dashboard)."""
     evals = list_evaluations(current_user, company_id=company_id, cycle_id=cycle_id)
-    pending = [e for e in evals if e.get("calibragem_necessaria")]
+    pending = [e for e in evals if _needs_dashboard_calibration(e)]
     return sorted(pending, key=lambda x: x["employee_name"])
 
 

@@ -2,14 +2,6 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { ActionPlanForm } from "../components/actionPlan/ActionPlanForm";
 
-const SCORE_MAP: Record<number, { label: string; desc: string; color: string }> = {
-  5: { label: "EE",  desc: "Excede as Expectativas",              color: "bg-purple-100 text-purple-700 border-purple-300 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-700" },
-  4: { label: "SE",  desc: "Supera as Expectativas",              color: "bg-emerald-100 text-emerald-700 border-emerald-300 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700" },
-  3: { label: "AE",  desc: "Atende as Expectativas",              color: "bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-700" },
-  2: { label: "APE", desc: "Atende Parcialmente as Expectativas", color: "bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700" },
-  1: { label: "NAE", desc: "Não Atende às Expectativas",          color: "bg-red-100 text-red-700 border-red-300 dark:bg-red-900/30 dark:text-red-300 dark:border-red-700" },
-};
-
 const SOCIALS = [
   { label: "LinkedIn",  href: "https://www.linkedin.com/company/grupo-voetur/" },
   { label: "Instagram", href: "https://www.instagram.com/grupovoetur/" },
@@ -22,22 +14,6 @@ const PRIMARY_BG  = "bg-[#00694E]";
 const PRIMARY_COL = "#00694E";
 
 type Step = "busca" | "resultado" | "confirmado";
-
-function ScoreBadge({ score }: { score: number }) {
-  const rounded = Math.round(score);
-  const s = SCORE_MAP[rounded];
-  if (!s)
-    return (
-      <span className="px-2 py-1 rounded border text-xs font-semibold bg-gray-100 text-gray-700 border-gray-300">
-        {score}
-      </span>
-    );
-  return (
-    <span className={`px-3 py-1 rounded-full border text-xs font-bold ${s.color}`}>
-      {s.label} <span className="font-normal">— {s.desc}</span>
-    </span>
-  );
-}
 
 function avgLabel(avg: number): string {
   if (avg >= 4.5) return "Excede as Expectativas";
@@ -373,7 +349,9 @@ export default function PublicCienciaPresencialPage() {
                               Nota Média Final: {((displayScore + s.self_score) / 2).toFixed(2)}
                             </span>
                           )}
-                          <ScoreBadge score={displayScore} />
+                          <span className="text-[10px] font-semibold text-[#00694E] dark:text-emerald-400 bg-[#E6F4F0] dark:bg-emerald-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
+                            Nota Gestor: {Number(displayScore).toFixed(2)}
+                          </span>
                         </div>
                       </div>
                       {wasCalibrated ? (
@@ -382,9 +360,6 @@ export default function PublicCienciaPresencialPage() {
                             <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">
                               🟧 Esta nota passou por Análise RH
                             </p>
-                            {s.calibrated_justification && (
-                              <p className="text-xs text-amber-800 dark:text-amber-300 italic leading-relaxed">"{s.calibrated_justification}"</p>
-                            )}
                           </div>
                         </div>
                       ) : null}
@@ -425,38 +400,8 @@ export default function PublicCienciaPresencialPage() {
               </p>
             </div>
 
-            {/* Comentários — Colaborador / RH, empilhados e coloridos (comentário do gestor não é exibido ao colaborador) */}
-            <div className="space-y-3">
-              {data.self_observations && (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-violet-100 dark:border-violet-900/40 overflow-hidden">
-                  <div className="bg-violet-50 dark:bg-violet-900/20 px-5 py-3">
-                    <h3 className="text-sm font-bold text-violet-700 dark:text-violet-400 uppercase tracking-wide">
-                      🟪 Comentários sobre seu desempenho (auto avaliação)
-                    </h3>
-                  </div>
-                  <div className="px-5 py-4">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                      {data.self_observations}
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {data.was_calibrated && data.calibration_notes && (
-                <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-amber-100 dark:border-amber-900/40 overflow-hidden">
-                  <div className="bg-amber-50 dark:bg-amber-900/20 px-5 py-3">
-                    <h3 className="text-sm font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">
-                      🟧 Comentário do RH (Análise RH)
-                    </h3>
-                  </div>
-                  <div className="px-5 py-4">
-                    <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">
-                      {data.calibration_notes}
-                    </p>
-                  </div>
-                </div>
-              )}
-            </div>
+            {/* Comentários de gestor, auto-avaliação e RH não são exibidos ao colaborador
+                nesta tela (feedback deve ser dado presencialmente e a calibração do RH é interna) */}
 
             {submitError && (
               <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-3">

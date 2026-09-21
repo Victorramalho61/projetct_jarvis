@@ -126,7 +126,7 @@ def _plan_from_ciencia_eligibility(db, review_id: str, employee_id: str) -> dict
         plan = existing.data[0]
         return {"eligible": True, "plan": plan, "already_filled": plan["status"] != "pending_manager_fill"}
 
-    candidates = _build_candidates(db, cycle_id, employee_id=employee_id)
+    candidates = _build_candidates(db, cycle_id, employee_id=employee_id, require_low_score=False)
     if not candidates:
         return {"eligible": False}
 

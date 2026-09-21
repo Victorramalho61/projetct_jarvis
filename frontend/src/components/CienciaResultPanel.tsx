@@ -32,10 +32,10 @@ export function avgLabel(avg: number): string {
 
 // ── Painel de resultado (reutilizado na tela pública de ciência e na visão interna do RH) ──
 export function ResultPanel({
-  data, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal, hideManagerComments,
+  data, primaryBg, primaryText, primaryBorder, acknowledged, acknowledgedAt, onOpenModal, hideComments,
 }: {
   data: any; primaryBg: string; primaryText: string; primaryBorder: string;
-  acknowledged: boolean; acknowledgedAt?: string; onOpenModal?: () => void; hideManagerComments?: boolean;
+  acknowledged: boolean; acknowledgedAt?: string; onOpenModal?: () => void; hideComments?: boolean;
 }) {
   function formatDate(iso: string) {
     try { return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }); }
@@ -107,7 +107,9 @@ export function ResultPanel({
                         Nota Média Final: {((displayScore + s.self_score) / 2).toFixed(2)}
                       </span>
                     )}
-                    <ScoreBadge score={displayScore} />
+                    <span className="text-[10px] font-semibold text-[#00694E] dark:text-emerald-400 bg-[#E6F4F0] dark:bg-emerald-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
+                      Nota Gestor: {Number(displayScore).toFixed(2)}
+                    </span>
                   </div>
                 </div>
                 {wasCalibrated ? (
@@ -116,11 +118,11 @@ export function ResultPanel({
                       <p className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wide mb-0.5">
                         🟧 Esta nota passou por Análise RH
                       </p>
-                      {s.calibrated_justification && (
+                      {!hideComments && s.calibrated_justification && (
                         <p className="text-xs text-amber-800 dark:text-amber-300 italic leading-relaxed">"{s.calibrated_justification}"</p>
                       )}
                     </div>
-                    {!hideManagerComments && (
+                    {!hideComments && (
                       <details className="group">
                         <summary className="cursor-pointer text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 select-none list-none flex items-center gap-1">
                           <span className="group-open:rotate-90 transition-transform inline-block">▸</span> Ver nota/comentário original do gestor
@@ -134,7 +136,7 @@ export function ResultPanel({
                       </details>
                     )}
                   </div>
-                ) : (!hideManagerComments && s.justification) && (
+                ) : (!hideComments && s.justification) && (
                   <div className="px-5 pb-3 -mt-1">
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg px-3 py-2 border-l-2 border-blue-300 dark:border-blue-700">
                       <p className="text-[10px] font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide mb-0.5">
@@ -186,7 +188,7 @@ export function ResultPanel({
 
       {/* Comentários — Gestor / Colaborador / RH, empilhados e coloridos */}
       <div className="space-y-3">
-        {!hideManagerComments && (data.was_calibrated ? (
+        {!hideComments && (data.was_calibrated ? (
           <details className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-gray-100 dark:border-gray-700 overflow-hidden group">
             <summary className="cursor-pointer bg-gray-50 dark:bg-gray-700/50 px-5 py-3 select-none list-none flex items-center gap-2">
               <span className="group-open:rotate-90 transition-transform inline-block text-gray-400">▸</span>
@@ -215,7 +217,7 @@ export function ResultPanel({
           </div>
         ))}
 
-        {data.self_observations && (
+        {!hideComments && data.self_observations && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-violet-100 dark:border-violet-900/40 overflow-hidden">
             <div className="bg-violet-50 dark:bg-violet-900/20 px-5 py-3">
               <h3 className="text-sm font-bold text-violet-700 dark:text-violet-400 uppercase tracking-wide">
@@ -230,7 +232,7 @@ export function ResultPanel({
           </div>
         )}
 
-        {data.was_calibrated && data.calibration_notes && (
+        {!hideComments && data.was_calibrated && data.calibration_notes && (
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow border border-amber-100 dark:border-amber-900/40 overflow-hidden">
             <div className="bg-amber-50 dark:bg-amber-900/20 px-5 py-3">
               <h3 className="text-sm font-bold text-amber-700 dark:text-amber-400 uppercase tracking-wide">

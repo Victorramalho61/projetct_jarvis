@@ -176,7 +176,7 @@ export default function PublicCienciaPage() {
               acknowledged={data.already_acknowledged}
               acknowledgedAt={data.acknowledged_at}
               onOpenModal={() => setShowModal(true)}
-              hideManagerComments
+              hideComments
             />
 
             {/* ── Plano de Ação de Feedback — logo após a ciência, no mesmo fluxo ── */}

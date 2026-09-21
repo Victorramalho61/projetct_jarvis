@@ -77,7 +77,9 @@ def _resolve_employees(db, ids: list[str]) -> dict[str, dict]:
 
 # ── Candidatos ao plano inicial ────────────────────────────────────────────────
 
-def _build_candidates(db, cycle_id: str, employee_id: str | None = None) -> list[dict]:
+def _build_candidates(
+    db, cycle_id: str, employee_id: str | None = None, require_low_score: bool = True,
+) -> list[dict]:
     reviews_q = (
         db.table("performance_reviews")
         .select("id,employee_id")
@@ -116,10 +118,16 @@ def _build_candidates(db, cycle_id: str, employee_id: str | None = None) -> list
             .data or []
         )
     # Filtra em Python (não via .in_) para não depender de coerção int/float do driver.
-    # Estritamente 1 ou 2 (não "<=2"): evita violar o CHECK (original_score IN (1,2))
-    # de performance_action_plan_items caso algum score não-inteiro apareça.
-    low_scores = [s for s in all_scores if float(s.get("score") or 0) in (1.0, 2.0)]
-    if not low_scores:
+    # require_low_score=True (default, usado pelo RH: listagem/geração em massa/alertas)
+    # mantém a semântica original — só quem tem nota 1 ou 2 em algum indicador "precisa"
+    # de plano de ação nesses fluxos. require_low_score=False (usado só pelo fluxo do
+    # próprio colaborador via ciência) constrói candidatos a partir de TODAS as notas,
+    # permitindo plano de ação mesmo com aderência/nota alta.
+    relevant_scores = (
+        [s for s in all_scores if float(s.get("score") or 0) in (1.0, 2.0)]
+        if require_low_score else all_scores
+    )
+    if not relevant_scores:
         return []
 
     existing_plans = (
@@ -132,7 +140,7 @@ def _build_candidates(db, cycle_id: str, employee_id: str | None = None) -> list
     already_has_plan = {p["employee_id"] for p in existing_plans}
 
     by_review: dict[str, list[dict]] = {}
-    for s in low_scores:
+    for s in relevant_scores:
         by_review.setdefault(s["review_id"], []).append(s)
 
     employee_ids = []
