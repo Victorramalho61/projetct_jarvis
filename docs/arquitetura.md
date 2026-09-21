@@ -2496,3 +2496,27 @@ Junto, corrigidos vários `catch {}` silenciosos em `PerformancePage.tsx` (`send
 ## AVD — Responsividade da tabela de Gestão RH (2026-09-16)
 
 Tabela principal de `TabGestaoRH` (`PerformancePage.tsx`) tem 9 colunas (Colaborador, Gestor, Nota Final, Avaliação, Auto-Aval., Aderência, Análise RH, Ciência, Ações) — largura mínima fixa (`min-w-[980px]`) já forçava rolagem horizontal em monitores menores e celular, mas perdia o contexto de qual colaborador era cada linha ao rolar. Fix: primeira coluna ("Colaborador") ganhou `sticky left-0` (fixa durante o scroll horizontal, com fundo opaco casando com hover/não-hover da linha) — a rolagem lateral continua existindo (9 colunas de dado denso não cabem numa tela de celular de jeito nenhum sem esconder informação), mas agora sem perder a referência de qual linha é qual.
+
+## AVD — 4 pendências pós-teste do RH + bug de reenvio de token (2026-09-21)
+
+RH testou as mudanças de 2026-09-15/16 (ver seção acima) e reportou 3 pedidos incompletos, mais 1 novo. Commits `3afa8ed` e `e88f3c2`.
+
+### 1. Comentários de RH e de auto-avaliação ainda apareciam na ciência do colaborador
+
+A seção "1. Visibilidade de comentários — sem mudança" acima ficou desatualizada por essa entrega: `hideManagerComments` (`CienciaResultPanel.tsx`) só escondia o bloco do **gestor**; os blocos de `self_observations` (auto-avaliação) e `calibration_notes` (Análise RH) nunca tiveram gating — sempre apareciam se o campo existisse, inclusive a justificativa de calibração por item (`calibrated_justification`). Prop renomeada pra `hideComments` (semântica passa a ser "esconde tudo") e o gating estendido aos 3 blocos + justificativa por item, tanto no componente compartilhado quanto na duplicata manual `PublicCienciaPresencialPage.tsx` (que teve os blocos de comentário removidos fisicamente, por ser sempre pública).
+
+### 2. "Notas por Indicador" ainda misturava número com badge de menção
+
+O bloco de totais (Autoavaliação | Avaliação do Gestor | Nota Final) já tinha ficado 100% numérico no commit anterior (`f412d32`), mas o bloco por indicador continuava mostrando ao mesmo tempo o pill "Nota Média Final: X.XX" **e** `<ScoreBadge>` (menção tipo "SE — Supera as Expectativas"). Trocado por um segundo pill numérico ("Nota Gestor: X.XX"), no mesmo padrão visual do modal de Análise RH. `ScoreBadge`/`SCORE_MAP` locais de `PublicCienciaPresencialPage.tsx` removidos por ficarem sem uso (cada página de auto-avaliação/avaliação tem sua própria cópia, usada como *seletor* de nota, não afetada).
+
+### 3. Plano de Ação só abria para quem tinha nota baixa
+
+`routes/action_plans.py::_build_candidates` retornava `[]` quando nenhum indicador tinha nota 1 ou 2 (`if not low_scores: return []`), bloqueando o formulário pra quem tinha aderência superior. Ganhou parâmetro `require_low_score: bool = True` — os 4 call sites do RH (listagem de candidatos, geração em massa, Central de Alertas, contador de notificações) mantêm o default; só `action_plans_public.py::_plan_from_ciencia_eligibility` (fluxo do próprio colaborador via ciência) passa `require_low_score=False`, construindo candidatos a partir de todas as notas.
+
+### 4. Painel "Pendente Calibragem RH" do dashboard sem filtro por aderência
+
+Pedido novo: mostrar só aderência ≤59,9%. Critério existente (`calibragem_necessaria`, em `list_evaluations`) é `<=50% OU item discrepante` — usado também em Gestão RH/badges por item, não podia mudar. Criado `_needs_dashboard_calibration()` (aderência calculada e ≤59,9%, não calibrada) usado só em `dashboard_pending_calibration()` e no contador `pending_calibration_count` do `dashboard()`. Confirmado com o RH: registros sem aderência calculada (falta nota de gestor ou autoavaliação) ficam de fora desse painel específico, mesmo que apareçam via item discrepante em outras telas.
+
+### Bug encontrado ao reenviar avaliação pra uma Diretora (Andréia Lima)
+
+RH pediu reenvio manual da avaliação do time de uma gestora nível Diretoria (avalia o próprio time, token não sai no disparo em massa por design). Envio em lote (`send_evaluation_batch_for_evaluator`, 13 links num único e-mail) foi aceito pelo SMTP mas a destinatária relatou não ter chegado — suspeita de quarentena antiphishing do M365 pelo padrão de múltiplos links tokenizados no mesmo corpo (não confirmado, sem acesso ao admin center). RH pediu reenvio individual (1 e-mail por colaborador) como alternativa; nisso apareceu um bug real: `resend_cycle_token` (endpoint por trás do botão "Aval." de reenvio individual) checava "colaborador já tem avaliação concluída" via `performance_reviews.eq(employee_id)` **sem filtrar `is_self_evaluation=False`** — pegava a autoavaliação do colaborador (quase sempre já feita) e recusava reenviar o token do gestor mesmo quando ele nunca tinha avaliado ninguém. Bloqueava 12 dos 13 reenvios da Diretora. Corrigido com o filtro `is_self_evaluation=False` na query — provavelmente afetava qualquer reenvio individual de gestor cujo colaborador já tivesse feito a autoavaliação, não é específico dessa gestora.
