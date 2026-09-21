@@ -2096,13 +2096,17 @@ def resend_cycle_token(
     t = tok.data[0]
     if t["is_used"]:
         raise HTTPException(400, detail="Token já utilizado — avaliação já submetida pelo gestor")
-    # Bloquear reenvio se colaborador já tem avaliação concluída
+    # Bloquear reenvio se a avaliação do GESTOR (não a auto-avaliação do colaborador)
+    # já está concluída — sem o filtro is_self_evaluation=False, essa query pegava a
+    # auto-avaliação do próprio colaborador (quase sempre feita antes) e bloqueava o
+    # reenvio do token do gestor mesmo quando ele nunca avaliou ninguém.
     if t.get("employee_id"):
         completed = (
             db.table("performance_reviews")
             .select("status")
             .eq("cycle_id", cycle["id"])
             .eq("employee_id", t["employee_id"])
+            .eq("is_self_evaluation", False)
             .execute()
         )
         if completed.data and completed.data[0].get("status") in ("completed", "calibrated", "acknowledged"):
