@@ -89,6 +89,20 @@ const TIPO_LOG_LABELS: Record<string, string> = {
   ms_forms_ignorado: "Ignorado",
 };
 
+const PREFILL_RE = /(\{|%7B)(email|empresa|contato)(\}|%7D)/i;
+
+function MsFormsPrefillHint({ url }: { url: string }) {
+  const ativo = PREFILL_RE.test(url);
+  return (
+    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+      {ativo
+        ? <span className="text-[#00694E] font-medium">Pré-preenchimento ativo — e-mail/empresa do cliente vão preenchidos no link. </span>
+        : <span className="text-amber-600 font-medium">Sem pré-preenchimento — conciliação depende do cliente digitar e-mail/empresa. </span>}
+      No Forms: <em>... → Obter link pré-preenchido</em>, digite <code>{"{email}"}</code>, <code>{"{empresa}"}</code> (e opcional <code>{"{contato}"}</code>) nas perguntas de identificação e cole a URL gerada aqui.
+    </p>
+  );
+}
+
 export default function SatisfacaoEnvioPage() {
   const { token } = useAuth();
   const [tab, setTab] = useState<TabId>("campanha");
@@ -328,12 +342,13 @@ export default function SatisfacaoEnvioPage() {
             <div className="mt-3">
               <label className="block text-xs text-gray-500 mb-1">Link do Microsoft Forms</label>
               <div className="flex gap-3 flex-wrap items-end">
-                <input type="url" placeholder="https://forms.office.com/r/..." value={novoMsFormsUrl} onChange={(e) => setNovoMsFormsUrl(e.target.value)}
+                <input type="url" placeholder="https://forms.office.com/Pages/ResponsePage.aspx?id=..." value={novoMsFormsUrl} onChange={(e) => setNovoMsFormsUrl(e.target.value)}
                   className="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm flex-1 min-w-[260px] bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
                 <button disabled={busy} onClick={criarCampanha} className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50">
                   Criar
                 </button>
               </div>
+              <MsFormsPrefillHint url={novoMsFormsUrl} />
             </div>
           </div>
 
@@ -351,7 +366,7 @@ export default function SatisfacaoEnvioPage() {
                 <span>Postergações: {campanha.qtd_postergacoes}</span>
                 <span>{campanha.total_respondidos ?? 0}/{campanha.total_convidados ?? 0} respondidos</span>
               </div>
-              <p className="text-xs text-gray-400 mb-4 break-all">Forms: {campanha.ms_forms_url || "não definido"}</p>
+              <p className="text-xs text-gray-400 mb-4 break-all">Forms: {campanha.ms_forms_url || "não definido"}{campanha.ms_forms_url && !PREFILL_RE.test(campanha.ms_forms_url) && <span className="text-amber-600"> (sem pré-preenchimento)</span>}</p>
               <div className="flex gap-2 flex-wrap">
                 {campanha.status === "rascunho" && (
                   <button disabled={busy} onClick={iniciarCampanha} className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm disabled:opacity-50">Iniciar</button>
@@ -503,6 +518,7 @@ export default function SatisfacaoEnvioPage() {
             <input type="url" placeholder="Link do Microsoft Forms" value={editarCampanha.ms_forms_url}
               onChange={(e) => setEditarCampanha({ ...editarCampanha, ms_forms_url: e.target.value })}
               className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+            <MsFormsPrefillHint url={editarCampanha.ms_forms_url} />
             <button onClick={salvarEdicaoCampanha} className="w-full bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold py-2 rounded-lg text-sm">Salvar</button>
           </div>
         )}

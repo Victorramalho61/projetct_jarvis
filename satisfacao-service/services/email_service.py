@@ -1,9 +1,11 @@
 """Templates de e-mail para Pesquisa de Satisfação de Clientes — Grupo Voetur."""
 import logging
+import re
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formataddr
+from urllib.parse import quote
 
 from db import get_settings
 
@@ -28,6 +30,25 @@ _SOCIALS = [
     ("Instagram", "https://www.instagram.com/grupovoetur/"),
     ("Facebook",  "https://www.facebook.com/GrupoVoetur"),
 ]
+
+
+# Placeholders aceitos no link do Forms (vindos do "Obter link pré-preenchido" do MS Forms —
+# o SGI digita {email}/{empresa}/{contato} como resposta e cola a URL gerada na campanha).
+_PREFILL_CAMPOS = {
+    "email":   "contato_email",
+    "empresa": "empresa_nome",
+    "contato": "contato_nome",
+}
+
+
+def link_formulario(campanha: dict, cliente: dict) -> str:
+    """Link do Forms com e-mail/empresa/contato do cliente pré-preenchidos — facilita a conciliação no webhook."""
+    link = (campanha.get("ms_forms_url") or "").strip()
+    for marcador, campo in _PREFILL_CAMPOS.items():
+        valor = quote(str(cliente.get(campo) or ""), safe="")
+        # URL gerada pelo Forms vem com as chaves codificadas (%7B...%7D)
+        link = re.sub(rf"(\{{|%7B){marcador}(\}}|%7D)", lambda _m: valor, link, flags=re.IGNORECASE)
+    return link
 
 
 def _footer() -> str:
@@ -159,7 +180,7 @@ def _send(to_email: str, to_name: str, subject: str, html: str) -> bool:
 def send_primeiro_envio(cliente: dict, campanha: dict) -> bool:
     contato_nome  = cliente.get("contato_nome") or "Cliente"
     contato_email = cliente.get("contato_email") or ""
-    link = campanha.get("ms_forms_url") or ""
+    link = link_formulario(campanha, cliente)
     if not contato_email or not link:
         return False
 
@@ -185,7 +206,7 @@ def send_primeiro_envio(cliente: dict, campanha: dict) -> bool:
 def send_cobranca(cliente: dict, campanha: dict, resposta: dict) -> bool:
     contato_nome  = cliente.get("contato_nome") or "Cliente"
     contato_email = cliente.get("contato_email") or ""
-    link = campanha.get("ms_forms_url") or ""
+    link = link_formulario(campanha, cliente)
     if not contato_email or not link:
         return False
 
@@ -221,7 +242,7 @@ def send_reforco_adesao(cliente: dict, campanha: dict, resposta: dict) -> bool:
     """Reforço enviado pelo Comercial quando a aderência geral está abaixo da meta."""
     contato_nome  = cliente.get("contato_nome") or "Cliente"
     contato_email = cliente.get("contato_email") or ""
-    link = campanha.get("ms_forms_url") or ""
+    link = link_formulario(campanha, cliente)
     if not contato_email or not link:
         return False
 
