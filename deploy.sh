@@ -64,7 +64,7 @@ done
 # volumes/, scripts/, etc.) — não dá pra saber com segurança o que foi afetado,
 # reinicia tudo. docs/ é ignorado (não afeta containers).
 PATTERN=$(IFS='|'; echo "${KNOWN_SERVICES[*]}")
-OUTSIDE_KNOWN=$(echo "$CHANGED_FILES" | grep -vE "^(${PATTERN})/" | grep -vE "^(docs/|README)" || true)
+OUTSIDE_KNOWN=$(echo "$CHANGED_FILES" | grep -vE "^(${PATTERN})/" | grep -vE "^(docs/|README|deploy.sh$|.github/|.claude/)" || true)
 
 if [ -n "$OUTSIDE_KNOWN" ]; then
     echo ">>> Mudança fora de serviços conhecidos — reiniciando a stack inteira (exceto desligados: ${DISABLED_SERVICES[*]})"
