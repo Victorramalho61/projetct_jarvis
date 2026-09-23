@@ -263,7 +263,7 @@ type Profile = {
   username: string;
   display_name: string;
   email: string;
-  role: "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional";
+  role: "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional" | "sgi";
   active: boolean;
   created_at: string;
 };
@@ -530,6 +530,7 @@ export default function AccessManagementPage() {
                         <option value="gerente">Gerente (L1)</option>
                         <option value="coordenador_supervisor">Coordenador / Supervisor (L2)</option>
                         <option value="administrativo_operacional">Operacional / Administrativo (L3)</option>
+                        <option value="sgi">SGI</option>
                       </select>
                     </td>
                     <td className="px-6 py-4">

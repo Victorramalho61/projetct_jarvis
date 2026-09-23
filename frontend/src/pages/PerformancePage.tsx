@@ -3318,7 +3318,7 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
   const [filters, setFilters] = useState({
     manager_id: "", employee_search: "", indicator_id: "", status: "",
     phase_number: "", phase_status: "", company_id: "", branch_id: "",
-    min_progress: "", max_progress: "",
+    min_progress: "", max_progress: "", include_inactive: false,
   });
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<any>(null);
@@ -3468,6 +3468,11 @@ function PAFMonitoramento({ cycleId, indicators, companies, branches, setBranche
         <input type="number" min={0} max={100} placeholder="% máx." value={filters.max_progress}
           onChange={e => setFilters(f => ({ ...f, max_progress: e.target.value }))}
           className="w-24 rounded-lg border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-[#00694E]" />
+        <label className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-gray-300 select-none">
+          <input type="checkbox" checked={filters.include_inactive}
+            onChange={e => setFilters(f => ({ ...f, include_inactive: e.target.checked }))} />
+          Mostrar desativados
+        </label>
         <div className="flex-1" />
         <button onClick={() => sendEmployeeCiencia([...selectedCiencia])} disabled={sendingCiencia || selectedCiencia.size === 0}
           className="px-3 py-2 bg-[#00694E] hover:bg-[#004F3A] text-white text-sm font-semibold rounded-lg transition-all disabled:opacity-50">

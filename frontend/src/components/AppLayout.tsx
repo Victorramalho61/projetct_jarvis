@@ -468,6 +468,7 @@ const filteredNav = visible.filter((i) =>
                     gerente: "Gerente",
                     coordenador_supervisor: "Coord./Supervisor",
                     administrativo_operacional: "Adm./Operacional",
+                    sgi: "SGI",
                   } as Record<string, string>)[user?.role ?? "user"] ?? user?.role}
                 </span>
                 <svg className={`w-3 h-3 text-white/60 transition-transform ${userDropdownOpen ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>

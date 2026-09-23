@@ -67,7 +67,7 @@ def _resolve_employees(db, ids: list[str]) -> dict[str, dict]:
     for chunk in _chunks(ids):
         rows.extend(
             db.table("performance_employees")
-            .select("id,name,cargo,email,has_corporate_email,company_id,branch_id,manager_id")
+            .select("id,name,cargo,email,has_corporate_email,company_id,branch_id,manager_id,active")
             .in_("id", chunk)
             .execute()
             .data or []
@@ -786,6 +786,9 @@ def _build_overview(db, filters: dict) -> list[dict]:
     emp_ids = [p["employee_id"] for p in plans] + [p["manager_id"] for p in plans]
     emp_map = _resolve_employees(db, emp_ids)
 
+    if not filters.get("include_inactive"):
+        plans = [p for p in plans if emp_map.get(p["employee_id"], {}).get("active", True)]
+
     if filters.get("employee_search"):
         needle = filters["employee_search"].strip().lower()
         plans = [p for p in plans if needle in emp_map.get(p["employee_id"], {}).get("name", "").lower()]
@@ -927,12 +930,13 @@ def get_overview(
     branch_id: str | None = None,
     min_progress: float | None = None,
     max_progress: float | None = None,
+    include_inactive: bool = False,
 ) -> list[dict]:
     filters = {
         "cycle_id": cycle_id, "manager_id": manager_id, "employee_search": employee_search,
         "indicator_id": indicator_id, "status": status, "phase_number": phase_number,
         "phase_status": phase_status, "company_id": company_id, "branch_id": branch_id,
-        "min_progress": min_progress, "max_progress": max_progress,
+        "min_progress": min_progress, "max_progress": max_progress, "include_inactive": include_inactive,
     }
     return _build_overview(get_supabase(), filters)
 
@@ -951,12 +955,13 @@ def export_overview(
     branch_id: str | None = None,
     min_progress: float | None = None,
     max_progress: float | None = None,
+    include_inactive: bool = False,
 ):
     filters = {
         "cycle_id": cycle_id, "manager_id": manager_id, "employee_search": employee_search,
         "indicator_id": indicator_id, "status": status, "phase_number": phase_number,
         "phase_status": phase_status, "company_id": company_id, "branch_id": branch_id,
-        "min_progress": min_progress, "max_progress": max_progress,
+        "min_progress": min_progress, "max_progress": max_progress, "include_inactive": include_inactive,
     }
     rows = _build_overview(get_supabase(), filters)
     out = io.StringIO()

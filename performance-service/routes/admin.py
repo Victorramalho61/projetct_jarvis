@@ -3541,6 +3541,8 @@ def create_new_evaluation(
                     db.table("performance_evaluation_tokens").update({
                         "resend_count": 1,
                         "last_resent_at": datetime.now(tz=timezone.utc).isoformat(),
+                        "sent_at": datetime.now(tz=timezone.utc).isoformat(),
+                        "sent_to_email": mgr["email"],
                     }).eq("id", new_token_id).execute()
     except Exception as exc:
         _logger.error("create_new_evaluation: erro ao enviar e-mail — %s", exc)
