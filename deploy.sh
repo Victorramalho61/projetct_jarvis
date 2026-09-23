@@ -26,7 +26,14 @@ git reset --hard origin/main
 
 NEW_HEAD=$(git rev-parse HEAD)
 
-echo "Deployed: ${PREV_HEAD:0:7} -> ${NEW_HEAD:0:7}"
+# Base do diff: SHA anterior ao push (vem do CI). Sem isso, commit feito direto no
+# servidor deixa PREV_HEAD == NEW_HEAD e nenhum serviço seria detectado.
+BASE="$PREV_HEAD"
+if [ -n "${DEPLOY_BASE:-}" ] && git cat-file -e "${DEPLOY_BASE}^{commit}" 2>/dev/null; then
+    BASE="$DEPLOY_BASE"
+fi
+
+echo "Deployed: ${BASE:0:7} -> ${NEW_HEAD:0:7}"
 
 # ── Restart seletivo: só reconstrói os serviços cujos diretórios mudaram ──
 # Evita derrubar a stack inteira (Kong, Supabase, todos os microsserviços)
@@ -35,12 +42,19 @@ echo "Deployed: ${PREV_HEAD:0:7} -> ${NEW_HEAD:0:7}"
 KNOWN_SERVICES=(frontend core-service monitoring-service freshservice-service
                 moneypenny-service agents-service expenses-service performance-service
                 fiscal-service financeiro-service hermes-service cards-service
-                experiencia-service support-service monitor-agent)
+                experiencia-service support-service monitor-agent rh-service satisfacao-service)
 
-CHANGED_FILES=$(git diff --name-only "$PREV_HEAD" "$NEW_HEAD" 2>/dev/null || echo "")
+# Desligados deliberadamente — nunca subir via deploy (ver hermes-service/DISABLED.md).
+# agents-service já fica fora via `profiles: ["agents"]`.
+DISABLED_SERVICES=(hermes-service agents-service)
+
+is_disabled() { local x; for x in "${DISABLED_SERVICES[@]}"; do [ "$x" = "$1" ] && return 0; done; return 1; }
+
+CHANGED_FILES=$(git diff --name-only "$BASE" "$NEW_HEAD" 2>/dev/null || echo "")
 
 SERVICES_TO_REBUILD=()
 for svc in "${KNOWN_SERVICES[@]}"; do
+    is_disabled "$svc" && continue
     if echo "$CHANGED_FILES" | grep -q "^${svc}/"; then
         SERVICES_TO_REBUILD+=("$svc")
     fi
@@ -52,10 +66,16 @@ done
 PATTERN=$(IFS='|'; echo "${KNOWN_SERVICES[*]}")
 OUTSIDE_KNOWN=$(echo "$CHANGED_FILES" | grep -vE "^(${PATTERN})/" | grep -vE "^(docs/|README)" || true)
 
-if [ -n "$OUTSIDE_KNOWN" ] || [ ${#SERVICES_TO_REBUILD[@]} -eq 0 ]; then
-    echo ">>> Mudança fora de serviços conhecidos (ou nenhum serviço alterado) — reiniciando a stack inteira"
+if [ -n "$OUTSIDE_KNOWN" ]; then
+    echo ">>> Mudança fora de serviços conhecidos — reiniciando a stack inteira (exceto desligados: ${DISABLED_SERVICES[*]})"
     echo "    Nota: volumes/api/kong.yml está no .gitignore — mudanças lá exigem 'docker compose restart kong' manual, não são detectadas aqui."
-    docker compose up -d --build
+    ALL_SERVICES=()
+    while IFS= read -r svc; do
+        is_disabled "$svc" || ALL_SERVICES+=("$svc")
+    done < <(docker compose config --services)
+    docker compose up -d --build "${ALL_SERVICES[@]}"
+elif [ ${#SERVICES_TO_REBUILD[@]} -eq 0 ]; then
+    echo ">>> Nenhum serviço alterado — nada a reconstruir"
 else
     echo ">>> Reiniciando apenas: ${SERVICES_TO_REBUILD[*]}"
     docker compose up -d --build --no-deps "${SERVICES_TO_REBUILD[@]}"

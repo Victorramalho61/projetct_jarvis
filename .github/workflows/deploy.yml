@@ -46,6 +46,8 @@ jobs:
     steps:
       - name: Deploy
         shell: powershell
+        env:
+          DEPLOY_BASE: ${{ github.event.before }}
         run: |
           $bash = "C:\Program Files\Git\bin\bash.exe"
           if (!(Test-Path $bash)) { $bash = (Get-Command bash -ErrorAction SilentlyContinue).Source }
