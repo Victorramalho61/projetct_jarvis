@@ -51,8 +51,11 @@ def _build_query(sb, params: dict):
 
 def _count_query(sb, params: dict):
     """Conta registros sem materializar dados — usa o header Count do PostgREST."""
-    q = sb.table("cards_acessos").select("id", count="exact")
+    q = sb.table("cards_acessos").select("id", count="exact").limit(0)
     return _apply_filters(q, params)
+
+
+_MAX_EXPORT = 50000
 
 
 @router.get("/access-logs")
@@ -112,8 +115,10 @@ def export_access_logs(
 ):
     params = {k: v for k, v in locals().items() if k not in ("format", "sup") and v is not None}
     sb = get_supabase()
-    res = _build_query(sb, params).order("data_hora_acesso", desc=True).limit(5000).execute()
-    rows = res.data or []
+    # .limit(5000) era cortado em 1000 pelo PostgREST — paginação real (docs/paginacao-1000-linhas.md)
+    from services.paginacao import buscar_todos
+
+    rows = buscar_todos(lambda: _build_query(sb, params).order("data_hora_acesso", desc=True), max_linhas=_MAX_EXPORT)
 
     sup_login = sup.get("email") or sup.get("username") or sup.get("user_id") or "unknown"
     _logger.info(
