@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch, ApiError } from "../../lib/api";
 import type { RhLookups } from "../../hooks/useRhLookups";
-import type { Vaga } from "../../types/rh";
+import type { SlaFase, Vaga } from "../../types/rh";
+import { SLA_STATUS_BADGE, fmtData } from "../../lib/rhSla";
 import DetalhamentoCalculoModal from "./DetalhamentoCalculoModal";
 
 const FIELD_CLASS =
@@ -33,7 +34,7 @@ const CAMPOS_OBRIGATORIOS: { campo: keyof Vaga; label: string }[] = [
   { campo: "secao_id", label: "Seção responsável" },
   { campo: "status_id", label: "Status da vaga" },
   { campo: "responsavel_id", label: "Analista responsável" },
-  { campo: "sla_alvo_dias", label: "SLA alvo" },
+  { campo: "sla_rs_dias", label: "SLA R&S" },
   { campo: "candidato", label: "Candidato(a) aprovado(a)" },
   { campo: "data_admissao", label: "Data de admissão" },
 ];
@@ -45,6 +46,21 @@ function validarObrigatorios(vaga: Vaga): string[] {
       return v === null || v === undefined || v === "";
     })
     .map(({ label }) => label);
+}
+
+function ResumoFase({ titulo, f }: { titulo: string; f: SlaFase }) {
+  return (
+    <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{titulo}</p>
+      <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${SLA_STATUS_BADGE[f.status] ?? "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300"}`}>
+        {f.status}
+      </span>
+      <p className="mt-1 text-xs tabular-nums text-gray-600 dark:text-gray-300">
+        {f.inicio ? <>{fmtData(f.inicio)} → {f.fim ? fmtData(f.fim) : "em aberto"} · {f.dias ?? "—"}/{f.sla ?? "—"} dias · limite {fmtData(f.limite)}</> : "Fase não iniciada"}
+        {f.estimado && " · fim estimado"}
+      </p>
+    </div>
+  );
 }
 
 type Props = {
@@ -265,6 +281,9 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
               <Field label="Justificativa (ex: nome de quem está sendo substituído)">
                 <input value={vaga.justificativa ?? ""} onChange={(e) => setVaga({ ...vaga, justificativa: e.target.value })} onBlur={(e) => patch({ justificativa: e.target.value })} className={FIELD_CLASS} />
               </Field>
+              <Field label="Nome do substituído" obrigatorio={false}>
+                <input value={vaga.nome_substituido ?? ""} onChange={(e) => setVaga({ ...vaga, nome_substituido: e.target.value })} onBlur={(e) => patch({ nome_substituido: e.target.value })} className={FIELD_CLASS} />
+              </Field>
             </div>
           </section>
 
@@ -272,7 +291,11 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Processo e acompanhamento</h3>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label="Etapa atual (a seção e o status são atualizados automaticamente)">
-                <LookupSelect value={vaga.etapa_atual_id} onChange={(v) => patch({ etapa_atual_id: v })} options={lookups.etapas} />
+                <LookupSelect value={vaga.etapa_atual_id} onChange={(v) => patch({ etapa_atual_id: v })}
+                  options={lookups.etapas.filter((e) => e.ativo !== false || e.id === vaga.etapa_atual_id)} />
+              </Field>
+              <Field label="Início da etapa atual" obrigatorio={false}>
+                <input type="date" value={vaga.data_inicio_etapa ?? ""} onChange={(e) => patch({ data_inicio_etapa: e.target.value || null })} className={FIELD_CLASS} />
               </Field>
               <Field label="Seção responsável">
                 <LookupSelect value={vaga.secao_id} onChange={(v) => patch({ secao_id: v })} options={lookups.secoes} />
@@ -283,11 +306,40 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
               <Field label="Analista responsável (R&S)">
                 <LookupSelect value={vaga.responsavel_id} onChange={(v) => patch({ responsavel_id: v })} options={lookups.analistas} />
               </Field>
-              <Field label="SLA alvo (dias)">
-                <input type="number" value={vaga.sla_alvo_dias ?? ""} onChange={(e) => setVaga({ ...vaga, sla_alvo_dias: Number(e.target.value) })} onBlur={(e) => patch({ sla_alvo_dias: Number(e.target.value) })} className={FIELD_CLASS} />
+              <Field label="SLA R&S (dias) — preenchido pela tabela do cargo">
+                <input type="number" value={vaga.sla_rs_dias ?? ""} onChange={(e) => setVaga({ ...vaga, sla_rs_dias: e.target.value === "" ? null : Number(e.target.value) })} onBlur={(e) => patch({ sla_rs_dias: e.target.value === "" ? null : Number(e.target.value) })} className={FIELD_CLASS} />
+              </Field>
+              <Field label="Data de fechamento do R&S" obrigatorio={false}>
+                <input type="date" value={vaga.data_fechamento_rs ?? ""} onChange={(e) => patch({ data_fechamento_rs: e.target.value || null })} className={FIELD_CLASS} />
+              </Field>
+              <Field label="Observações" obrigatorio={false}>
+                <input value={vaga.observacoes ?? ""} onChange={(e) => setVaga({ ...vaga, observacoes: e.target.value })} onBlur={(e) => patch({ observacoes: e.target.value })} className={FIELD_CLASS} />
               </Field>
             </div>
           </section>
+
+          {vaga.sla && (
+            <section>
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Prazos (SLA)</h3>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <ResumoFase titulo="Recrutamento & Seleção" f={vaga.sla.rs} />
+                <ResumoFase titulo="Admissão" f={vaga.sla.adm} />
+                <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Etapa atual</p>
+                  <p className="mt-1 text-xs text-gray-700 dark:text-gray-300">{vaga.sla.etapa.nome ?? "—"}{vaga.sla.etapa.externa && " (externa)"}</p>
+                  <p className="text-xs tabular-nums text-gray-600 dark:text-gray-300">
+                    {vaga.sla.etapa.dias != null ? `${vaga.sla.etapa.dias} dias na etapa` : "sem data de início"}
+                    {vaga.sla.etapa.sla != null && ` · prazo ${vaga.sla.etapa.sla} dias`}
+                  </p>
+                  {vaga.sla.etapa.status && (
+                    <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${SLA_STATUS_BADGE[vaga.sla.etapa.status] ?? "bg-gray-100 text-gray-600"}`}>
+                      {vaga.sla.etapa.status}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
 
           <section>
             <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-400">Admissão</h3>
@@ -295,7 +347,13 @@ export default function VagaFormModal({ vagaId, lookups, token, onClose, onSaved
               <Field label="Candidato(a) aprovado(a)">
                 <input value={vaga.candidato ?? ""} onChange={(e) => setVaga({ ...vaga, candidato: e.target.value })} onBlur={(e) => patch({ candidato: e.target.value })} className={FIELD_CLASS} />
               </Field>
-              <Field label="Data de admissão / início">
+              <Field label="Confirmação de contratação (início da admissão)" obrigatorio={false}>
+                <input type="date" value={vaga.data_confirmacao_contratacao ?? ""} onChange={(e) => patch({ data_confirmacao_contratacao: e.target.value || null })} className={FIELD_CLASS} />
+              </Field>
+              <Field label="SLA Admissão (dias)" obrigatorio={false}>
+                <input type="number" value={vaga.sla_admissao_dias ?? ""} onChange={(e) => setVaga({ ...vaga, sla_admissao_dias: e.target.value === "" ? null : Number(e.target.value) })} onBlur={(e) => patch({ sla_admissao_dias: e.target.value === "" ? null : Number(e.target.value) })} className={FIELD_CLASS} />
+              </Field>
+              <Field label="Data de admissão (entrega da documentação)">
                 <input type="date" value={vaga.data_admissao ?? ""} onChange={(e) => patch({ data_admissao: e.target.value })} className={FIELD_CLASS} />
               </Field>
             </div>

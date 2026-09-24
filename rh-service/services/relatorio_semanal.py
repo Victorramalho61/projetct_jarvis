@@ -21,12 +21,17 @@ def gerar_e_enviar():
     abertas = [r for r in rows if r.get("status_em_aberto")]
     concluidas_total = [r for r in rows if r.get("status_concluido")]
 
-    sla_estourado = [r for r in abertas if r.get("sla_ok") is False]
+    # Fase corrente de cada vaga aberta: Admissão se já começou, senão R&S (services/sla.py)
+    for r in abertas:
+        fase = r["sla"]["adm"] if r["sla"]["adm"]["inicio"] else r["sla"]["rs"]
+        r["dias_corridos"], r["sla_alvo_dias"], r["_status_fase"] = fase["dias"], fase["sla"], fase["status"]
+
+    sla_estourado = [r for r in abertas if r["_status_fase"] == "ATRASADO"]
     sla_estourando = []
     for r in abertas:
         dias = r.get("dias_corridos")
         alvo = r.get("sla_alvo_dias")
-        if dias is None or not alvo or r.get("sla_ok") is False:
+        if dias is None or not alvo or r["_status_fase"] != "NO PRAZO":
             continue
         if alvo - dias <= 3:
             sla_estourando.append(r)

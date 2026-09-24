@@ -99,7 +99,7 @@ export default function FiltrosBar({ lookups, value, onChange, showSearch = true
         <Select label="Nível" value={value.nivel_id ?? ""} onChange={(v) => set("nivel_id", v)} options={lookups.niveis} />
         <Select label="Hierarquia" value={value.hierarquia_id ?? ""} onChange={(v) => set("hierarquia_id", v)} options={lookups.hierarquias} />
         <Select label="Seção" value={value.secao_id ?? ""} onChange={(v) => set("secao_id", v)} options={lookups.secoes} />
-        <Select label="Etapa do processo" value={value.etapa_atual_id ?? ""} onChange={(v) => set("etapa_atual_id", v)} options={lookups.etapas} />
+        <Select label="Etapa do processo" value={value.etapa_atual_id ?? ""} onChange={(v) => set("etapa_atual_id", v)} options={lookups.etapas.filter((e) => e.ativo !== false)} />
         <Select label="Analista" value={value.responsavel_id ?? ""} onChange={(v) => set("responsavel_id", v)} options={lookups.analistas} />
         <Select label="Requisitante" value={value.requisitante_id ?? ""} onChange={(v) => set("requisitante_id", v)} options={lookups.requisitantes} />
       </div>

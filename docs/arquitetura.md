@@ -2547,3 +2547,54 @@ Retomando o caso da Andréia Lima (Diretoria, ver seção de 2026-09-21 acima): 
 ## AVD — Plano de Ação listando colaboradores desativados (2026-09-23)
 
 Aba Plano de Ação → Monitoramento (`PerformancePage.tsx::PAFMonitoramento`, endpoint `/api/performance/action-plans/overview`) não filtrava por `performance_employees.active` — colaboradores desligados continuavam aparecendo na lista/exportação enquanto o plano de ação deles não fosse manualmente encerrado. Fix: `_build_overview` (`performance-service/routes/action_plans.py`) agora exclui colaboradores inativos por padrão; novo parâmetro `include_inactive` (default `false`) nos endpoints `/overview` e `/overview/export`, e novo checkbox "Mostrar desativados" na tela (desmarcado por padrão — comportamento de exclusão já vem ativo, sem precisar configurar nada).
+
+## RH Vagas — modelo novo da planilha + painel de SLA por fase (2026-09-24)
+
+Pedido da gestora de RH: SLA separado para **R&S** e **Admissão**, em destaque no topo do dashboard `/rh`, com prazos por etapa. A carga veio da planilha `Controle_de_Vagas_Voetur_Nova (1).xlsx`: 46 vagas, abas `CONTROLE DE VAGAS`, `SLA` e `LISTAS SUSPENSAS`, cabeçalho na linha 1.
+
+**Migration `rh-service/migrations/006_rh_sla_fases.sql`** (aplicada via `docker exec -i jarvis-db-1 psql -U postgres --single-transaction`):
+- `rh_vagas` ganhou as colunas `nome_substituido`, `observacoes`, `data_fechamento_rs`, `data_confirmacao_contratacao`, `sla_rs_dias`, `sla_admissao_dias`, `data_inicio_etapa` e `sla_etapa_externa_dias`.
+- `rh_sla_cargos`: aba SLA da planilha, com 651 cargos. Quando o mesmo cargo aparece em mais de uma linha com SLA diferente, vale a 1ª linha, igual ao PROCV da planilha.
+- `rh_etapas_processo`:
+  - ganhou `fase` (RS/ADMISSAO/FIM), `externa` (seção ≠ RH) e `ativo`;
+  - o funil novo tem 14 etapas mais CONCLUÍDO e CANCELADO;
+  - as etapas antigas (HUNTING, CONSULTAS BUONNY, INCLUSÃO NO BENNER…) foram para ordem ≥ 1000 com `ativo=false`, e as vagas históricas continuam apontando para elas.
+- `rh_vagas_etapas_hist`: histórico de troca de etapa. É a base do "prazo por etapa" e só passa a ter dados a partir desta carga.
+- Empresas:
+  - `VOETUR TURISMO` foi renomeada para `VOETUR VIAGENS` (mesmo prefixo TUR);
+  - criadas `VTCLOG BRASIL 21` e `VTCLOG AEROPORTO` (VTC), `VIP SERVICE RECEPTIVOS` (LOC) e `BRASÍLIA EMPREENDIMENTOS IMOBILIÁRIOS` (RES);
+  - `VTCLOG` continua existindo para o histórico.
+
+**SLA — `rh-service/services/sla.py::calc_sla`** (fonte única de listagem, dashboard e relatório semanal; dias corridos):
+- **R&S:**
+  - vai de `data_recebimento` (Data de Abertura) até `data_fechamento_rs`, ou até `data_confirmacao_contratacao` se a admissão já começou;
+  - o SLA é `sla_rs_dias` ou a coluna R&S da tabela do cargo;
+  - no **histórico** concluído sem data de fechamento, o fim é a data de admissão, comparada com o SLA total (`sla_alvo_dias`), e a vaga fica com `estimado=True`.
+- **Admissão:** vai de `data_confirmacao_contratacao` até `data_admissao` (entrega da documentação). O SLA é `sla_admissao_dias` ou link + exames + documentos do cargo (7 dias).
+- **Etapa externa** (Líder/DP/SESMT): 3 dias contados de `data_inicio_etapa`, limitados ao prazo da fase. Etapas do RH não têm cobrança separada.
+- **Status:** os mesmos rótulos da planilha, mais `DATAS INCONSISTENTES` (fim antes do início) e `NÃO INICIADA`.
+- Validado contra a planilha: os status de R&S das 44 vagas com nº real batem 100%. Na Admissão, a planilha deixa o status em branco depois que a admissão começa; o Jarvis calcula ATRASADO/CONCLUÍDA.
+- Os campos legados `dias_corridos`/`sla_ok` de `_serialize` passam a refletir o R&S. O relatório semanal usa a fase corrente da vaga (Admissão se já começou, senão R&S).
+
+**Import do modelo novo** (`services/excel_import.py::_importar_modelo_novo`, detectado pela aba `CONTROLE DE VAGAS`; o modelo antigo continua funcionando):
+- **Status:** ABERTA→EM ANDAMENTO, PREENCHIDA/FECHADA→CONCLUÍDO, CANCELADA→CANCELADO, EM STANDBY→CONGELADO.
+- **Colunas ignoradas:** as calculadas no Excel (limite/dias/status), porque o Jarvis recalcula.
+- **Aba `SLA`:** faz upsert em `rh_sla_cargos`. A aba vem com a dimensão cheia do Excel (1.048.576 linhas), então precisa de `nrows`; sem ele o container morria sem mensagem.
+- **Aba `LISTAS SUSPENSAS`:** alimenta os lookups (só acrescenta) e preenche cargo → nível padrão.
+- **Nº de requisição inválido** (fora de `XXX.ADM.nnn/aa`, ex. `PJ`, `RESIDÊNCIA`, `VTC GRU`):
+  1. procura uma vaga já existente com o mesmo prefixo + abertura + cargo, com match único (ex.: `PJ` = `PJ-024`);
+  2. senão, gera o nº e grava `Nº original na planilha: X` nas observações, e o reimport encontra por essa marca;
+  3. as linhas com nº válido são processadas **antes**, e `numbering.py` usa o maior sequencial do prefixo/ano + 1. O cálculo antigo (contagem de vagas da empresa) gerou `TUR.ADM.314/26`, que era um nº real mais abaixo na planilha, e a linha real sobrescreveu a gerada.
+- A troca de etapa grava `rh_vagas_etapas_hist` e `data_inicio_etapa` (hoje, se a planilha não trouxer). O PATCH da vaga faz o mesmo e também preenche o SLA pelo cargo e a confirmação de contratação ao entrar em SOLICITAÇÃO LINK ADMISSIONAL.
+- Template (`excel_template.py`) no formato novo. Corrigida a ordem das rotas: `/template` e `/import` antes de `/{vaga_id}`, que capturava `template`.
+- Carga de 2026-09-24: 46 linhas (23 atualizadas + 23 inseridas). As geradas foram `VTC.ADM.334/26` e `RES.ADM.001/26`; a `PJ` foi para `PJ-024`. O reimport é idempotente: 46 atualizadas, 0 inseridas.
+
+**API:**
+- `GET /api/rh/dashboard` ganhou o bloco `sla_fases`: resumo por fase, `por_recrutador`, `por_nivel`, `etapas` (qtd atual, dias médios, estouradas, média histórica) e as listas de atrasadas.
+- Novo `GET /api/rh/dashboard/sla-relatorio` (vaga a vaga), com `?formato=xlsx` para exportar.
+- Os filtros foram extraídos para `_filtros()`/`_linhas_filtradas()`.
+
+**Frontend** (`RhPage.tsx`):
+- **Ordem do dashboard:** filtros → `SlaFasesPanel` em destaque → "Prazo por etapa" (`EtapasSlaChart`) + "SLA por recrutador" → "Relatório de SLA por vaga" (`SlaRelatorioTable`, com Exportar Excel) → "Visão geral das vagas" (o conteúdo anterior, sem mudar a lógica).
+- Os tiles de alerta antigos saíram e os números do painel abrem o drill-down.
+- `VagaFormModal` ganhou os campos novos e o resumo de prazos. `VagasTable` mostra a fase corrente, o filtro e o formulário mostram só etapas ativas, e o relatório impresso ganhou a tabela de SLA por fase.

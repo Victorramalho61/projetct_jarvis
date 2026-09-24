@@ -24,6 +24,10 @@ export default function UploadPlanilhaPanel({ token, onImported }: Props) {
     const res = await fetch("/api/rh/vagas/template", {
       headers: { Authorization: `Bearer ${token}` },
     });
+    if (!res.ok) {
+      setError("Não foi possível baixar o modelo da planilha.");
+      return;
+    }
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

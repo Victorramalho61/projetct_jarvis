@@ -41,14 +41,42 @@ export default function RhRelatorioPrintPage() {
           </p>
         </div>
 
+        <h2 className="text-sm font-bold uppercase tracking-wide border-b border-black pb-1 mb-2">SLA por fase</h2>
+        <table className="w-full text-sm mb-6">
+          <thead>
+            <tr className="border-b border-gray-300 text-[11px] uppercase text-gray-500">
+              <th className="py-1 text-left">Fase</th>
+              <th className="py-1 text-right">% no prazo</th>
+              <th className="py-1 text-right">Em andamento no prazo</th>
+              <th className="py-1 text-right">Atrasadas</th>
+              <th className="py-1 text-right">Concluídas no prazo</th>
+              <th className="py-1 text-right">Concluídas c/ atraso</th>
+              <th className="py-1 text-right">Tempo médio / SLA</th>
+            </tr>
+          </thead>
+          <tbody>
+            {([["Recrutamento & Seleção", data.sla_fases.rs], ["Admissão", data.sla_fases.adm]] as const).map(([nome, f]) => (
+              <tr key={nome} className="border-b border-gray-200">
+                <td className="py-1 font-semibold">{nome}</td>
+                <td className="py-1 text-right font-bold">{f.pct_no_prazo != null ? `${f.pct_no_prazo}%` : "—"}</td>
+                <td className="py-1 text-right">{f.em_andamento_no_prazo}</td>
+                <td className="py-1 text-right">{f.em_andamento_atrasadas}</td>
+                <td className="py-1 text-right">{f.concluidas_no_prazo}</td>
+                <td className="py-1 text-right">{f.concluidas_com_atraso}</td>
+                <td className="py-1 text-right">{f.media_dias_concluidas ?? "—"} / {f.media_sla ?? "—"} dias</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
         <div className="grid grid-cols-4 gap-3 mb-6">
           {[
             ["Total de vagas", k.total],
             ["Abertas", k.abertas],
             ["Concluídas", k.concluidas_periodo],
-            ["Atrasadas", k.atrasadas],
-            ["SLA médio (dias)", k.sla_medio_dias ?? "—"],
-            ["% no prazo", k.pct_no_prazo != null ? `${k.pct_no_prazo}%` : "—"],
+            ["R&S atrasadas", k.atrasadas],
+            ["Tempo médio R&S (dias)", k.sla_medio_dias ?? "—"],
+            ["% R&S no prazo", k.pct_no_prazo != null ? `${k.pct_no_prazo}%` : "—"],
             ["Canceladas", k.canceladas],
             ["Congeladas", k.congeladas],
           ].map(([label, value]) => (

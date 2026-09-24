@@ -7,6 +7,7 @@ candidato/demais campos; se não existe, insere uma linha nova preservando o
 número de requisição da planilha.
 """
 import io
+import re
 from datetime import date, datetime
 
 import pandas as pd
@@ -15,6 +16,26 @@ _SHEET = "Controle de Vagas"
 _HEADER_ROW = 14  # linha 15 da planilha (0-indexed)
 
 _CORRECOES_EMPRESA = {"VTC LOG": "VTCLOG"}
+
+# Modelo novo (2026-09): aba em maiúsculas, cabeçalho na linha 1, SLA por fase
+_SHEET_NOVO = "CONTROLE DE VAGAS"
+_SHEET_SLA = "SLA"
+_SHEET_LISTAS = "LISTAS SUSPENSAS"
+_MAX_LINHAS_SLA = 5000
+_STATUS_NOVO = {
+    "ABERTA": "EM ANDAMENTO",
+    "PREENCHIDA/FECHADA": "CONCLUÍDO",
+    "CANCELADA": "CANCELADO",
+    "EM STANDBY": "CONGELADO",
+}
+_CORRECOES_ETAPA = {
+    "CONCLUIDO": "CONCLUÍDO",
+    "RETORNO DO LIDER": "RETORNO DO LÍDER",
+    "ENTREVISTA COM O LIDER": "ENTREVISTA COM O LÍDER",
+    "APROVAÇÃO DO LIDER": "APROVAÇÃO DO LÍDER",
+}
+# Nº de requisição válido: TUR.ADM.281/26 (aceita TUR.ADM.290.26, digitado com ponto)
+_RE_REQUISICAO = re.compile(r"^[A-Z]{3}\.ADM\.\d{3}[./]\d{2}$")
 _CORRECOES_STATUS = {"CONCLUIDA": "CONCLUÍDO", "CONGELADA": "CONGELADO"}
 
 
@@ -84,6 +105,18 @@ def _ultima_etapa(texto: str | None) -> str | None:
 
 
 def importar_planilha(sb, conteudo: bytes, nome_arquivo: str, user: dict) -> dict:
+    try:
+        abas = pd.ExcelFile(io.BytesIO(conteudo)).sheet_names
+    except Exception:
+        abas = []
+    if _SHEET_NOVO in abas:
+        from services.sla import invalidar_referencias
+
+        try:
+            return _importar_modelo_novo(sb, conteudo, nome_arquivo, user)
+        finally:
+            invalidar_referencias()
+
     try:
         df = pd.read_excel(io.BytesIO(conteudo), sheet_name=_SHEET, header=_HEADER_ROW)
     except Exception as exc:
@@ -227,5 +260,285 @@ def importar_planilha(sb, conteudo: bytes, nome_arquivo: str, user: dict) -> dic
         "linhas_inseridas": inseridas,
         "linhas_atualizadas": atualizadas,
         "linhas_com_erro": com_erro,
+        "erros": erros,
+    }
+
+
+# ── Modelo novo ───────────────────────────────────────────────────────────────
+
+def _upper(val) -> str | None:
+    s = _clean_str(val)
+    return " ".join(s.upper().split()) if s else None
+
+
+def _int(val) -> int | None:
+    try:
+        return None if val is None or pd.isna(val) else int(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def _iso(val) -> str | None:
+    d = _clean_date(val)
+    return d.isoformat() if d and 2015 <= d.year <= 2100 else None
+
+
+def _importar_tabela_sla(sb, xls: pd.ExcelFile) -> int:
+    """Aba SLA -> rh_sla_cargos. Cargos repetidos com SLA diferente: vale a 1ª linha
+    (mesmo critério do PROCV da planilha)."""
+    from services.sla import normalizar_cargo
+
+    if _SHEET_SLA not in xls.sheet_names:
+        return 0
+    # A aba SLA vem com a dimensão "cheia" do Excel (1.048.576 linhas) — sem nrows o pandas
+    # materializa tudo e estoura a memória do container.
+    bruto = pd.read_excel(xls, sheet_name=_SHEET_SLA, header=None, nrows=20)
+    linha_header = next(
+        (i for i, r in bruto.iterrows() if str(r.iloc[0]).strip().upper() == "CARGO"), None
+    )
+    if linha_header is None:
+        return 0
+    df = pd.read_excel(xls, sheet_name=_SHEET_SLA, header=linha_header, nrows=_MAX_LINHAS_SLA)
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    vistos: dict[str, dict] = {}
+    for _, r in df.iterrows():
+        cargo = normalizar_cargo(_clean_str(r.get("CARGO")))
+        if not cargo or cargo in vistos:
+            continue
+        vistos[cargo] = {
+            "cargo_nome": cargo,
+            "nivel": _upper(r.get("TIPO")),
+            "rs": _int(r.get("R&S")),
+            "link": _int(r.get("S LINK ADMISSIONAL")),
+            "exames": _int(r.get("EXAMES")),
+            "documentos": _int(r.get("ENTREGA DE DOCUMENTOS AO DP")),
+            "empresa": _upper(r.get("EMPRESA")),
+            "updated_at": datetime.utcnow().isoformat(),
+        }
+    linhas = list(vistos.values())
+    for i in range(0, len(linhas), 200):
+        sb.table("rh_sla_cargos").upsert(linhas[i:i + 200], on_conflict="cargo_nome").execute()
+    return len(linhas)
+
+
+def _sincronizar_listas(sb, xls: pd.ExcelFile, cache: "_LookupCache") -> int:
+    """Aba LISTAS SUSPENSAS -> tabelas de lookup (só acrescenta; nunca apaga)."""
+    if _SHEET_LISTAS not in xls.sheet_names:
+        return 0
+    df = pd.read_excel(xls, sheet_name=_SHEET_LISTAS, header=0, nrows=_MAX_LINHAS_SLA)
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    mapa = {
+        "EMPRESAS DO GRUPO": ("rh_empresas", "nome"),
+        "UF": ("rh_ufs", "sigla"),
+        "ALOCAÇÃO REAL": ("rh_alocacoes", "nome"),
+        "TIPO DO CONTRATO": ("rh_tipos_contrato", "nome"),
+        "TIPO DA VAGA": ("rh_tipos_vaga", "nome"),
+        "HIERARQUIA": ("rh_hierarquias", "nome"),
+        "RECRUTADORES RESPONSÁVEIS": ("rh_analistas", "nome"),
+        "REQUISITANTES": ("rh_requisitantes", "nome"),
+    }
+    total = 0
+    for coluna, (tabela, campo) in mapa.items():
+        if coluna not in df.columns:
+            continue
+        for val in df[coluna].dropna().unique():
+            if cache.get_or_create(tabela, campo, _upper(val)):
+                total += 1
+    # Cargo -> nível padrão (preenche o NÍVEL automático no Jarvis)
+    if "CARGO" in df.columns and "NÍVEL" in df.columns:
+        for _, r in df[["CARGO", "NÍVEL"]].dropna(subset=["CARGO"]).iterrows():
+            cargo, nivel = _upper(r["CARGO"]), _upper(r["NÍVEL"])
+            if not cargo:
+                continue
+            cargo_id = cache.get_or_create("rh_cargos", "nome", cargo)
+            if nivel in ("OPERACIONAL", "TÁTICO", "ESTRATÉGICO"):
+                nivel_id = cache.get_or_create("rh_niveis", "nome", nivel)
+                sb.table("rh_cargos").update({"nivel_padrao_id": nivel_id}).eq("id", cargo_id).is_(
+                    "nivel_padrao_id", "null"
+                ).execute()
+            total += 1
+    return total
+
+
+def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dry_run: bool = False) -> dict:
+    from routes.vagas import registrar_troca_etapa
+    from services.numbering import gerar_numero_requisicao
+
+    xls = pd.ExcelFile(io.BytesIO(conteudo))
+    df = pd.read_excel(xls, sheet_name=_SHEET_NOVO, header=0, nrows=_MAX_LINHAS_SLA)
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    df = df[df["Nº REQUISIÇÃO"].notna() | df["CARGO / VAGA"].notna()]
+    # Linhas com nº válido primeiro: o nº gerado para as inválidas (PJ, "VTC GRU"...) nunca
+    # pode ocupar um número real que ainda viria mais abaixo na planilha.
+    _valido = df["Nº REQUISIÇÃO"].map(
+        lambda v: bool(_RE_REQUISICAO.match(str(v).upper().replace(" ", ""))) if pd.notna(v) else False
+    )
+    df = pd.concat([df[_valido], df[~_valido]])
+
+    cache = _LookupCache(sb)
+    sla_cargos = listas = 0
+    if not dry_run:
+        sla_cargos = _importar_tabela_sla(sb, xls)
+        listas = _sincronizar_listas(sb, xls, cache)
+
+    status_map = {s["nome"]: s["id"] for s in sb.table("rh_status_vaga").select("id,nome").execute().data}
+    etapas = {
+        e["nome"]: e
+        for e in sb.table("rh_etapas_processo").select("id,nome,ativo,secao_responsavel_id").execute().data
+    }
+
+    inseridas = atualizadas = com_erro = 0
+    erros, previa = [], []
+
+    for idx, row in df.iterrows():
+        linha_planilha = idx + 2
+        try:
+            abertura = _iso(row.get("DATA DE ABERTURA"))
+            if not abertura:
+                erros.append({"linha": linha_planilha, "motivo": "Sem DATA DE ABERTURA válida — linha ignorada"})
+                com_erro += 1
+                continue
+
+            req_original = _clean_str(row.get("Nº REQUISIÇÃO"))
+            req = req_original.upper().replace(" ", "") if req_original else None
+            req_invalido = not req or not _RE_REQUISICAO.match(req)
+
+            empresa_nome = _upper(row.get("EMPRESA")) or "NÃO INFORMADO"
+            empresa_nome = _CORRECOES_EMPRESA.get(empresa_nome, empresa_nome)
+            empresa_id = cache.get_or_create("rh_empresas", "nome", empresa_nome)
+
+            status_planilha = _upper(row.get("STATUS POR VAGA")) or "ABERTA"
+            status_nome = _STATUS_NOVO.get(status_planilha, status_planilha)
+            status_id = status_map.get(status_nome) or cache.get_or_create("rh_status_vaga", "nome", status_nome)
+
+            etapa_nome = _upper(row.get("FUNIL DE VAGAS"))
+            etapa_nome = _CORRECOES_ETAPA.get(etapa_nome, etapa_nome)
+            etapa = etapas.get(etapa_nome) if etapa_nome else None
+            if etapa_nome and not etapa:
+                erros.append({"linha": linha_planilha, "motivo": f"Etapa '{etapa_nome}' não existe no funil — etapa não atualizada"})
+
+            secao_nome = _upper(row.get("SEÇÃO RESPONSÁVEL"))
+            secao_id = (
+                cache.get_or_create("rh_secoes", "nome", secao_nome)
+                if secao_nome and secao_nome != "NÃO MAPEADO"
+                else (etapa or {}).get("secao_responsavel_id")
+            )
+
+            def _lk(tabela, coluna):
+                v = _upper(row.get(coluna))
+                return cache.get_or_create(tabela, "nome", v) if v else None
+
+            sla_rs = _int(row.get("SLA R&S (DIAS)"))
+            sla_adm = _int(row.get("SLA ADMISSÃO (DIAS)"))
+            observacoes = _clean_str(row.get("OBSERVAÇÕES"))
+            if req_invalido and req_original:
+                marca = f"Nº original na planilha: {req_original}"
+                observacoes = f"{marca} | {observacoes}" if observacoes else marca
+
+            payload = {
+                "empresa_id": empresa_id,
+                "uf": _upper(row.get("UF")),
+                "alocacao_id": _lk("rh_alocacoes", "ALOCAÇÃO REAL"),
+                "cargo_id": _lk("rh_cargos", "CARGO / VAGA"),
+                "nivel_id": _lk("rh_niveis", "NÍVEL"),
+                "centro_custo": _upper(row.get("CENTRO DE CUSTO")),
+                "hierarquia_id": _lk("rh_hierarquias", "HIERARQUIA"),
+                "tipo_contrato_id": _lk("rh_tipos_contrato", "TIPO DE CONTRATO"),
+                "tipo_vaga_id": _lk("rh_tipos_vaga", "TIPO DA VAGA"),
+                "nome_substituido": _upper(row.get("NOME DO SUBSTITUIDO")),
+                "requisitante_id": _lk("rh_requisitantes", "REQUISITANTE / GESTOR"),
+                "responsavel_id": _lk("rh_analistas", "RECRUTADOR RESPONSÁVEL"),
+                "status_id": status_id,
+                "etapa_atual_id": (etapa or {}).get("id"),
+                "secao_id": secao_id,
+                "data_recebimento": abertura,
+                "sla_rs_dias": sla_rs,
+                "sla_admissao_dias": sla_adm,
+                "sla_alvo_dias": (sla_rs or 0) + (sla_adm or 0) or None,
+                "data_fechamento_rs": _iso(row.get("DATA DE FECHAMENTO DO R&S")),
+                "data_confirmacao_contratacao": _iso(row.get("CONFIRMAÇÃO DE CONTRATAÇÃO")),
+                "data_admissao": _iso(row.get("DATA DE ADMISSÃO")),
+                "observacoes": observacoes,
+                "data_inicio_etapa": _iso(row.get("DATA INÍCIO ETAPA ATUAL")),
+                "sla_etapa_externa_dias": _int(row.get("SLA ETAPA EXTERNA (DIAS)")),
+                "updated_by": user.get("id"),
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            payload = {k: v for k, v in payload.items() if v is not None}
+
+            existente = None
+            if not req_invalido:
+                r = sb.table("rh_vagas").select("id,etapa_atual_id").eq("numero_requisicao", req).execute()
+                existente = r.data[0] if r.data else None
+            elif req_original:
+                # reimport: nº já gerado antes pra esse texto (marca nas observações)?
+                r = sb.table("rh_vagas").select("id,etapa_atual_id").ilike(
+                    "observacoes", f"Nº original na planilha: {req_original}%"
+                ).eq("data_recebimento", abertura).execute()
+                existente = r.data[0] if r.data else None
+                if not existente and payload.get("cargo_id"):
+                    # vaga já cadastrada com sufixo (ex.: "PJ" da planilha = "PJ-024" no Jarvis,
+                    # da correção de duplicados): mesmo prefixo + abertura + cargo, match único
+                    r = sb.table("rh_vagas").select("id,etapa_atual_id").ilike(
+                        "numero_requisicao", f"{req_original}%"
+                    ).eq("data_recebimento", abertura).eq("cargo_id", payload["cargo_id"]).execute()
+                    existente = r.data[0] if len(r.data or []) == 1 else None
+                if existente:
+                    # vaga existente mantém as observações dela (sem a marca de nº gerado)
+                    payload["observacoes"] = _clean_str(row.get("OBSERVAÇÕES"))
+                    if payload["observacoes"] is None:
+                        payload.pop("observacoes")
+
+            etapa_mudou = bool(payload.get("etapa_atual_id")) and payload["etapa_atual_id"] != (existente or {}).get("etapa_atual_id")
+            if etapa_mudou:
+                payload.setdefault("data_inicio_etapa", date.today().isoformat())
+
+            if dry_run:
+                previa.append({
+                    "linha": linha_planilha, "req": req_original,
+                    "acao": "atualizar" if existente else "inserir",
+                    "req_gerado": req_invalido, "status": status_nome, "etapa": (etapa or {}).get("nome"),
+                })
+                continue
+
+            if existente:
+                sb.table("rh_vagas").update(payload).eq("id", existente["id"]).execute()
+                vaga_id = existente["id"]
+                atualizadas += 1
+            else:
+                payload["numero_requisicao"] = req if not req_invalido else gerar_numero_requisicao(sb, empresa_id)
+                payload["created_by"] = user.get("id")
+                vaga_id = sb.table("rh_vagas").insert(payload).execute().data[0]["id"]
+                inseridas += 1
+
+            if etapa_mudou:
+                registrar_troca_etapa(sb, vaga_id, payload["etapa_atual_id"], payload["data_inicio_etapa"])
+
+        except Exception as exc:
+            com_erro += 1
+            erros.append({"linha": linha_planilha, "motivo": str(exc)[:200]})
+
+    if dry_run:
+        return {"previa": previa, "erros": erros}
+
+    registro = sb.table("rh_uploads").insert({
+        "arquivo_nome": nome_arquivo,
+        "usuario_id": user.get("id"),
+        "usuario_nome": user.get("display_name") or user.get("username") or "desconhecido",
+        "linhas_processadas": len(df),
+        "linhas_inseridas": inseridas,
+        "linhas_atualizadas": atualizadas,
+        "linhas_com_erro": com_erro,
+        "detalhes": erros[:500],
+    }).execute()
+
+    return {
+        "upload_id": registro.data[0]["id"] if registro.data else None,
+        "linhas_processadas": len(df),
+        "linhas_inseridas": inseridas,
+        "linhas_atualizadas": atualizadas,
+        "linhas_com_erro": com_erro,
+        "sla_cargos_importados": sla_cargos,
+        "itens_de_lista_sincronizados": listas,
         "erros": erros,
     }

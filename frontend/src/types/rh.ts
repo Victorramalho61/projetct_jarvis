@@ -8,6 +8,9 @@ export type LookupItem = {
   prefixo_requisicao?: string;
   nivel_padrao_id?: string;
   secao_responsavel_id?: string;
+  ativo?: boolean;
+  fase?: string | null;
+  externa?: boolean;
   vale_transporte?: number;
   vale_alimentacao?: number;
   seguro_vida?: number;
@@ -110,6 +113,15 @@ export type Vaga = {
   calculo_detalhado: CalculoDetalhado | null;
   dias_corridos: number | null;
   sla_ok: boolean | null;
+  nome_substituido: string | null;
+  observacoes: string | null;
+  data_fechamento_rs: string | null;
+  data_confirmacao_contratacao: string | null;
+  sla_rs_dias: number | null;
+  sla_admissao_dias: number | null;
+  data_inicio_etapa: string | null;
+  sla_etapa_externa_dias: number | null;
+  sla?: SlaVaga;
   created_at: string;
   updated_at: string;
 };
@@ -151,7 +163,97 @@ export type DashboardKPIs = {
   congeladas: number;
 };
 
+// ── SLA por fase (R&S / Admissão) — espelha rh-service/services/sla.py ──────
+
+export type SlaFase = {
+  inicio: string | null;
+  fim: string | null;
+  sla: number | null;
+  limite: string | null;
+  dias: number | null;
+  status: string;
+  estimado: boolean;
+};
+
+export type SlaEtapa = {
+  nome: string | null;
+  fase: "RS" | "ADMISSAO" | "FIM" | null;
+  externa: boolean;
+  inicio: string | null;
+  dias: number | null;
+  sla: number | null;
+  limite: string | null;
+  status: string | null;
+};
+
+export type SlaVaga = { rs: SlaFase; adm: SlaFase; etapa: SlaEtapa; modelo_novo: boolean };
+
+export type SlaResumoFase = {
+  por_status: Record<string, number>;
+  avaliadas: number;
+  pct_no_prazo: number | null;
+  em_andamento_no_prazo: number;
+  em_andamento_atrasadas: number;
+  concluidas_no_prazo: number;
+  concluidas_com_atraso: number;
+  media_dias_concluidas: number | null;
+  media_sla: number | null;
+  estimadas: number;
+};
+
+export type SlaLinhaRelatorio = {
+  id: string;
+  numero_requisicao: string | null;
+  cargo: string | null;
+  empresa: string | null;
+  nivel: string | null;
+  responsavel: string | null;
+  requisitante: string | null;
+  status: string | null;
+  etapa_atual: string | null;
+  rs: SlaFase;
+  adm: SlaFase;
+  etapa: SlaEtapa;
+};
+
+export type SlaGrupo = {
+  nome: string;
+  total: number;
+  rs_avaliadas: number;
+  rs_pct_no_prazo: number | null;
+  rs_atrasadas: number;
+  adm_avaliadas: number;
+  adm_pct_no_prazo: number | null;
+  adm_atrasadas: number;
+};
+
+export type SlaEtapaResumo = {
+  etapa: string;
+  ordem: number;
+  fase: "RS" | "ADMISSAO";
+  externa: boolean;
+  sla: number | null;
+  qtd_atual: number;
+  dias_medio_atual: number | null;
+  estouradas: number;
+  sem_data_inicio: number;
+  dias_medio_historico: number | null;
+  amostras_historico: number;
+};
+
+export type SlaFasesData = {
+  rs: SlaResumoFase;
+  adm: SlaResumoFase;
+  por_recrutador: SlaGrupo[];
+  por_nivel: SlaGrupo[];
+  etapas: SlaEtapaResumo[];
+  atrasadas_rs: SlaLinhaRelatorio[];
+  atrasadas_adm: SlaLinhaRelatorio[];
+  etapa_estourada: SlaLinhaRelatorio[];
+};
+
 export type DashboardData = {
+  sla_fases: SlaFasesData;
   kpis: DashboardKPIs;
   por_status: { status: string; total: number }[];
   por_empresa: { empresa: string; total: number }[];

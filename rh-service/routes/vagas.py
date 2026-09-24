@@ -38,34 +38,19 @@ _SELECT = (
 )
 
 
-def _dias_corridos(v: dict) -> Optional[int]:
-    recebimento = v.get("data_recebimento")
-    if not recebimento:
+def _sla(v: dict) -> dict:
+    from services.sla import calc_sla, referencias
+
+    sla_cargos, etapas = referencias(get_supabase())
+    return calc_sla(v, sla_cargos, etapas)
+
+
+def _sla_ok_de(status_fase: str) -> Optional[bool]:
+    from services.sla import AVALIAVEIS, NO_PRAZO_SET
+
+    if status_fase not in AVALIAVEIS:
         return None
-    recebimento = datetime.strptime(recebimento, "%Y-%m-%d").date() if isinstance(recebimento, str) else recebimento
-
-    status = v.get("rh_status_vaga") or {}
-    if status.get("concluido"):
-        admissao = v.get("data_admissao")
-        if not admissao:
-            return None
-        fim = datetime.strptime(admissao, "%Y-%m-%d").date() if isinstance(admissao, str) else admissao
-    else:
-        fim = date.today()
-
-    dias = (fim - recebimento).days
-    return dias if dias >= 0 else None
-
-
-def _sla_ok(v: dict) -> Optional[bool]:
-    status = v.get("rh_status_vaga") or {}
-    if status.get("nome") == "CANCELADO":
-        return None
-    dias = _dias_corridos(v)
-    sla = v.get("sla_alvo_dias")
-    if dias is None or not sla:
-        return None
-    return dias <= sla
+    return status_fase in NO_PRAZO_SET
 
 
 def _serialize(v: dict) -> dict:
@@ -89,8 +74,11 @@ def _serialize(v: dict) -> dict:
     v["responsavel"] = (v.pop("rh_analistas", None) or {}).get("nome")
     v["perfil_calculo"] = (v.pop("rh_perfis_calculo", None) or {}).get("nome")
 
-    v["dias_corridos"] = _dias_corridos({**v, "rh_status_vaga": status, "data_recebimento": v.get("data_recebimento"), "data_admissao": v.get("data_admissao")})
-    v["sla_ok"] = _sla_ok({**v, "rh_status_vaga": status})
+    # dias_corridos/sla_ok (campos legados da tela e do relatório semanal) passam a
+    # refletir a fase de R&S — ver services/sla.py
+    v["sla"] = _sla(v)
+    v["dias_corridos"] = v["sla"]["rs"]["dias"]
+    v["sla_ok"] = _sla_ok_de(v["sla"]["rs"]["status"])
     return v
 
 
@@ -106,9 +94,30 @@ def _apply_automacao(sb, payload: dict, current: Optional[dict] = None) -> dict:
         if nivel_padrao:
             payload["nivel_id"] = nivel_padrao
 
+    if payload.get("cargo_id") and "sla_rs_dias" not in payload:
+        from services.sla import normalizar_cargo
+
+        cargo_nome = sb.table("rh_cargos").select("nome").eq("id", payload["cargo_id"]).single().execute()
+        sla_cargo = sb.table("rh_sla_cargos").select("rs,link,exames,documentos").eq(
+            "cargo_nome", normalizar_cargo((cargo_nome.data or {}).get("nome"))
+        ).execute()
+        if sla_cargo.data:
+            c = sla_cargo.data[0]
+            payload["sla_rs_dias"] = c.get("rs")
+            payload.setdefault("sla_admissao_dias", sum(c.get(k) or 0 for k in ("link", "exames", "documentos")) or None)
+
+    if payload.get("etapa_atual_id") and payload["etapa_atual_id"] != current.get("etapa_atual_id"):
+        payload.setdefault("data_inicio_etapa", date.today().isoformat())
+
     if payload.get("etapa_atual_id"):
-        etapa = sb.table("rh_etapas_processo").select("nome,secao_responsavel_id").eq("id", payload["etapa_atual_id"]).single().execute()
+        etapa = sb.table("rh_etapas_processo").select("nome,secao_responsavel_id,fase").eq("id", payload["etapa_atual_id"]).single().execute()
         etapa_data = etapa.data or {}
+        if (
+            etapa_data.get("nome") == "SOLICITAÇÃO LINK ADMISSIONAL"
+            and "data_confirmacao_contratacao" not in payload
+            and not current.get("data_confirmacao_contratacao")
+        ):
+            payload["data_confirmacao_contratacao"] = date.today().isoformat()
         if "secao_id" not in payload and etapa_data.get("secao_responsavel_id"):
             payload["secao_id"] = etapa_data["secao_responsavel_id"]
         if "status_id" not in payload and etapa_data.get("nome") in ("CONCLUÍDO", "CANCELADO"):
@@ -269,47 +278,6 @@ def iniciar_processo(payload: IniciarPayload, user=Depends(_require_rh)):
     return _serialize(detalhe.data)
 
 
-# ── Detalhe / edição / exclusão ───────────────────────────────────────────────
-
-@router.get("/{vaga_id}")
-def detalhe_vaga(vaga_id: str, user=Depends(_require_rh)):
-    sb = get_supabase()
-    resp = sb.table("rh_vagas").select(_SELECT).eq("id", vaga_id).execute()
-    if not resp.data:
-        raise HTTPException(status_code=404, detail="Vaga não encontrada")
-    return _serialize(resp.data[0])
-
-
-@router.patch("/{vaga_id}")
-def editar_vaga(vaga_id: str, payload: dict, user=Depends(_require_rh)):
-    sb = get_supabase()
-    existente = sb.table("rh_vagas").select(
-        "id,salario,perfil_calculo_id,empresa_id,alocacao_id,tipo_contrato_id"
-    ).eq("id", vaga_id).execute()
-    if not existente.data:
-        raise HTTPException(status_code=404, detail="Vaga não encontrada")
-
-    payload = {k: v for k, v in payload.items() if k not in ("id", "created_at", "created_by")}
-    payload = _apply_automacao(sb, payload, current=existente.data[0])
-    payload["updated_at"] = datetime.utcnow().isoformat()
-    payload["updated_by"] = user.get("id")
-
-    sb.table("rh_vagas").update(payload).eq("id", vaga_id).execute()
-
-    detalhe = sb.table("rh_vagas").select(_SELECT).eq("id", vaga_id).single().execute()
-    return _serialize(detalhe.data)
-
-
-@router.delete("/{vaga_id}")
-def excluir_vaga(vaga_id: str, user=Depends(_require_rh)):
-    sb = get_supabase()
-    existente = sb.table("rh_vagas").select("id").eq("id", vaga_id).execute()
-    if not existente.data:
-        raise HTTPException(status_code=404, detail="Vaga não encontrada")
-    sb.table("rh_vagas").delete().eq("id", vaga_id).execute()
-    return {"ok": True}
-
-
 # ── Template / import de planilha ─────────────────────────────────────────────
 
 @router.get("/template")
@@ -336,3 +304,56 @@ async def importar_planilha(arquivo: UploadFile = File(...), user=Depends(_requi
     sb = get_supabase()
     resultado = _importar(sb, conteudo, arquivo.filename, user)
     return resultado
+
+
+# ── Detalhe / edição / exclusão ───────────────────────────────────────────────
+
+@router.get("/{vaga_id}")
+def detalhe_vaga(vaga_id: str, user=Depends(_require_rh)):
+    sb = get_supabase()
+    resp = sb.table("rh_vagas").select(_SELECT).eq("id", vaga_id).execute()
+    if not resp.data:
+        raise HTTPException(status_code=404, detail="Vaga não encontrada")
+    return _serialize(resp.data[0])
+
+
+@router.patch("/{vaga_id}")
+def editar_vaga(vaga_id: str, payload: dict, user=Depends(_require_rh)):
+    sb = get_supabase()
+    existente = sb.table("rh_vagas").select(
+        "id,salario,perfil_calculo_id,empresa_id,alocacao_id,tipo_contrato_id,"
+        "etapa_atual_id,data_confirmacao_contratacao"
+    ).eq("id", vaga_id).execute()
+    if not existente.data:
+        raise HTTPException(status_code=404, detail="Vaga não encontrada")
+
+    payload = {k: v for k, v in payload.items() if k not in ("id", "created_at", "created_by")}
+    payload = _apply_automacao(sb, payload, current=existente.data[0])
+    payload["updated_at"] = datetime.utcnow().isoformat()
+    payload["updated_by"] = user.get("id")
+
+    sb.table("rh_vagas").update(payload).eq("id", vaga_id).execute()
+
+    novo_etapa = payload.get("etapa_atual_id")
+    if novo_etapa and novo_etapa != existente.data[0].get("etapa_atual_id"):
+        registrar_troca_etapa(sb, vaga_id, novo_etapa, payload.get("data_inicio_etapa"))
+
+    detalhe = sb.table("rh_vagas").select(_SELECT).eq("id", vaga_id).single().execute()
+    return _serialize(detalhe.data)
+
+
+def registrar_troca_etapa(sb, vaga_id: str, etapa_id: str, inicio: Optional[str] = None) -> None:
+    """Fecha a etapa aberta no histórico e abre a nova — base do "prazo por etapa"."""
+    inicio = inicio or date.today().isoformat()
+    sb.table("rh_vagas_etapas_hist").update({"fim": inicio}).eq("vaga_id", vaga_id).is_("fim", "null").execute()
+    sb.table("rh_vagas_etapas_hist").insert({"vaga_id": vaga_id, "etapa_id": etapa_id, "inicio": inicio}).execute()
+
+
+@router.delete("/{vaga_id}")
+def excluir_vaga(vaga_id: str, user=Depends(_require_rh)):
+    sb = get_supabase()
+    existente = sb.table("rh_vagas").select("id").eq("id", vaga_id).execute()
+    if not existente.data:
+        raise HTTPException(status_code=404, detail="Vaga não encontrada")
+    sb.table("rh_vagas").delete().eq("id", vaga_id).execute()
+    return {"ok": True}

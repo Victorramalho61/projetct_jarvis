@@ -24,12 +24,18 @@ function StatusBadge({ status }: { status: string | null }) {
   return <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${cls}`}>{status}</span>;
 }
 
+// Fase corrente: Admissão se já começou, senão R&S (services/sla.py)
 function SlaBadge({ vaga }: { vaga: Vaga }) {
-  if (vaga.sla_ok === null || vaga.sla_ok === undefined) return <span className="text-gray-400 text-xs">—</span>;
-  return vaga.sla_ok ? (
-    <span className="text-[11px] font-semibold text-green-600 dark:text-green-400">NO PRAZO</span>
-  ) : (
-    <span className="text-[11px] font-semibold text-red-600 dark:text-red-400">ATRASO</span>
+  const sla = vaga.sla;
+  if (!sla) return <span className="text-gray-400 text-xs">—</span>;
+  const emAdm = !!sla.adm.inicio;
+  const f = emAdm ? sla.adm : sla.rs;
+  const cor = f.status.includes("ATRAS") ? "text-red-600 dark:text-red-400"
+    : f.status.includes("PRAZO") ? "text-green-600 dark:text-green-400" : "text-gray-500 dark:text-gray-400";
+  return (
+    <span className={`text-[11px] font-semibold ${cor}`}>
+      {emAdm ? "ADM" : "R&S"} · {f.status}
+    </span>
   );
 }
 
@@ -74,7 +80,7 @@ export default function VagasTable({ vagas, total, page, pageSize, onPageChange,
                 <td className="px-4 py-2.5"><StatusBadge status={v.status} /></td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-col">
-                    <span className="text-xs text-gray-600 dark:text-gray-300">{v.dias_corridos ?? "—"} dias</span>
+                    <span className="text-xs text-gray-600 dark:text-gray-300">{(v.sla?.adm.inicio ? v.sla.adm.dias : v.dias_corridos) ?? "—"}/{(v.sla?.adm.inicio ? v.sla.adm.sla : v.sla?.rs.sla) ?? "—"} dias</span>
                     <SlaBadge vaga={v} />
                   </div>
                 </td>
