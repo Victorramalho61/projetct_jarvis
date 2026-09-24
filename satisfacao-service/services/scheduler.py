@@ -52,14 +52,13 @@ def _job_verificar_aderencia():
                 }).eq("id", campanha["id"]).execute()
                 sb.table("sat_campanhas").update({"status": "em_andamento"}).eq("id", campanha["id"]).execute()
 
-                pendentes = (
-                    sb.table("sat_respostas")
-                    .select("*, sat_clientes(*)")
-                    .eq("campanha_id", campanha["id"])
-                    .in_("status", ["pendente", "enviado"])
-                    .execute()
+                from services.paginacao import buscar_todos
+
+                pendentes = buscar_todos(
+                    lambda: sb.table("sat_respostas").select("*, sat_clientes(*)")
+                    .eq("campanha_id", campanha["id"]).in_("status", ["pendente", "enviado"])
                 )
-                for resposta in (pendentes.data or []):
+                for resposta in pendentes:
                     cliente = resposta.get("sat_clientes") or {}
                     if not cliente.get("contato_email"):
                         continue
@@ -111,15 +110,14 @@ def _job_cobranca_automatica():
         from services.email_service import log_email, send_cobranca
         sb = get_supabase()
 
-        resp = (
-            sb.table("sat_respostas")
-            .select("*, sat_clientes(*), sat_campanhas(*)")
-            .eq("status", "enviado")
-            .execute()
+        from services.paginacao import buscar_todos
+
+        respostas_enviadas = buscar_todos(
+            lambda: sb.table("sat_respostas").select("*, sat_clientes(*), sat_campanhas(*)").eq("status", "enviado")
         )
 
         enviadas = 0
-        for resposta in (resp.data or []):
+        for resposta in respostas_enviadas:
             try:
                 campanha = resposta.get("sat_campanhas") or {}
                 if campanha.get("status") not in ("em_andamento", "postergada"):

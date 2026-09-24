@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from db import get_settings, get_supabase
+from services.paginacao import buscar_todos
 from routes.admin import ItemInvalido, _aplicar_itens
 
 router = APIRouter(prefix="/api/satisfacao/webhooks", tags=["webhook"])
@@ -106,12 +107,8 @@ async def ms_forms_webhook(request: Request, secret: str = Query(default="")):
     email_norm = (payload.email_informado or "").strip().lower()
     empresa_norm = (payload.empresa_informada or "").strip().lower()
 
-    todas_respostas = (
-        sb.table("sat_respostas")
-        .select("*, sat_clientes(*)")
-        .eq("campanha_id", campanha["id"])
-        .execute()
-        .data or []
+    todas_respostas = buscar_todos(
+        lambda: sb.table("sat_respostas").select("*, sat_clientes(*)").eq("campanha_id", campanha["id"])
     )
     disponiveis = [r for r in todas_respostas if r["status"] in ("pendente", "enviado")]
 

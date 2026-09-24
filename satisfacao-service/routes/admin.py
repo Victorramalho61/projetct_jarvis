@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from auth import require_role
 from db import get_supabase
+from services.paginacao import buscar_todos
 from services.business_days import add_business_days
 
 router = APIRouter(prefix="/api/satisfacao/admin")
@@ -98,10 +99,9 @@ def list_campanhas(user=Depends(_require_acesso)):
     resp = sb.table("sat_campanhas").select("*").order("ano", desc=True).execute()
     campanhas = resp.data or []
     for c in campanhas:
-        respostas = sb.table("sat_respostas").select("status").eq("campanha_id", c["id"]).execute()
-        rows = respostas.data or []
-        c["total_convidados"] = len(rows)
-        c["total_respondidos"] = len([r for r in rows if r["status"] == "respondido"])
+        base = lambda: sb.table("sat_respostas").select("id", count="exact").eq("campanha_id", c["id"]).limit(0)  # noqa: E731
+        c["total_convidados"] = base().execute().count or 0
+        c["total_respondidos"] = base().eq("status", "respondido").execute().count or 0
     return campanhas
 
 
@@ -133,7 +133,7 @@ def create_campanha(payload: CampanhaPayload, user=Depends(_require_acesso)):
             "texto_snapshot": p["texto"],
         }).execute()
 
-    clientes = sb.table("sat_clientes").select("id").eq("ativo", True).execute().data or []
+    clientes = buscar_todos(lambda: sb.table("sat_clientes").select("id").eq("ativo", True))
     for c in clientes:
         sb.table("sat_respostas").insert({
             "campanha_id": campanha["id"],
@@ -188,13 +188,8 @@ def iniciar_campanha(campanha_id: str, user=Depends(_require_acesso)):
     }).eq("id", campanha_id).execute()
 
     from services.email_service import send_primeiro_envio
-    respostas = (
-        sb.table("sat_respostas")
-        .select("*, sat_clientes(*)")
-        .eq("campanha_id", campanha_id)
-        .eq("status", "pendente")
-        .execute()
-        .data or []
+    respostas = buscar_todos(
+        lambda: sb.table("sat_respostas").select("*, sat_clientes(*)").eq("campanha_id", campanha_id).eq("status", "pendente")
     )
     enviados, erros = 0, 0
     for r in respostas:
@@ -236,13 +231,8 @@ def postergar_campanha(campanha_id: str, payload: PostergarPayload, user=Depends
     }).eq("id", campanha_id).execute()
 
     from services.email_service import send_reforco_adesao
-    pendentes = (
-        sb.table("sat_respostas")
-        .select("*, sat_clientes(*)")
-        .eq("campanha_id", campanha_id)
-        .in_("status", ["pendente", "enviado"])
-        .execute()
-        .data or []
+    pendentes = buscar_todos(
+        lambda: sb.table("sat_respostas").select("*, sat_clientes(*)").eq("campanha_id", campanha_id).in_("status", ["pendente", "enviado"])
     )
     for r in pendentes:
         cliente = r.get("sat_clientes") or {}
@@ -284,10 +274,11 @@ def list_respostas(
     user=Depends(_require_acesso),
 ):
     sb = get_supabase()
-    query = sb.table("sat_respostas").select("*, sat_clientes(*)").eq("campanha_id", campanha_id)
-    if status:
-        query = query.eq("status", status)
-    rows = query.execute().data or []
+    def _query():
+        query = sb.table("sat_respostas").select("*, sat_clientes(*)").eq("campanha_id", campanha_id)
+        return query.eq("status", status) if status else query
+
+    rows = buscar_todos(_query)
     if cliente_q:
         q_lower = cliente_q.lower()
         rows = [
@@ -365,13 +356,11 @@ def list_triagem(campanha_id: str, user=Depends(_require_acesso)):
     if not cp_ids:
         return []
 
-    itens = (
-        sb.table("sat_respostas_itens")
+    itens = buscar_todos(
+        lambda: sb.table("sat_respostas_itens")
         .select("*, sat_respostas(id, cliente_id, sat_clientes(empresa_nome, contato_nome)), sat_campanha_perguntas(texto_snapshot, pergunta_id)")
         .in_("campanha_pergunta_id", cp_ids)
         .eq("triagem_status", "pendente")
-        .execute()
-        .data or []
     )
     return itens
 
@@ -479,15 +468,15 @@ def get_historico(user=Depends(_require_acesso)):
 @router.get("/campanhas/{campanha_id}/ms-forms-log")
 def list_ms_forms_log(campanha_id: str, status: Optional[str] = Query(None), user=Depends(_require_acesso)):
     sb = get_supabase()
-    query = (
-        sb.table("sat_ms_forms_log")
-        .select("*, sat_clientes(empresa_nome, contato_nome)")
-        .eq("campanha_id", campanha_id)
-    )
-    if status:
-        query = query.eq("status", status)
-    resp = query.order("recebido_em", desc=True).execute()
-    return resp.data or []
+    def _query():
+        query = (
+            sb.table("sat_ms_forms_log")
+            .select("*, sat_clientes(empresa_nome, contato_nome)")
+            .eq("campanha_id", campanha_id)
+        )
+        return (query.eq("status", status) if status else query).order("recebido_em", desc=True)
+
+    return buscar_todos(_query)
 
 
 class ConciliarMsFormsPayload(BaseModel):
@@ -555,12 +544,8 @@ def ignorar_ms_forms(log_id: str, user=Depends(_require_acesso)):
 def list_log_envios(campanha_id: str, user=Depends(_require_acesso)):
     sb = get_supabase()
 
-    respostas = (
-        sb.table("sat_respostas")
-        .select("id, sat_clientes(empresa_nome, contato_nome)")
-        .eq("campanha_id", campanha_id)
-        .execute()
-        .data or []
+    respostas = buscar_todos(
+        lambda: sb.table("sat_respostas").select("id, sat_clientes(empresa_nome, contato_nome)").eq("campanha_id", campanha_id)
     )
     cliente_por_resposta = {r["id"]: (r.get("sat_clientes") or {}) for r in respostas}
     resposta_ids = list(cliente_por_resposta.keys())
@@ -568,7 +553,11 @@ def list_log_envios(campanha_id: str, user=Depends(_require_acesso)):
     eventos = []
 
     if resposta_ids:
-        email_log = sb.table("sat_email_log").select("*").in_("resposta_id", resposta_ids).execute().data or []
+        # .in_ com todos os ids de uma vez estoura a URL e o max-rows — chunks de 150 + paginação
+        email_log = []
+        for i in range(0, len(resposta_ids), 150):
+            chunk = resposta_ids[i:i + 150]
+            email_log += buscar_todos(lambda chunk=chunk: sb.table("sat_email_log").select("*").in_("resposta_id", chunk))
         for e in email_log:
             cliente = cliente_por_resposta.get(e["resposta_id"], {})
             eventos.append({
@@ -579,12 +568,8 @@ def list_log_envios(campanha_id: str, user=Depends(_require_acesso)):
                 "detalhe": e.get("erro_detalhe"),
             })
 
-    forms_log = (
-        sb.table("sat_ms_forms_log")
-        .select("*, sat_clientes(empresa_nome)")
-        .eq("campanha_id", campanha_id)
-        .execute()
-        .data or []
+    forms_log = buscar_todos(
+        lambda: sb.table("sat_ms_forms_log").select("*, sat_clientes(empresa_nome)").eq("campanha_id", campanha_id)
     )
     for f in forms_log:
         cliente = f.get("sat_clientes") or {}

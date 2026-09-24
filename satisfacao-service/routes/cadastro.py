@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from auth import require_role
 from db import get_supabase
+from services.paginacao import buscar_todos
 
 router = APIRouter(prefix="/api/satisfacao/cadastro")
 log = logging.getLogger(__name__)
@@ -46,11 +47,11 @@ def list_clientes(
     user=Depends(_require_acesso),
 ):
     sb = get_supabase()
-    query = sb.table("sat_clientes").select("*").order("empresa_nome")
-    if ativo is not None:
-        query = query.eq("ativo", ativo)
-    resp = query.execute()
-    rows = resp.data or []
+    def _query():
+        query = sb.table("sat_clientes").select("*").order("empresa_nome")
+        return query.eq("ativo", ativo) if ativo is not None else query
+
+    rows = buscar_todos(_query)
     if q:
         q_lower = q.lower()
         rows = [

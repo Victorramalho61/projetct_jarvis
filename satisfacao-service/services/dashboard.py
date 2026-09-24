@@ -1,5 +1,6 @@
 """Agregações para o dashboard da Pesquisa de Satisfação (médias, distribuição, alertas de 30%)."""
 from datetime import date
+from services.paginacao import buscar_todos
 
 LIMIAR_RUIM_PERCENTUAL = 30.0
 
@@ -25,8 +26,7 @@ def build_campanha_dashboard(sb, campanha_id: str) -> dict:
     )
     campanha_perguntas = perguntas_resp.data or []
 
-    respostas_resp = sb.table("sat_respostas").select("*").eq("campanha_id", campanha_id).execute()
-    respostas = respostas_resp.data or []
+    respostas = buscar_todos(lambda: sb.table("sat_respostas").select("*").eq("campanha_id", campanha_id))
     total_convidados = len(respostas)
     total_enviados = len([r for r in respostas if r["status"] != "pendente"])
     total_respondidos = len([r for r in respostas if r["status"] == "respondido"])
@@ -34,13 +34,7 @@ def build_campanha_dashboard(sb, campanha_id: str) -> dict:
     cp_ids = [cp["id"] for cp in campanha_perguntas]
     itens: list[dict] = []
     if cp_ids:
-        itens_resp = (
-            sb.table("sat_respostas_itens")
-            .select("*")
-            .in_("campanha_pergunta_id", cp_ids)
-            .execute()
-        )
-        itens = itens_resp.data or []
+        itens = buscar_todos(lambda: sb.table("sat_respostas_itens").select("*").in_("campanha_pergunta_id", cp_ids))
 
     planos_resp = sb.table("sat_planos_acao").select("*").eq("campanha_id", campanha_id).execute()
     planos = planos_resp.data or []
@@ -132,13 +126,9 @@ def build_historico() -> list[dict]:
 
         itens: list[dict] = []
         if cp_ids:
-            itens_resp = (
-                sb.table("sat_respostas_itens")
-                .select("nota, campanha_pergunta_id")
-                .in_("campanha_pergunta_id", cp_ids)
-                .execute()
+            itens = buscar_todos(
+                lambda cp_ids=cp_ids: sb.table("sat_respostas_itens").select("id, nota, campanha_pergunta_id").in_("campanha_pergunta_id", cp_ids)
             )
-            itens = itens_resp.data or []
 
         por_categoria: dict[str, list[int]] = {}
         for i in itens:
