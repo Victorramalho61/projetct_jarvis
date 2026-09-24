@@ -84,9 +84,9 @@ function Fase({ fase, resumo, loading, onDrill }: { fase: FaseSla; resumo?: SlaR
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
-        <StatTile label="Em andamento no prazo" valor={resumo?.em_andamento_no_prazo ?? 0} tom="ok"
-          onClick={() => onDrill(fase, ["NO PRAZO"], `${titulo} — em andamento no prazo`)} />
-        <StatTile label="Em andamento atrasadas" valor={resumo?.em_andamento_atrasadas ?? 0} tom="ruim"
+        <StatTile label="Abertas no prazo" valor={resumo?.em_andamento_no_prazo ?? 0} tom="ok"
+          onClick={() => onDrill(fase, ["NO PRAZO"], `${titulo} — abertas no prazo`)} />
+        <StatTile label="Abertas atrasadas" valor={resumo?.em_andamento_atrasadas ?? 0} tom="ruim"
           onClick={() => onDrill(fase, ["ATRASADO"], `${titulo} — atrasadas`)} />
         <StatTile label="Concluídas no prazo" valor={resumo?.concluidas_no_prazo ?? 0} tom="okConcl"
           onClick={() => onDrill(fase, ["CONCLUÍDA NO PRAZO"], `${titulo} — concluídas no prazo`)} />

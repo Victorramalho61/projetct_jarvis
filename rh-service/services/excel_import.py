@@ -23,7 +23,8 @@ _SHEET_SLA = "SLA"
 _SHEET_LISTAS = "LISTAS SUSPENSAS"
 _MAX_LINHAS_SLA = 5000
 _STATUS_NOVO = {
-    "ABERTA": "EM ANDAMENTO",
+    "ABERTA": "ABERTA",
+    "EM ANDAMENTO": "ABERTA",
     "PREENCHIDA/FECHADA": "CONCLUÍDO",
     "CANCELADA": "CANCELADO",
     "EM STANDBY": "CONGELADO",
@@ -36,7 +37,7 @@ _CORRECOES_ETAPA = {
 }
 # Nº de requisição válido: TUR.ADM.281/26 (aceita TUR.ADM.290.26, digitado com ponto)
 _RE_REQUISICAO = re.compile(r"^[A-Z]{3}\.ADM\.\d{3}[./]\d{2}$")
-_CORRECOES_STATUS = {"CONCLUIDA": "CONCLUÍDO", "CONGELADA": "CONGELADO"}
+_CORRECOES_STATUS = {"CONCLUIDA": "CONCLUÍDO", "CONGELADA": "CONGELADO", "EM ANDAMENTO": "ABERTA"}
 
 
 class _LookupCache:
@@ -153,7 +154,7 @@ def importar_planilha(sb, conteudo: bytes, nome_arquivo: str, user: dict) -> dic
             empresa_nome = _CORRECOES_EMPRESA.get(empresa_nome.upper(), empresa_nome.upper())
             empresa_id = cache.get_or_create("rh_empresas", "nome", empresa_nome)
 
-            status_nome = _clean_str(row.get("STATUS DA VAGA")) or "EM ANDAMENTO"
+            status_nome = _clean_str(row.get("STATUS DA VAGA")) or "ABERTA"
             status_nome = _CORRECOES_STATUS.get(status_nome.upper(), status_nome.upper())
             status_id = status_map.get(status_nome) or cache.get_or_create("rh_status_vaga", "nome", status_nome)
 

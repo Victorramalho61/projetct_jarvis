@@ -258,9 +258,9 @@ def iniciar_processo(payload: IniciarPayload, user=Depends(_require_rh)):
     if not empresa.data:
         raise HTTPException(status_code=400, detail="Empresa inválida")
 
-    status_inicial = sb.table("rh_status_vaga").select("id").eq("nome", "EM ANDAMENTO").single().execute()
+    status_inicial = sb.table("rh_status_vaga").select("id").eq("nome", "ABERTA").single().execute()
     if not status_inicial.data:
-        raise HTTPException(status_code=500, detail="Status inicial 'EM ANDAMENTO' não configurado")
+        raise HTTPException(status_code=500, detail="Status inicial 'ABERTA' não configurado")
 
     numero_requisicao = gerar_numero_requisicao(sb, payload.empresa_id)
 

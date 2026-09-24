@@ -5,7 +5,7 @@ type Props = {
   onDrillEtapa: (etapa: string) => void;
 };
 
-/** Prazo por etapa do funil — vagas em andamento paradas em cada etapa agora. */
+/** Prazo por etapa do funil — vagas abertas paradas em cada etapa agora. */
 export default function EtapasSlaChart({ etapas, onDrillEtapa }: Props) {
   const max = Math.max(1, ...etapas.map((e) => e.qtd_atual));
   const temHistorico = etapas.some((e) => e.amostras_historico > 0);

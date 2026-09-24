@@ -22,7 +22,7 @@ import VagaFormModal from "../components/rh/VagaFormModal";
 type DrillDown = { titulo: string; itens: AlertaSla[] };
 
 const STATUS_CORES: Record<string, string> = {
-  "EM ANDAMENTO": "#3b82f6",
+  "ABERTA": "#3b82f6",
   "REABERTO": "#f59e0b",
   "CONCLUÍDO": "#22c55e",
   "CANCELADO": "#ef4444",
@@ -62,7 +62,7 @@ export default function RhPage() {
 
   function drillEtapa(etapa: string) {
     const itens = relatorio
-      .filter((l) => l.etapa_atual === etapa && (l.status === "EM ANDAMENTO" || l.status === "REABERTO"))
+      .filter((l) => l.etapa_atual === etapa && (l.status === "ABERTA" || l.status === "REABERTO"))
       .map((l) => paraAlerta(l, l.etapa.fase === "ADMISSAO" ? "adm" : "rs"));
     setDrillDown({ titulo: `Vagas em ${etapa.toLowerCase()}`, itens });
   }
@@ -90,7 +90,7 @@ export default function RhPage() {
 
   const cargosData = useMemo(() => data?.top_cargos.slice(0, 8) ?? [], [data]);
 
-  // Produtividade por analista — congelada é bucket próprio, separado de "em andamento"
+  // Produtividade por analista — congelada é bucket próprio, separado de "abertas"
   const analistaStats = useMemo(() => {
     const linhas = data?.por_analista ?? [];
     const totalConcluidas = linhas.reduce((s, a) => s + a.concluidas, 0);
@@ -150,7 +150,7 @@ export default function RhPage() {
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
         <div className="2xl:col-span-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
           <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Prazo por etapa do recrutamento</h3>
-          <p className="mb-3 text-[11px] text-gray-400">Vagas em andamento em cada etapa do funil — clique na etapa para ver as vagas</p>
+          <p className="mb-3 text-[11px] text-gray-400">Vagas abertas em cada etapa do funil — clique na etapa para ver as vagas</p>
           <EtapasSlaChart etapas={data?.sla_fases.etapas ?? []} onDrillEtapa={drillEtapa} />
         </div>
         <div className="2xl:col-span-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
@@ -271,7 +271,7 @@ export default function RhPage() {
           <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Vagas por analista</h3>
           <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#22c55e]" /> Concluída</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#3b82f6]" /> Em andamento</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#3b82f6]" /> Aberta</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#94a3b8]" /> Congelada</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#ef4444]" /> Cancelada</span>
           </div>
@@ -284,7 +284,7 @@ export default function RhPage() {
                 <th className="px-3 py-2 text-right">Total</th>
                 <th className="px-3 py-2">Progresso</th>
                 <th className="px-3 py-2 text-right">Concluídas</th>
-                <th className="px-3 py-2 text-right">Andamento</th>
+                <th className="px-3 py-2 text-right">Abertas</th>
                 <th className="px-3 py-2 text-right">Congeladas</th>
                 <th className="px-3 py-2 text-right">Canceladas</th>
               </tr>
@@ -356,9 +356,9 @@ export default function RhPage() {
 
           <div className="rounded-lg border border-gray-100 dark:border-gray-800 p-3">
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Carga atual — vagas em andamento
+              Carga atual — vagas abertas
             </h4>
-            <p className="mb-3 text-[11px] text-gray-400">% de quanto cada analista está atuando em relação ao total em andamento da equipe (não inclui congelada)</p>
+            <p className="mb-3 text-[11px] text-gray-400">% de quanto cada analista está atuando em relação ao total de vagas abertas da equipe (não inclui congelada)</p>
             <div className="space-y-2">
               {rankingAbertas.map((a) => (
                 <div key={a.analista} className="flex items-center gap-2 text-xs">

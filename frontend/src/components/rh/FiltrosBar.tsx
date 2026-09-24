@@ -3,7 +3,9 @@ import type { RhLookups } from "../../hooks/useRhLookups";
 import type { VagasFiltros } from "../../types/rh";
 
 const ANO_ATUAL = new Date().getFullYear();
-const ANOS_DISPONIVEIS = [ANO_ATUAL, ANO_ATUAL - 1, ANO_ATUAL - 2, ANO_ATUAL - 3];
+// O banco guarda só vagas de 2026 em diante (anteriores removidas em 2026-09-24)
+const PRIMEIRO_ANO = 2026;
+const ANOS_DISPONIVEIS = Array.from({ length: Math.max(1, ANO_ATUAL - PRIMEIRO_ANO + 1) }, (_, i) => ANO_ATUAL - i);
 
 const FIELD_CLASS =
   "w-full rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500";

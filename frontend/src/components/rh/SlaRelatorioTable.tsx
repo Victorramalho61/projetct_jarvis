@@ -10,10 +10,10 @@ type Props = {
   onAbrirVaga: (id: string) => void;
 };
 
-type FiltroFase = "todas" | "rs_atrasadas" | "adm_atrasadas" | "etapa_estourada" | "em_andamento";
+type FiltroFase = "todas" | "rs_atrasadas" | "adm_atrasadas" | "etapa_estourada" | "abertas";
 
 const FILTROS: { id: FiltroFase; label: string }[] = [
-  { id: "em_andamento", label: "Em andamento" },
+  { id: "abertas", label: "Abertas" },
   { id: "rs_atrasadas", label: "R&S atrasado" },
   { id: "adm_atrasadas", label: "Admissão atrasada" },
   { id: "etapa_estourada", label: "Etapa externa estourada" },
@@ -46,7 +46,7 @@ function CelFase({ f }: { f: SlaFase }) {
 }
 
 export default function SlaRelatorioTable({ linhas, loading, exportando, onExportar, onAbrirVaga }: Props) {
-  const [filtro, setFiltro] = useState<FiltroFase>("em_andamento");
+  const [filtro, setFiltro] = useState<FiltroFase>("abertas");
   const [busca, setBusca] = useState("");
 
   const filtradas = useMemo(() => {
@@ -54,7 +54,7 @@ export default function SlaRelatorioTable({ linhas, loading, exportando, onExpor
     if (filtro === "rs_atrasadas") l = l.filter((x) => x.rs.status === "ATRASADO");
     if (filtro === "adm_atrasadas") l = l.filter((x) => x.adm.status === "ATRASADO");
     if (filtro === "etapa_estourada") l = l.filter((x) => x.etapa.status === "ATRASADO");
-    if (filtro === "em_andamento") l = l.filter((x) => x.status === "EM ANDAMENTO" || x.status === "REABERTO");
+    if (filtro === "abertas") l = l.filter((x) => x.status === "ABERTA" || x.status === "REABERTO");
     const b = busca.trim().toLowerCase();
     if (b) {
       l = l.filter((x) =>

@@ -97,7 +97,7 @@ def send_relatorio_semanal(destinatario: str, nome: str, kpis: dict, sla_estoura
 
     body = f"""
 <h2 style="margin:0 0 8px;font-size:20px;color:{_TEXT_DARK};">Status Semanal das Vagas — Recursos Humanos</h2>
-<p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.6;">Olá, <strong>{nome}</strong>! Segue o resumo semanal de todas as vagas em andamento.</p>
+<p style="margin:0 0 20px;font-size:14px;color:#374151;line-height:1.6;">Olá, <strong>{nome}</strong>! Segue o resumo semanal de todas as vagas abertas.</p>
 {resumo}
 {_tabela_vagas("SLA estourado", _ERROR_BORDER, _ERROR_BG, sla_estourado)}
 {_tabela_vagas("SLA estourando (≤3 dias)", _WARN_BORDER, _WARN_BG, sla_estourando)}

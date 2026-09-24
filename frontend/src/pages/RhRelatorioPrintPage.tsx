@@ -47,7 +47,7 @@ export default function RhRelatorioPrintPage() {
             <tr className="border-b border-gray-300 text-[11px] uppercase text-gray-500">
               <th className="py-1 text-left">Fase</th>
               <th className="py-1 text-right">% no prazo</th>
-              <th className="py-1 text-right">Em andamento no prazo</th>
+              <th className="py-1 text-right">Abertas no prazo</th>
               <th className="py-1 text-right">Atrasadas</th>
               <th className="py-1 text-right">Concluídas no prazo</th>
               <th className="py-1 text-right">Concluídas c/ atraso</th>
