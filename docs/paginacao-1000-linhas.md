@@ -39,6 +39,33 @@
 | performance_reviews | 2k |
 | performance_employees | 1,1k |
 
+> ## ⚠️ Conclusão (2026-09-24): o limite de 1000 linhas NÃO existe nesta instalação
+> Durante o serviço 3 (expenses), um `.limit(2000)` devolveu 2000 linhas. A verificação seguiu com consultas **sem `limit`**, todas completas:
+>
+> | Tabela | Linhas devolvidas |
+> |---|---|
+> | `freshservice_tickets` | 64.121 (todas) |
+> | `fiscal_documents` | 105.441 (todas) |
+> | `payfly_media_posts` | 4.574 (todas) |
+>
+> O PostgREST do stack é **self-hosted** (`postgrest/postgrest:v12.0.1`, container `jarvis-rest-1`) e roda **sem `PGRST_DB_MAX_ROWS`**, então não há teto. O corte em 1000 é o padrão do **Supabase Cloud**, e a varredura partiu dessa premissa sem validá-la antes. **Nenhuma leitura estava sendo truncada.**
+>
+> **Decisão:**
+> - As correções já publicadas (rh, cards, satisfacao) ficam: são inofensivas, foram testadas e protegem se alguém configurar `max-rows` no futuro.
+> - O restante (expenses, monitoring, freshservice, fiscal, performance) foi marcado como **➖ não necessário** e deixado de lado. O código não commitado do expenses foi descartado.
+> - A imagem `:pre-paginacao` e os CSVs de backup continuam disponíveis.
+>
+> **Riscos reais que a varredura levantou e que NÃO dependem do max-rows** (não corrigidos, ficam registrados):
+> - **`.in_()` com milhares de ids numa só requisição:** a URL pode passar do limite do Kong/PostgREST (~8 KB) e dar erro 414/400 em volume alto. Casos:
+>   - `fiscal-service/services/apuration_engine.py:65`;
+>   - `fiscal-service/services/conference_engine.py:22` (fiscal_items por todos os documentos do período);
+>   - `satisfacao-service` timeline (este já foi corrigido com chunks).
+> - **`.limit()` próprio do código, que corta dados de verdade:**
+>   - `expenses-service/routes/payfly.py`: série diária `limit(days*50)` e crise `limit(2000)`. Com volume alto, a janela de 30 dias fica incompleta;
+>   - `monitoring-service/services/log_monitor.py`: `limit(2000)`.
+>   - Hoje o volume é baixo: não há posts de mídia desde 12/08/2026.
+> - `core-service/routes/notifications.py`: "último check por sistema" usa `limit(len*2)` e pode omitir sistemas (bug de lógica).
+
 Status: ⏳ a fazer · ✅ feito · ❌ não possível (motivo) · ➖ não precisa
 
 | # | Serviço | Status | Observações / problemas |
@@ -46,12 +73,12 @@ Status: ⏳ a fazer · ✅ feito · ❌ não possível (motivo) · ➖ não prec
 | 0 | rh-service | ✅ 2026-09-24 | Referência do padrão (commit `1fa700b`). |
 | 1 | cards-service | ✅ 2026-09-24 (`dfe8367`) | export `cards_acessos` paginado (teto 50 mil); contagem com `limit(0)`. |
 | 2 | satisfacao-service | ✅ 2026-09-24 (`3eb97ea`, deploy manual) | 14 leituras paginadas; contagem de campanha via `count`; `sat_email_log` em chunks. |
-| 3 | expenses-service | ⏳ | governança (`len`/`sum`), PayFly mídia (`limit(2000)`, `days*50`, `1500`), media_pipeline. |
-| 4 | monitoring-service | ⏳ | benner_rpa KPIs/top/evolução, **dedupe do coletor** (duplicatas?), log_monitor `limit(2000)`, uptime. |
-| 5 | freshservice-service | ⏳ | KPIs PayFly (`_tickets_in_range`, `_count_in` por `len`), tarefas de projeto. |
-| 6 | fiscal-service | ⏳ | export CSV/ZIP, apuração, conferência (`fiscal_items` `.in_` sem chunk). |
-| 7 | performance-service | ⏳ | dashboard, pendências, exports, list_employees, dedupe de CPF, envio de tokens, reset de ciclo, action_plans, notifications. |
-| 8 | experiencia-service | ⏳ | listas, auditoria, export, empresas — junto com o projeto "Avaliação de Experiência v2". |
+| 3 | expenses-service | ➖ não necessário | Sem truncamento (PostgREST sem max-rows). Ver riscos reais acima (`limit(days*50)`, `limit(2000)`). |
+| 4 | monitoring-service | ➖ não necessário | Dedupe do coletor Benner está correto (sem truncamento). `log_monitor` `limit(2000)` fica como risco registrado. |
+| 5 | freshservice-service | ➖ não necessário | KPIs completos (64k tickets retornados sem corte). |
+| 6 | fiscal-service | ➖ não necessário p/ max-rows | Risco real registrado: `.in_()` com todos os ids em apuração/conferência (URL longa). |
+| 7 | performance-service | ➖ não necessário | Sem truncamento; nada alterado. |
+| 8 | experiencia-service | ➖ não necessário | O projeto v2 segue sem mudança de paginação. |
 | — | moneypenny / support / financeiro | ➖ | Sem leitura grande (financeiro lê SQL Server direto). support: `limit` sem `le=` e o histórico de conversa, ambos baixo risco. |
 
 ## Registro por serviço
