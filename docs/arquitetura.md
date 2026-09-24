@@ -2615,3 +2615,7 @@ Validado com página de 100: 731 vagas, sem duplicatas e mantendo a ordenação.
 - **Status renomeado:** `EM ANDAMENTO` virou `ABERTA` (migration `007_rh_status_aberta.sql`, mesmo id), o termo da planilha nova. O import traduz `EM ANDAMENTO`→`ABERTA`, então planilhas antigas não recriam o status antigo. Os rótulos da UI passaram de "em andamento" para "abertas", mas as chaves de API `em_andamento_*` foram mantidas.
 - **Histórico removido a pedido do RH:** foram apagadas as 558 vagas com abertura até 31/12/2025 (457 concluídas, 55 canceladas, 45 congeladas e 1 reaberta; nenhuma com assinatura). O banco guarda só jan/2026 em diante, e o filtro de ano começa em 2026.
 - **Backup** fora do repositório: `E:\claudecode\backups\rh_vagas_ate_2025_2026-09-24.csv` (CSV com cabeçalho, todas as colunas de `rh_vagas`). Os lookups não foram tocados.
+
+## Paginação — limite de 1000 linhas (2026-09-24)
+
+Correção em andamento em todos os serviços, com status por serviço, backups e problemas encontrados em [`docs/paginacao-1000-linhas.md`](paginacao-1000-linhas.md).
