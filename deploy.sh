@@ -11,18 +11,33 @@ cd "$APP_DIR"
 # ── Hook: auto-commit docs pendentes antes de atualizar ──────────────────
 # Se houver mudanças não commitadas em docs/ (ex: arquitetura.md editado
 # pelo Claude do servidor), commita e envia ao GitHub antes do checkout.
+# Push NÃO interativo: o runner roda como serviço, sem janela — um prompt do Git
+# Credential Manager travava o deploy indefinidamente (2026-09-24). Se o push falhar,
+# o commit é desfeito (as mudanças voltam a ser locais, nada se perde).
 if ! git diff --quiet docs/ 2>/dev/null || git ls-files --others --exclude-standard docs/ | grep -q .; then
     echo ">>> Docs alterados — commitando antes do deploy..."
     git add docs/
     git commit -m "docs: auto-update pre-deploy $(date +%Y-%m-%d) [skip ci]"
-    git push origin HEAD:main
-    echo ">>> Docs enviados ao GitHub."
+    if GIT_TERMINAL_PROMPT=0 GCM_INTERACTIVE=never timeout 60 git push origin HEAD:main; then
+        echo ">>> Docs enviados ao GitHub."
+    else
+        echo ">>> AVISO: push dos docs falhou — mantendo as alterações locais (não commitadas)."
+        git reset --soft HEAD~1
+        git reset -q docs/
+    fi
 fi
 
 PREV_HEAD=$(git rev-parse HEAD)
 
+# Fast-forward em vez de `reset --hard`: este diretório também é usado para
+# desenvolvimento no servidor, e o reset apagava alterações não commitadas.
+# ff-only preserva o que não conflita e falha explicitamente se o local divergiu.
 git fetch origin main
-git reset --hard origin/main
+if ! git merge --ff-only origin/main; then
+    echo "ERRO: repositório local divergiu de origin/main (commits locais não enviados ou"
+    echo "      alterações locais em arquivos que o push mudou). Deploy abortado sem mexer em nada."
+    exit 1
+fi
 
 NEW_HEAD=$(git rev-parse HEAD)
 
