@@ -44,7 +44,7 @@ Status: ⏳ a fazer · ✅ feito · ❌ não possível (motivo) · ➖ não prec
 | # | Serviço | Status | Observações / problemas |
 |---|---|---|---|
 | 0 | rh-service | ✅ 2026-09-24 | Referência do padrão (commit `1fa700b`). |
-| 1 | cards-service | ⏳ | export `cards_acessos` `limit(5000)`. |
+| 1 | cards-service | ✅ 2026-09-24 (`dfe8367`) | export `cards_acessos` paginado (teto 50 mil); contagem com `limit(0)`. |
 | 2 | satisfacao-service | ⏳ | dashboard (`len`), itens por pergunta, campanhas, webhook (match), timeline sem chunk. |
 | 3 | expenses-service | ⏳ | governança (`len`/`sum`), PayFly mídia (`limit(2000)`, `days*50`, `1500`), media_pipeline. |
 | 4 | monitoring-service | ⏳ | benner_rpa KPIs/top/evolução, **dedupe do coletor** (duplicatas?), log_monitor `limit(2000)`, uptime. |
@@ -56,3 +56,8 @@ Status: ⏳ a fazer · ✅ feito · ❌ não possível (motivo) · ➖ não prec
 
 ## Registro por serviço
 _(preenchido durante a execução)_
+
+### 1. cards-service — ✅
+- `routes/access_logs.py`: o export usava `.limit(5000)`, cortado em 1000. Agora usa `buscar_todos(..., max_linhas=50000)`. `_count_query` ganhou `limit(0)` (só contagem, sem baixar linhas).
+- Teste: a tabela hoje tem só 3 acessos. Com página forçada de 1 linha, voltaram as 3, e `max_linhas` respeitado. Export 200 OK.
+- Observado, fora do escopo e sem mudança: o CSV exportado sai com **BOM duplicado** (`to_csv` já grava o BOM e a rota ainda codifica em `utf-8-sig`). O Excel abre normalmente, mas a 1ª coluna pode vir com um caractere invisível.
