@@ -14,8 +14,9 @@ def gerar_e_enviar():
     from services.email_service import send_relatorio_semanal
 
     sb = get_supabase()
-    resp = sb.table("rh_vagas").select(_SELECT).execute()
-    rows = [_serialize(r) for r in (resp.data or [])]
+    from services.paginacao import buscar_todos
+
+    rows = [_serialize(r) for r in buscar_todos(lambda: sb.table("rh_vagas").select(_SELECT))]
     rows = [r for r in rows if (r.get("data_recebimento") or "")[:4] >= "2026"]
 
     abertas = [r for r in rows if r.get("status_em_aberto")]

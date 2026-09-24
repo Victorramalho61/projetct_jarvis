@@ -202,24 +202,25 @@ def listar_vagas(
     page_size: int = Query(50, ge=1, le=200),
     user=Depends(_require_rh),
 ):
+    from services.paginacao import buscar_todos
+
     sb = get_supabase()
-    query = sb.table("rh_vagas").select(_SELECT).order("data_recebimento", desc=True)
+    params = locals()  # fora da comprehension: lá dentro locals() é o escopo dela
+    filtros_eq = {col: params[col] for col in _FILTER_COLS if params.get(col)}
 
-    if status_id:
-        query = query.in_("status_id", status_id)
-    if data_inicio:
-        query = query.gte("data_recebimento", data_inicio)
-    if data_fim:
-        query = query.lte("data_recebimento", data_fim)
-
-    locals_ = locals()
-    for col in _FILTER_COLS:
-        val = locals_.get(col)
-        if val:
+    def _query():
+        query = sb.table("rh_vagas").select(_SELECT).order("data_recebimento", desc=True)
+        if status_id:
+            query = query.in_("status_id", status_id)
+        if data_inicio:
+            query = query.gte("data_recebimento", data_inicio)
+        if data_fim:
+            query = query.lte("data_recebimento", data_fim)
+        for col, val in filtros_eq.items():
             query = query.eq(col, val)
+        return query
 
-    resp = query.execute()
-    rows = [_serialize(r) for r in (resp.data or [])]
+    rows = [_serialize(r) for r in buscar_todos(_query)]
 
     if ano:
         anos_str = {str(a) for a in ano}

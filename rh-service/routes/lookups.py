@@ -59,8 +59,9 @@ def list_itens(tipo: str, user=Depends(_require_rh)):
     cfg = _config(tipo)
     sb = get_supabase()
     order_col = "ordem" if tipo == "etapas" else cfg["name_col"]
-    resp = sb.table(cfg["table"]).select("*").order(order_col).execute()
-    return resp.data or []
+    from services.paginacao import buscar_todos
+
+    return buscar_todos(lambda: sb.table(cfg["table"]).select("*").order(order_col))
 
 
 @router.post("/{tipo}")

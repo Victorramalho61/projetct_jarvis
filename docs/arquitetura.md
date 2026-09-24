@@ -2598,3 +2598,15 @@ Pedido da gestora de RH: SLA separado para **R&S** e **Admissão**, em destaque 
 - **Ordem do dashboard:** filtros → `SlaFasesPanel` em destaque → "Prazo por etapa" (`EtapasSlaChart`) + "SLA por recrutador" → "Relatório de SLA por vaga" (`SlaRelatorioTable`, com Exportar Excel) → "Visão geral das vagas" (o conteúdo anterior, sem mudar a lógica).
 - Os tiles de alerta antigos saíram e os números do painel abrem o drill-down.
 - `VagaFormModal` ganhou os campos novos e o resumo de prazos. `VagasTable` mostra a fase corrente, o filtro e o formulário mostram só etapas ativas, e o relatório impresso ganhou a tabela de SLA por fase.
+
+**Paginação (2026-09-24):** o PostgREST/Supabase devolve no máximo 1000 linhas por consulta, então as leituras do rh-service passaram a usar `services/paginacao.py::buscar_todos(fábrica_de_query)`: páginas de 1000, com `order("id")` como desempate. Recebe uma fábrica porque `.range()` do postgrest-py acumula parâmetros no builder. Aplicado em:
+- listagem de vagas;
+- dashboard e relatório de SLA;
+- relatório semanal;
+- `rh_vagas_etapas_hist`;
+- `rh_sla_cargos`;
+- lookups (cargos já passa de 650);
+- template;
+- gerador de nº de requisição.
+
+Validado com página de 100: 731 vagas, sem duplicatas e mantendo a ordenação.

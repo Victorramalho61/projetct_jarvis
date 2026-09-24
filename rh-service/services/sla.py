@@ -162,9 +162,11 @@ def calc_sla(v: dict, sla_cargos: dict, etapas: dict, hoje: Optional[date] = Non
 
 def carregar_referencias(sb) -> tuple[dict, dict]:
     """(sla_cargos, etapas) — carregar uma vez por request."""
+    from services.paginacao import buscar_todos
+
     sla_cargos = {
         r["cargo_nome"]: r
-        for r in (sb.table("rh_sla_cargos").select("cargo_nome,rs,link,exames,documentos").execute().data or [])
+        for r in buscar_todos(lambda: sb.table("rh_sla_cargos").select("id,cargo_nome,rs,link,exames,documentos"))
     }
     etapas = {
         e["id"]: e

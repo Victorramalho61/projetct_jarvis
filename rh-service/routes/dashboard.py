@@ -30,18 +30,22 @@ def enviar_relatorio_semanal_agora(user=Depends(_require_rh)):
 def _linhas_filtradas(sb, filtros: dict) -> list[dict]:
     from routes.vagas import _FILTER_COLS, _SELECT, _serialize
 
-    query = sb.table("rh_vagas").select(_SELECT)
-    if filtros.get("status_id"):
-        query = query.in_("status_id", filtros["status_id"])
-    if filtros.get("data_inicio"):
-        query = query.gte("data_recebimento", filtros["data_inicio"])
-    if filtros.get("data_fim"):
-        query = query.lte("data_recebimento", filtros["data_fim"])
-    for col in _FILTER_COLS:
-        if filtros.get(col):
-            query = query.eq(col, filtros[col])
+    from services.paginacao import buscar_todos
 
-    rows = [_serialize(r) for r in (query.execute().data or [])]
+    def _query():
+        query = sb.table("rh_vagas").select(_SELECT)
+        if filtros.get("status_id"):
+            query = query.in_("status_id", filtros["status_id"])
+        if filtros.get("data_inicio"):
+            query = query.gte("data_recebimento", filtros["data_inicio"])
+        if filtros.get("data_fim"):
+            query = query.lte("data_recebimento", filtros["data_fim"])
+        for col in _FILTER_COLS:
+            if filtros.get(col):
+                query = query.eq(col, filtros[col])
+        return query
+
+    rows = [_serialize(r) for r in buscar_todos(_query)]
 
     if filtros.get("ano"):
         anos_str = {str(a) for a in filtros["ano"]}
@@ -149,7 +153,9 @@ def _bloco_sla(sb, rows: list[dict]) -> dict:
         key=lambda e: e["ordem"],
     )
     ids_rows = {r["id"] for r in rows}
-    hist = sb.table("rh_vagas_etapas_hist").select("vaga_id,etapa_id,inicio,fim").execute().data or []
+    from services.paginacao import buscar_todos
+
+    hist = buscar_todos(lambda: sb.table("rh_vagas_etapas_hist").select("id,vaga_id,etapa_id,inicio,fim"))
     from datetime import date as _date
     hoje = _date.today()
     dur_por_etapa: dict[str, list[int]] = defaultdict(list)

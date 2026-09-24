@@ -10,6 +10,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from services.paginacao import buscar_todos
+
 _COLUNAS = [
     "Nº REQUISIÇÃO", "EMPRESA", "UF", "ALOCAÇÃO REAL", "CARGO / VAGA", "NÍVEL", "CENTRO DE CUSTO",
     "HIERARQUIA", "TIPO DE CONTRATO", "TIPO DA VAGA", "NOME DO SUBSTITUIDO", "REQUISITANTE / GESTOR",
@@ -63,7 +65,7 @@ def gerar_template(sb) -> io.BytesIO:
         ]),
     ]
     blocos = [
-        (h, dados, sorted(r[campo] for r in sb.table(t).select(campo).execute().data if r.get(campo)))
+        (h, dados, sorted(r[campo] for r in buscar_todos(lambda t=t, campo=campo: sb.table(t).select(f"id,{campo}")) if r.get(campo)))
         for h, dados, t, campo in _LISTAS
     ] + extras
     for header, coluna_dados, valores in blocos:
@@ -81,7 +83,7 @@ def gerar_template(sb) -> io.BytesIO:
 
     sla_ws = wb.create_sheet("SLA")
     _header(sla_ws, ["CARGO", "TIPO", "R&S", "S LINK ADMISSIONAL", "EXAMES", "ENTREGA DE DOCUMENTOS AO DP", "EMPRESA"])
-    for r in sb.table("rh_sla_cargos").select("*").order("cargo_nome").execute().data or []:
+    for r in buscar_todos(lambda: sb.table("rh_sla_cargos").select("*").order("cargo_nome")):
         sla_ws.append([r["cargo_nome"], r.get("nivel"), r.get("rs"), r.get("link"), r.get("exames"), r.get("documentos"), r.get("empresa")])
 
     buffer = io.BytesIO()

@@ -10,9 +10,11 @@ def gerar_numero_requisicao(sb, empresa_id: str) -> str:
     ano = datetime.date.today().year % 100
     # Próximo sequencial = maior já usado no prefixo/ano (+1). Contar vagas da empresa
     # colidia com números reais da planilha (várias empresas compartilham prefixo, ex. VTC).
-    usados = sb.table("rh_vagas").select("numero_requisicao").like(
+    from services.paginacao import buscar_todos
+
+    usados = buscar_todos(lambda: sb.table("rh_vagas").select("id,numero_requisicao").like(
         "numero_requisicao", f"{prefixo}.ADM.%"
-    ).execute().data or []
+    ))
     seqs = [
         int(m.group(1)) for r in usados
         if (m := re.match(rf"^{re.escape(prefixo)}\.ADM\.(\d+)[./]{ano:02d}$", r["numero_requisicao"] or ""))
