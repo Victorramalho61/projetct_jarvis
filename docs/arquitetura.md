@@ -2599,7 +2599,7 @@ Pedido da gestora de RH: SLA separado para **R&S** e **Admissão**, em destaque 
 - Os tiles de alerta antigos saíram e os números do painel abrem o drill-down.
 - `VagaFormModal` ganhou os campos novos e o resumo de prazos. `VagasTable` mostra a fase corrente, o filtro e o formulário mostram só etapas ativas, e o relatório impresso ganhou a tabela de SLA por fase.
 
-**Paginação (2026-09-24):** o PostgREST/Supabase devolve no máximo 1000 linhas por consulta, então as leituras do rh-service passaram a usar `services/paginacao.py::buscar_todos(fábrica_de_query)`: páginas de 1000, com `order("id")` como desempate. Recebe uma fábrica porque `.range()` do postgrest-py acumula parâmetros no builder. Aplicado em:
+**Paginação (2026-09-24):** as leituras do rh-service passaram a usar `services/paginacao.py::buscar_todos(fábrica_de_query)`: páginas de 1000, com `order("id")` como desempate. Recebe uma fábrica porque `.range()` do postgrest-py acumula parâmetros no builder. Aplicado em: **Correção posterior (mesmo dia):** o PostgREST self-hosted do Jarvis não tem `max-rows`, então não havia truncamento real; a paginação ficou como proteção. Ver [`docs/paginacao-1000-linhas.md`](paginacao-1000-linhas.md).
 - listagem de vagas;
 - dashboard e relatório de SLA;
 - relatório semanal;
