@@ -46,9 +46,10 @@ export default function PublicExperienciaPage() {
   const [concordou, setConcordou] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [sucesso, setSucesso]   = useState(false);
+  const [resultadoDemo, setResultadoDemo] = useState<any>(null);
 
   useEffect(() => {
-    fetch(`${API}/api/experiencia/formulario/${token}`)
+    fetch(`${API}/api/experiencia/formulario/${token}${token === "demo" ? window.location.search : ""}`)
       .then((r) => {
         if (!r.ok) return r.json().then((e) => { throw new Error(e.detail || "Erro ao carregar"); });
         return r.json();
@@ -87,8 +88,10 @@ export default function PublicExperienciaPage() {
       });
       if (!r.ok) {
         const err = await r.json();
-        throw new Error(err.detail || "Erro ao enviar");
+        throw new Error(typeof err.detail === "string" ? err.detail : (err.detail?.erros || []).join("; ") || "Erro ao enviar");
       }
+      const body = await r.json().catch(() => ({}));
+      if (body?.demo) setResultadoDemo(body);
       setSucesso(true);
     } catch (e: any) {
       alert(`Erro: ${e.message}`);
@@ -113,6 +116,26 @@ export default function PublicExperienciaPage() {
           <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">Link indisponível</h2>
           <p className="text-gray-500 dark:text-gray-400 text-sm">{error}</p>
           <p className="text-xs text-gray-400 mt-4">Em caso de dúvidas, contate: <a href={`mailto:${HR_EMAIL}`} className="text-[#00694E] hover:underline">{HR_EMAIL}</a></p>
+        </div>
+      </div>
+    );
+  }
+
+  if (sucesso && resultadoDemo) {
+    return (
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-4">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
+          <div className="text-5xl mb-4">🧪</div>
+          <h2 className="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">Formulário de demonstração</h2>
+          <p className="text-gray-500 dark:text-gray-400 text-sm">Nada foi gravado nem enviado. Resultado calculado:</p>
+          <p className={`mt-4 text-3xl font-extrabold ${resultadoDemo.nota_insuficiente ? "text-red-600" : "text-[#00694E]"}`}>
+            {resultadoDemo.nota_total}/36 ({resultadoDemo.nota_percentual}%)
+          </p>
+          <p className="mt-2 text-sm text-gray-600 dark:text-gray-300">
+            {resultadoDemo.nota_insuficiente
+              ? "Abaixo de 50% da nota total — em uma avaliação real, o RH receberia o alerta de nota insuficiente."
+              : "Nota suficiente (50% ou mais)."}
+          </p>
         </div>
       </div>
     );
@@ -147,6 +170,11 @@ export default function PublicExperienciaPage() {
           <span className="text-white/80 text-sm font-medium">Avaliação de Experiência — {tipoLabel}</span>
         </div>
       </div>
+      {data?.demo && (
+        <div className="bg-amber-100 dark:bg-amber-900/40 px-6 py-3 text-center text-sm font-semibold text-amber-900 dark:text-amber-200">
+          🧪 FORMULÁRIO DE DEMONSTRAÇÃO — pode preencher à vontade: nada é gravado nem enviado.
+        </div>
+      )}
 
       <div className="max-w-2xl mx-auto px-4 py-8">
         {/* Aviso */}
@@ -162,7 +190,7 @@ export default function PublicExperienciaPage() {
             <div><p className="text-xs text-gray-500">Cargo</p><p className="font-semibold text-gray-800">{emp.cargo || "—"}</p></div>
             <div><p className="text-xs text-gray-500">Empresa</p><p className="font-semibold text-gray-800">{emp.empresa || "—"}</p></div>
             <div><p className="text-xs text-gray-500">Admissão</p><p className="font-semibold text-gray-800">{emp.data_admissao || "—"}</p></div>
-            <div><p className="text-xs text-gray-500">Setor</p><p className="font-semibold text-gray-800">{emp.departamento || "—"}</p></div>
+            <div><p className="text-xs text-gray-500">Departamento</p><p className="font-semibold text-gray-800">{emp.departamento || "—"}</p></div>
           </div>
         </div>
 

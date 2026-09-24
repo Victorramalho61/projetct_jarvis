@@ -13,6 +13,9 @@ interface Colaborador {
   departamento: string | null;
   gestor_nome: string | null;
   gestor_email: string | null;
+  gestor_direto_nome?: string | null;
+  gestor_email_origem?: string | null;
+  gestor_manual?: boolean | null;
 }
 
 interface AvaliacaoRow {
@@ -223,6 +226,7 @@ function EditGestorModal({ empId, gestorEmail, gestorNome, onClose, onSaved }:
   { empId: string; gestorEmail: string; gestorNome: string; onClose: () => void; onSaved: () => void }) {
   const { token } = useAuth();
   const [email, setEmail] = useState(gestorEmail || "");
+  const [nome, setNome] = useState(gestorNome || "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
@@ -233,7 +237,7 @@ function EditGestorModal({ empId, gestorEmail, gestorNome, onClose, onSaved }:
       await apiFetch(`/api/experiencia/admin/colaborador/${empId}/gestor-email`, {
         token,
         method: "PATCH",
-        json: { gestor_email: email.trim() },
+        json: { gestor_email: email.trim(), gestor_nome: nome.trim() || undefined },
       });
       onSaved();
     } catch (e: any) {
@@ -246,8 +250,19 @@ function EditGestorModal({ empId, gestorEmail, gestorNome, onClose, onSaved }:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-        <p className="font-bold text-gray-900 dark:text-gray-100 mb-1">Corrigir E-mail do Gestor</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">{gestorNome}</p>
+        <p className="font-bold text-gray-900 dark:text-gray-100 mb-1">Corrigir Gestor Imediato</p>
+        <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+          Use o e-mail corporativo. A correção manual não é sobrescrita pela sincronização diária com o Benner.
+        </p>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Nome do gestor</label>
+        <input
+          value={nome}
+          onChange={(e) => setNome(e.target.value)}
+          className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm mb-3
+                     bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
+                     focus:outline-none focus:ring-2 focus:ring-[#00694E]/40 focus:border-[#00694E]"
+        />
+        <label className="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">E-mail corporativo</label>
         <input
           type="email"
           value={email}
@@ -255,7 +270,7 @@ function EditGestorModal({ empId, gestorEmail, gestorNome, onClose, onSaved }:
           className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm
                      bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100
                      focus:outline-none focus:ring-2 focus:ring-[#00694E]/40 focus:border-[#00694E]"
-          placeholder="email@empresa.com.br"
+          placeholder="nome.sobrenome@voetur.com.br"
         />
         {err && <p className="text-red-600 text-xs mt-1">{err}</p>}
         <div className="flex gap-2 mt-4">
@@ -394,7 +409,7 @@ function TabelaDias({
         <table className="min-w-full text-xs">
           <thead className="bg-gray-50 dark:bg-gray-800 text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             <tr>
-              {["Empresa", "Mat.", "Colaborador", "Cargo", "Gestor Imediato", "E-mail Gestor", `Data ${tipo}d`, "Status", "Env.", "Último envio", "Ações"].map((h) => (
+              {["Empresa", "Mat.", "Colaborador", "Cargo", "Departamento", "Gestor Imediato", "E-mail Gestor", `Data ${tipo}d`, "Status", "Env.", "Último envio", "Ações"].map((h) => (
                 <th key={h} className="px-2 py-2 text-left whitespace-nowrap font-semibold">{h}</th>
               ))}
             </tr>
@@ -403,7 +418,7 @@ function TabelaDias({
             {loading ? (
               <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">Carregando...</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">Nenhum registro encontrado</td></tr>
+              <tr><td colSpan={12} className="px-3 py-8 text-center text-gray-400">Nenhum registro encontrado</td></tr>
             ) : rows.map((row) => {
               const emp = row.colaborador;
               const semGestor = !emp?.gestor_email;
@@ -413,7 +428,23 @@ function TabelaDias({
                   <td className="px-2 py-2 font-mono text-gray-600 dark:text-gray-400 whitespace-nowrap">{emp?.matricula}</td>
                   <td className="px-2 py-2 font-medium text-gray-900 dark:text-gray-100 whitespace-nowrap">{emp?.nome}</td>
                   <td className="px-2 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap">{emp?.cargo || "—"}</td>
-                  <td className="px-2 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</td>
+                  <td className="px-2 py-2 text-gray-600 dark:text-gray-400 whitespace-nowrap max-w-[160px] truncate" title={emp?.departamento ?? ""}>{emp?.departamento || "—"}</td>
+                  <td className="px-2 py-2 text-gray-700 dark:text-gray-300 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      <span>{emp?.gestor_nome || <span className="text-red-500 font-semibold">Sem gestor</span>}</span>
+                      {emp?.gestor_email_origem === "superior" && (
+                        <span className="rounded bg-amber-100 dark:bg-amber-900/30 px-1 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                          title={`Chefe direto na estrutura: ${emp?.gestor_direto_nome ?? "—"} (sem e-mail corporativo) — e-mail enviado ao superior`}>via superior</span>
+                      )}
+                      {emp?.gestor_manual && (
+                        <span className="rounded bg-sky-100 dark:bg-sky-900/30 px-1 text-[10px] font-semibold text-sky-700 dark:text-sky-300" title="Corrigido manualmente pelo RH">manual</span>
+                      )}
+                      <button
+                        onClick={() => setEditModal({ avId: row.id, empId: emp?.id ?? "", gestorNome: emp?.gestor_nome || "", gestorEmail: emp?.gestor_email || "" })}
+                        className="text-[#00694E] hover:text-[#004F3A] shrink-0"
+                        title="Corrigir gestor imediato">✏️</button>
+                    </div>
+                  </td>
                   <td className="px-2 py-2">
                     <div className="flex items-center gap-1">
                       {semGestor

@@ -24,6 +24,7 @@ _ERROR_BORDER= "#EF4444"
 
 _LOGO_BRANCO = "https://grupovoetur.com.br/wp-content/uploads/2024/09/Grupo-Logo-Branco.svg"
 _HR_EMAIL    = "rh@voetur.com.br"
+ALERTA_NOTA_EMAIL = "rh@voetur.com.br"  # destino do alerta de nota < 50% (pedido do RH, 2026-09)
 
 _SOCIALS = [
     ("LinkedIn",  "https://www.linkedin.com/company/grupo-voetur/"),
@@ -118,6 +119,11 @@ def _colaborador_card(emp: dict, tipo: str, data_prevista: str) -> str:
         <p style="margin:0;font-size:13px;color:{_TEXT_DARK};font-weight:600;">{emp.get("empresa") or "—"}</p>
       </td>
     </tr><tr>
+      <td colspan="2" style="vertical-align:top;padding-top:10px;">
+        <p style="margin:0 0 2px;font-size:11px;color:#6B7280;">Departamento</p>
+        <p style="margin:0;font-size:13px;color:{_TEXT_DARK};font-weight:600;">{emp.get("departamento") or "—"}</p>
+      </td>
+    </tr><tr>
       <td width="50%" style="vertical-align:top;padding-right:8px;padding-top:10px;">
         <p style="margin:0 0 2px;font-size:11px;color:#6B7280;">Admissão</p>
         <p style="margin:0;font-size:13px;color:{_TEXT_DARK};font-weight:600;">{emp.get("data_admissao") or "—"}</p>
@@ -174,7 +180,17 @@ def _send(to_email: str, to_name: str, subject: str, html: str) -> bool:
 
 # ─── Templates públicos ───────────────────────────────────────────────────────
 
-def send_primeiro_envio(avaliacao: dict, emp: dict, token: str) -> bool:
+def _data_br(iso: str | None) -> str:
+    if not iso or len(str(iso)) < 10:
+        return str(iso or "—")
+    a, m, d = str(iso)[:10].split("-")
+    return f"{d}/{m}/{a}"
+
+
+def send_primeiro_envio(avaliacao: dict, emp: dict, token: str, automatico: bool = False,
+                        para: tuple[str, str] | None = None, prefixo: str = "") -> bool:
+    """Envio do formulário ao gestor. automatico=True: disparo do 35º/80º dia (10 dias antes).
+    para=(email, nome) e prefixo servem para envio de teste/validação."""
     s = get_settings()
     tipo = avaliacao.get("tipo", "45_dias")
     tipo_label = "45 Dias" if tipo == "45_dias" else "90 Dias"
@@ -183,11 +199,25 @@ def send_primeiro_envio(avaliacao: dict, emp: dict, token: str) -> bool:
 
     gestor_nome  = emp.get("gestor_nome") or "Líder"
     gestor_email = emp.get("gestor_email") or ""
+    if para:
+        gestor_email, gestor_nome_envio = para
+    else:
+        gestor_nome_envio = gestor_nome
     if not gestor_email:
         return False
 
     card = _colaborador_card(emp, tipo, data_prev)
     btn  = _cta_button(link)
+    aviso_prazo = (f"""
+<div style="background:{_WARN_BG};border-left:4px solid {_WARN_BORDER};
+            padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:20px;">
+  <p style="margin:0;font-size:13px;color:#7C2D12;font-weight:700;">
+    ⏰ Prazo: {_data_br(data_prev)} — faltam 10 dias
+  </p>
+  <p style="margin:4px 0 0;font-size:12px;color:#9A3412;">
+    Este aviso é enviado automaticamente 10 dias antes do vencimento da avaliação de {tipo_label.lower()}.
+  </p>
+</div>""" if automatico else "")
 
     body = f"""
 <h2 style="margin:0 0 8px;font-size:20px;color:{_TEXT_DARK};">Avaliação de Experiência — {tipo_label}</h2>
@@ -197,6 +227,7 @@ def send_primeiro_envio(avaliacao: dict, emp: dict, token: str) -> bool:
   do(a) colaborador(a) abaixo. Seu parecer é fundamental para o desenvolvimento
   e a trajetória desta pessoa no Grupo Voetur.
 </p>
+{aviso_prazo}
 {card}
 <div style="background:{_BRAND_LIGHT};border-left:4px solid {_BRAND_GREEN};
             padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:20px;">
@@ -209,8 +240,10 @@ def send_primeiro_envio(avaliacao: dict, emp: dict, token: str) -> bool:
 {btn}"""
 
     html = _base("Avaliação de Experiência", body)
-    subject = f"[Jarvis] Avaliação de Experiência {tipo_label} — {emp.get('nome','')}"
-    return _send(gestor_email, gestor_nome, subject, html)
+    subject = f"{prefixo}[Jarvis] Avaliação de Experiência {tipo_label} — {emp.get('nome','')}"
+    if automatico:
+        subject = f"{prefixo}[Jarvis] Avaliação de Experiência {tipo_label} vence em {_data_br(data_prev)} — {emp.get('nome','')}"
+    return _send(gestor_email, gestor_nome_envio, subject, html)
 
 
 def send_cobranca(avaliacao: dict, emp: dict) -> bool:
@@ -323,6 +356,57 @@ def send_confirmacao_rh(avaliacao: dict, emp: dict, parecer: str, assinado_em: s
     html = _base("Avaliação Concluída", body)
     subject = f"[Jarvis] Avaliação {tipo_label} concluída — {colab_nome}"
     return _send(rh_email, "RH Grupo Voetur", subject, html)
+
+
+def send_alerta_nota_insuficiente(avaliacao: dict, emp: dict, para: tuple[str, str] | None = None,
+                                  prefixo: str = "") -> bool:
+    """Alerta ao RH: nota inferior a 50% da nota total na avaliação de experiência."""
+    s = get_settings()
+    from services.formulario import INDICADORES, NOTA_MAXIMA
+
+    tipo = avaliacao.get("tipo", "45_dias")
+    tipo_label = "45 Dias" if tipo == "45_dias" else "90 Dias"
+    respostas = avaliacao.get("respostas") or {}
+    parecer_map = {
+        "seguir": "Seguir contrato por mais 45 dias", "interromper": "Interromper o contrato nos 45 dias",
+        "efetivar": "Efetivação do colaborador", "encerrar": "Encerrar contrato nos 90 dias",
+    }
+    labels = {1: "Não atende", 2: "Atende Parcialmente", 3: "Atende", 4: "Supera"}
+    linhas = "".join(
+        f"""<tr><td style="padding:4px 0;font-size:12px;color:#374151;">{i['label']}</td>
+        <td style="padding:4px 0;font-size:12px;text-align:right;font-weight:700;color:{'#B91C1C' if (respostas.get('indicadores') or {}).get(i['id'], 0) <= 2 else _TEXT_DARK};">
+        {labels.get((respostas.get('indicadores') or {}).get(i['id']), '—')}</td></tr>"""
+        for i in INDICADORES
+    )
+    email, nome = para or (ALERTA_NOTA_EMAIL, "RH Grupo Voetur")
+    body = f"""
+<div style="background:{_ERROR_BG};border-left:4px solid {_ERROR_BORDER};
+            padding:14px 16px;border-radius:0 8px 8px 0;margin-bottom:20px;">
+  <p style="margin:0;font-size:14px;color:#7F1D1D;font-weight:700;">
+    ⚠️ Nota insuficiente — {avaliacao.get('nota_total', '—')}/{NOTA_MAXIMA} ({avaliacao.get('nota_percentual', '—')}%)
+  </p>
+  <p style="margin:4px 0 0;font-size:12px;color:#991B1B;">
+    A avaliação de {tipo_label.lower()} ficou abaixo de 50% da nota total.
+  </p>
+</div>
+<p style="margin:0 0 16px;font-size:14px;color:#374151;line-height:1.6;">
+  Gestor avaliador: <strong>{emp.get('gestor_nome') or '—'}</strong><br>
+  Parecer: <strong>{parecer_map.get(respostas.get('parecer'), respostas.get('parecer') or '—')}</strong>
+</p>
+{_colaborador_card(emp, tipo, _data_br(avaliacao.get('data_prevista')))}
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px;">{linhas}</table>
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin:20px 0;">
+  <tr><td align="center">
+    <a href="{s.frontend_url}/experiencia/dashboard"
+       style="display:inline-block;background:{_BRAND_GREEN};color:{_WHITE};
+              font-size:14px;font-weight:700;text-decoration:none;padding:12px 32px;border-radius:8px;">
+      Ver no Dashboard
+    </a>
+  </td></tr>
+</table>"""
+    html = _base("⚠️ Nota Insuficiente", body)
+    subject = f"{prefixo}[ALERTA] Nota insuficiente — Avaliação {tipo_label} — {emp.get('nome', '')}"
+    return _send(email, nome, subject, html)
 
 
 def log_email(sb, avaliacao_id: str, destinatario: str, tipo_email: str, sucesso: bool) -> None:

@@ -160,6 +160,7 @@ const NAV_ITEMS: NavItem[] = [
   { id: "cartoes",    label: "Cofre de Cartões",    path: "/cartoes",             icon: "shield",    roles: ["admin", "user", "rh", "gerente", "coordenador_supervisor", "administrativo_operacional"] },
   { id: "financeiro", label: "Financeiro",           path: "/financeiro",           icon: "wallet",    roles: ["admin", "user"] },
   { id: "experiencia", label: "Aval. de Experiência", path: "/experiencia",         icon: "chart",     roles: ["admin", "rh"] },
+  { id: "experiencia-dashboard", label: "Dashboard",      path: "/experiencia/dashboard", icon: "chart",   roles: ["admin", "rh"], sub: true },
   { id: "rh",          label: "Recursos Humanos",     path: "/rh",                  icon: "users",     roles: ["admin", "rh"] },
   { id: "rh-vagas",    label: "Vagas",                path: "/rh/vagas",            icon: "clipboard", roles: ["admin", "rh"], sub: true },
   { id: "rh-assinatura", label: "Assinatura Automatizada", path: "/rh/assinatura",  icon: "shield",    roles: ["admin", "rh"], sub: true },

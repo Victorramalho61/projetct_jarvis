@@ -45,6 +45,7 @@ const PublicAutoAvaliacaoPresencialPage = lazyWithReload(() => import("./pages/P
 const CartaoPage = lazyWithReload(() => import("./pages/CartaoPage"));
 const FinanceiroPage = lazyWithReload(() => import("./pages/FinanceiroPage"));
 const ExperienciaPage = lazyWithReload(() => import("./pages/ExperienciaPage"));
+const ExperienciaDashboardPage = lazyWithReload(() => import("./pages/ExperienciaDashboardPage"));
 const PublicExperienciaPage = lazyWithReload(() => import("./pages/PublicExperienciaPage"));
 const RhPage = lazyWithReload(() => import("./pages/RhPage"));
 const RhVagasPage = lazyWithReload(() => import("./pages/RhVagasPage"));
@@ -153,6 +154,7 @@ export default function App() {
             <Route path="/cartoes" element={<CartaoPage />} />
             <Route path="/financeiro" element={<FinanceiroPage />} />
             <Route path="/experiencia" element={<ExperienciaPage />} />
+            <Route path="/experiencia/dashboard" element={<ExperienciaDashboardPage />} />
             <Route path="/rh" element={<RhPage />} />
             <Route path="/rh/vagas" element={<RhVagasPage />} />
             <Route path="/rh/assinatura" element={<RhAssinaturaPage />} />

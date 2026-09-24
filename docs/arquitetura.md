@@ -2619,3 +2619,50 @@ Validado com página de 100: 731 vagas, sem duplicatas e mantendo a ordenação.
 ## Paginação — limite de 1000 linhas (2026-09-24)
 
 Correção em andamento em todos os serviços, com status por serviço, backups e problemas encontrados em [`docs/paginacao-1000-linhas.md`](paginacao-1000-linhas.md).
+
+## Avaliação de Experiência v2 — experiencia-service:8013 (2026-09-24)
+
+Pedido do RH, com 9 itens, e revisão do gestor pelo Victor.
+
+**Gestor imediato pela estrutura de supervisão do Benner** (`services/benner_sync.py::Estrutura`):
+- A regra antiga (`DO_FUNCIONARIOS.SUPERVISOR` → `RH_PESSOAS`) estava errada. Dos 164 admitidos em 100 dias, 124 ficavam sem e-mail e 25 com Gmail/Hotmail.
+- **Regra nova:** `SUP_SUPERVISORES` (query validada com o Victor: `sup_supervisores` + `z_grupousuarios` por `ESTRUTURA`):
+  - cada pessoa tem um nó; `NIVELSUPERIOR` = nó do chefe; `RESPONSAVEL` → `Z_GRUPOUSUARIOS`, e `K_FUNCIONARIO` = `DO_FUNCIONARIOS.HANDLE`;
+  - só nós **`TIPO=1` e `ATIVO='S'`**. Os `TIPO=2` (árvore `001.xxxx`, tudo pendurado na LUDIMILA) são administrativos do DP e são ignorados.
+- **E-mail tem que ser corporativo:**
+  - domínios aceitos: `voetur.com.br`, `vtclog.com.br`, `vipcargas.com.br`, `vipserviceclub.com.br`, `payfly.com.br`;
+  - caixas genéricas descartadas: `departamentopessoal@`, `no-reply@`, `noreply@`, `sistemas@`, `rh@`.
+- **Chefe direto sem e-mail corporativo** (937 chefes com Gmail na estrutura): sobe a estrutura até achar um e-mail corporativo, conforme decidido pelo Victor.
+  - `gestor_direto_nome` guarda o chefe direto;
+  - `gestor_nome`/`gestor_email` guardam quem recebe;
+  - `gestor_email_origem` fica `direto | superior | fallback_supervisor | manual`.
+- **Fora da estrutura:** o supervisor do cadastro serve só para achar o nó do chefe (fallback). Sem nada, a avaliação fica `sem_gestor` e o RH corrige pelo ✏️. A correção marca `gestor_manual`, e o sync não sobrescreve.
+- **Cobertura na carga:** 111 de 157 admitidos em 90 dias com gestor corporativo (75 direto, 35 via superior, 1 fallback). Os 46 restantes estão fora da estrutura (a maioria sem usuário no Benner).
+- **Bug de chave corrigido:** `exp_employees.matricula` era UNIQUE, mas a matrícula se repete entre empresas (a 55 são 4 pessoas). A chave agora é `benner_handle` (`DO_FUNCIONARIOS.HANDLE`); matrícula virou índice comum.
+
+**Sync:**
+- diário às **04:00**: admitidos ontem + re-sync de quem tem avaliação aberta;
+- primeira carga: 90 dias (`POST /admin/sync-benner?completo=true`, com `dry_run=true` para simular);
+- **ANARAC (28) e BSB Empreendimentos (31) excluídas.** Os 12 registros existentes foram removidos, com backup em `E:\claudecode\backups\exp_*_anarac_bsb_2026-09-24.csv`;
+- os 159 registros legados (admitidos em abr–jun, fora da janela) foram re-vinculados por matrícula + empresa e ganharam o gestor da regra nova;
+- resultado: **0 e-mails pessoais** de gestor na base.
+
+**Envio automático D-10** (`scheduler.py::_job_envio_automatico`, 08:00; as cobranças passaram para 08:10):
+- envia o formulário ao gestor 10 dias antes do vencimento (35º e 80º dia da admissão), com aviso de prazo no e-mail;
+- **trava de go-live** (`GO_LIVE_ENVIO_AUTOMATICO = 2026-09-25`): só avaliações cujo D-10 cai a partir dessa data;
+- o passivo **não é disparado em massa** e fica para envio manual pelo RH: 389 avaliações já vencidas e 48 com D-10 antes do go-live, contadas no deploy.
+
+**Nota insuficiente** (`formulario.py::calcular_nota`):
+- nota = soma dos 9 indicadores (1–4, máximo 36); **abaixo de 50%** (menos de 18 pontos) é insuficiente;
+- no envio do formulário, a nota é gravada (`nota_total`, `nota_percentual`, `nota_insuficiente`) e, se insuficiente, sai um alerta para **rh@voetur.com.br** com os indicadores e o parecer.
+
+**Frontend:**
+- **Tabelas 45/90 dias:** coluna **Departamento** (`ADM_HIERARQUIAS.NOME`) e ✏️ na coluna **Gestor Imediato**, que edita nome e e-mail e só aceita domínio corporativo. Badges "via superior" e "manual".
+- **Submenu Dashboard** (`/experiencia/dashboard`, `ExperienciaDashboardPage.tsx`, no modelo do dashboard do AVD):
+  - KPIs clicáveis: vencendo em 10 dias, pendentes de envio, aguardando resposta, vencidas, sem gestor, respondidas no prazo/com atraso, **notas insuficientes**;
+  - cada KPI abre a lista de colaboradores, e cada colaborador expande os dados completos;
+  - quebras por empresa e departamento, e pareceres.
+- **Formulário de demonstração:** `/experiencia/avaliar/demo` (`?tipo=90_dias`) calcula a nota e não grava nada.
+- **E-mails de validação:** `POST /admin/emails-validacao` envia os 3 modelos **[TESTE]** (formulário, alerta D-10, nota insuficiente) com colaborador fictício.
+
+Migration: `experiencia-service/migration_002_experiencia_v2.sql`.

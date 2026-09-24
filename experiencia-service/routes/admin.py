@@ -69,10 +69,14 @@ def _registrar_envio(sb, avaliacao_id: str, destinatario: str, tipo_email: str, 
 # ── Sync manual ───────────────────────────────────────────────────────────────
 
 @router.post("/sync-benner")
-def sync_benner(user=Depends(_require_admin)):
+def sync_benner(
+    completo: bool = Query(False, description="True = recarga dos admitidos nos últimos 90 dias"),
+    dry_run: bool = Query(False, description="Só calcula (gestor/cobertura), sem gravar"),
+    user=Depends(_require_admin),
+):
     from services.benner_sync import run_sync
     try:
-        stats = run_sync()
+        stats = run_sync(completo=True if completo else None, dry_run=dry_run)
         return {"ok": True, "stats": stats}
     except Exception as exc:
         log.error("Sync manual falhou: %s", exc)
@@ -119,17 +123,29 @@ def _format_avaliacao(r: dict) -> dict:
         "ultimo_envio_at":r.get("ultimo_envio_at"),
         "primeiro_envio_at": r.get("primeiro_envio_at"),
         "token":          r.get("token"),
-        "colaborador": {
-            "id":           emp.get("id"),
-            "matricula":    emp.get("matricula"),
-            "nome":         emp.get("nome"),
-            "cargo":        emp.get("cargo"),
-            "departamento": emp.get("departamento"),
-            "empresa":      emp.get("empresa"),
-            "data_admissao":emp.get("data_admissao"),
-            "gestor_nome":  emp.get("gestor_nome"),
-            "gestor_email": emp.get("gestor_email"),
-        },
+        "nota_total":        r.get("nota_total"),
+        "nota_percentual":   r.get("nota_percentual"),
+        "nota_insuficiente": r.get("nota_insuficiente"),
+        "envio_automatico_at": r.get("envio_automatico_at"),
+        "colaborador": _colaborador(emp),
+    }
+
+
+def _colaborador(emp: dict) -> dict:
+    return {
+        "id":                  emp.get("id"),
+        "matricula":           emp.get("matricula"),
+        "nome":                emp.get("nome"),
+        "cargo":               emp.get("cargo"),
+        "departamento":        emp.get("departamento"),
+        "empresa":             emp.get("empresa"),
+        "data_admissao":       emp.get("data_admissao"),
+        "gestor_nome":         emp.get("gestor_nome"),
+        "gestor_email":        emp.get("gestor_email"),
+        "gestor_direto_nome":  emp.get("gestor_direto_nome"),
+        "gestor_email_origem": emp.get("gestor_email_origem"),
+        "gestor_manual":       emp.get("gestor_manual"),
+        "estrutura":           emp.get("estrutura"),
     }
 
 
@@ -204,15 +220,10 @@ def _format_auditoria(r: dict) -> dict:
         "total_envios":      r.get("total_envios", 0),
         "primeiro_envio_at": r.get("primeiro_envio_at"),
         "ultimo_envio_at":   r.get("ultimo_envio_at"),
-        "colaborador": {
-            "matricula":    emp.get("matricula"),
-            "nome":         emp.get("nome"),
-            "cargo":        emp.get("cargo"),
-            "empresa":      emp.get("empresa"),
-            "data_admissao":emp.get("data_admissao"),
-            "gestor_nome":  emp.get("gestor_nome"),
-            "gestor_email": emp.get("gestor_email"),
-        },
+        "nota_total":        r.get("nota_total"),
+        "nota_percentual":   r.get("nota_percentual"),
+        "nota_insuficiente": r.get("nota_insuficiente"),
+        "colaborador": _colaborador(emp),
     }
 
 
@@ -380,11 +391,15 @@ class UpdateGestorEmailPayload(BaseModel):
 
 @router.patch("/colaborador/{employee_id}/gestor-email")
 def update_gestor_email(employee_id: str, payload: UpdateGestorEmailPayload, user=Depends(_require_admin)):
-    """Permite RH corrigir e-mail do gestor antes de enviar a avaliação."""
+    """Permite RH corrigir nome/e-mail do gestor. Marca gestor_manual: o sync diário não sobrescreve."""
     sb = get_supabase()
-    update = {"gestor_email": payload.gestor_email}
+    email = payload.gestor_email.strip().lower()
+    from services.benner_sync import email_corporativo
+    if email and not email_corporativo(email):
+        raise HTTPException(status_code=422, detail="Use o e-mail corporativo do gestor (domínio do Grupo Voetur)")
+    update = {"gestor_email": email or None, "gestor_manual": True, "gestor_email_origem": "manual"}
     if payload.gestor_nome:
-        update["gestor_nome"] = payload.gestor_nome
+        update["gestor_nome"] = payload.gestor_nome.strip()
     sb.table("exp_employees").update(update).eq("id", employee_id).execute()
     # Re-marca avaliações pendentes como 'pendente' (sai de sem_gestor)
     sb.table("exp_avaliacoes").update({"status": "pendente"}).eq("employee_id", employee_id).eq("status", "sem_gestor").execute()
@@ -420,11 +435,11 @@ def export_csv(
     output = io.StringIO()
     writer = csv.writer(output, delimiter=";")
     writer.writerow([
-        "Empresa", "Matrícula", "Colaborador", "Cargo", "Setor",
+        "Empresa", "Matrícula", "Colaborador", "Cargo", "Departamento",
         "Data Admissão", "Tipo", "Data Prevista", "Status",
         "Gestor", "E-mail Gestor",
         "Respondido em", "Assinado em", "Total Envios",
-        "Parecer",
+        "Parecer", "Nota", "Nota %", "Nota insuficiente",
     ])
 
     for r in rows:
@@ -447,6 +462,9 @@ def export_csv(
             (r.get("gestor_assinatura_at") or "")[:19].replace("T", " "),
             r.get("total_envios", 0),
             parecer,
+            r.get("nota_total") if r.get("nota_total") is not None else "",
+            r.get("nota_percentual") if r.get("nota_percentual") is not None else "",
+            "SIM" if r.get("nota_insuficiente") else "",
         ])
 
     output.seek(0)
@@ -466,3 +484,153 @@ def list_empresas(user=Depends(_require_admin)):
     resp = sb.table("exp_employees").select("empresa").execute()
     empresas = sorted({r["empresa"] for r in (resp.data or []) if r.get("empresa")})
     return empresas
+
+
+# ── Dashboard ────────────────────────────────────────────────────────────────
+
+KPIS_DASHBOARD = [
+    ("vencendo_10d",        "Vencendo em até 10 dias"),
+    ("pendentes_envio",     "Pendentes de envio"),
+    ("aguardando_resposta", "Enviadas, aguardando resposta"),
+    ("vencidas",            "Vencidas sem resposta"),
+    ("sem_gestor",          "Sem gestor"),
+    ("respondidas_prazo",   "Respondidas no prazo"),
+    ("respondidas_atraso",  "Respondidas com atraso"),
+    ("nota_insuficiente",   "Notas insuficientes (< 50%)"),
+]
+
+
+def _flags(r: dict, hoje) -> list[str]:
+    from datetime import date as _date
+    st = r.get("status")
+    prev = _date.fromisoformat(r["data_prevista"]) if r.get("data_prevista") else None
+    aberta = st in ("pendente", "enviado", "sem_gestor")
+    f = []
+    if aberta and prev and hoje <= prev <= hoje + timedelta(days=10):
+        f.append("vencendo_10d")
+    if st == "pendente":
+        f.append("pendentes_envio")
+    if st == "enviado" and prev and prev >= hoje:
+        f.append("aguardando_resposta")
+    if aberta and prev and prev < hoje:
+        f.append("vencidas")
+    if st == "sem_gestor":
+        f.append("sem_gestor")
+    if st == "respondido":
+        assinado = (r.get("gestor_assinatura_at") or "")[:10]
+        f.append("respondidas_prazo" if prev and assinado and assinado <= prev.isoformat() else "respondidas_atraso")
+        if r.get("nota_insuficiente"):
+            f.append("nota_insuficiente")
+    return f
+
+
+@router.get("/dashboard")
+def dashboard(
+    tipo:    Optional[str] = Query(None),
+    empresa: Optional[str] = Query(None),
+    departamento: Optional[str] = Query(None),
+    data_inicio: Optional[str] = Query(None, description="data prevista a partir de"),
+    data_fim:    Optional[str] = Query(None, description="data prevista até"),
+    user=Depends(_require_admin),
+):
+    """KPIs da avaliação de experiência + linhas com os KPIs de cada uma (drill-down no front)."""
+    from collections import Counter
+    from datetime import date as _date
+
+    sb = get_supabase()
+    query = sb.table("exp_avaliacoes").select("*, exp_employees(*)").order("data_prevista")
+    if tipo:
+        query = query.eq("tipo", tipo)
+    if data_inicio:
+        query = query.gte("data_prevista", data_inicio)
+    if data_fim:
+        query = query.lte("data_prevista", data_fim)
+    rows = query.execute().data or []
+    rows = [r for r in rows if (r.get("exp_employees") or {}).get("ativo", True)]
+    if empresa:
+        rows = [r for r in rows if (r.get("exp_employees") or {}).get("empresa") == empresa]
+    if departamento:
+        rows = [r for r in rows if (r.get("exp_employees") or {}).get("departamento") == departamento]
+
+    hoje = _date.today()
+    linhas = []
+    for r in rows:
+        item = _format_avaliacao(r)
+        item["gestor_assinatura_at"] = r.get("gestor_assinatura_at")
+        item["parecer"] = (r.get("respostas") or {}).get("parecer")
+        item["kpis"] = _flags(r, hoje)
+        linhas.append(item)
+
+    contagem = Counter(k for l in linhas for k in l["kpis"])
+    respondidas = [l for l in linhas if l["status"] == "respondido"]
+    notas = [float(l["nota_percentual"]) for l in respondidas if l.get("nota_percentual") is not None]
+
+    def _por(chave):
+        c = Counter((l["colaborador"].get(chave) or "—") for l in linhas)
+        resp = Counter((l["colaborador"].get(chave) or "—") for l in respondidas)
+        insuf = Counter((l["colaborador"].get(chave) or "—") for l in linhas if "nota_insuficiente" in l["kpis"])
+        return sorted(
+            [{"nome": k, "total": v, "respondidas": resp.get(k, 0), "nota_insuficiente": insuf.get(k, 0)} for k, v in c.items()],
+            key=lambda x: -x["total"],
+        )
+
+    return {
+        "kpis": [{"id": k, "label": lbl, "total": contagem.get(k, 0)} for k, lbl in KPIS_DASHBOARD],
+        "totais": {
+            "avaliacoes": len(linhas),
+            "respondidas": len(respondidas),
+            "pct_respondidas": round(100 * len(respondidas) / len(linhas), 1) if linhas else None,
+            "nota_media_pct": round(sum(notas) / len(notas), 1) if notas else None,
+            "por_tipo": dict(Counter(l["tipo"] for l in linhas)),
+        },
+        "pareceres": dict(Counter(l["parecer"] for l in respondidas if l.get("parecer"))),
+        "por_empresa": _por("empresa"),
+        "por_departamento": _por("departamento"),
+        "linhas": linhas,
+    }
+
+
+@router.get("/departamentos")
+def list_departamentos(user=Depends(_require_admin)):
+    sb = get_supabase()
+    resp = sb.table("exp_employees").select("departamento").execute()
+    return sorted({r["departamento"] for r in (resp.data or []) if r.get("departamento")})
+
+
+# ── E-mails de validação (modelo para o RH aprovar) ──────────────────────────
+
+class EmailsValidacaoPayload(BaseModel):
+    destinatarios: list[str]
+
+
+@router.post("/emails-validacao")
+def enviar_emails_validacao(payload: EmailsValidacaoPayload, user=Depends(_require_admin)):
+    """Envia os modelos [TESTE] (formulário, alerta D-10, nota insuficiente) com colaborador fictício.
+    O link aponta para o formulário de demonstração (/experiencia/avaliar/demo), que não grava nada."""
+    from services.email_service import send_alerta_nota_insuficiente, send_primeiro_envio
+
+    emp = {
+        "nome": "COLABORADOR EXEMPLO (DEMONSTRAÇÃO)", "cargo": "Analista Administrativo",
+        "empresa": "Voetur Turismo", "departamento": "Recursos Humanos", "data_admissao": "01/08/2026",
+        "gestor_nome": "Gestor Exemplo", "gestor_email": "exemplo@voetur.com.br",
+    }
+    av45 = {"tipo": "45_dias", "data_prevista": "2026-10-05"}
+    av_ruim = {
+        "tipo": "45_dias", "data_prevista": "2026-10-05", "nota_total": 16, "nota_percentual": 44.44,
+        "respostas": {"parecer": "interromper", "indicadores": {
+            "apresentacao_pessoal": 2, "produtividade": 1, "conhecimento_trabalho": 2, "cooperacao": 2,
+            "iniciativa_proatividade": 1, "relacionamento_interpessoal": 2, "aprendizagem": 2,
+            "hierarquia_disciplina": 2, "assiduidade_pontualidade": 2}},
+    }
+    resultado = []
+    for email in payload.destinatarios:
+        email = email.strip().lower()
+        para = (email, email.split("@")[0].replace(".", " ").title())
+        resultado.append({
+            "destinatario": email,
+            "formulario": send_primeiro_envio(av45, emp, "demo", para=para, prefixo="[TESTE] 1/3 "),
+            "alerta_10_dias": send_primeiro_envio(av45, emp, "demo", automatico=True, para=para, prefixo="[TESTE] 2/3 "),
+            "nota_insuficiente": send_alerta_nota_insuficiente(av_ruim, emp, para=para, prefixo="[TESTE] 3/3 "),
+        })
+    log.info("E-mails de validação enviados por %s: %s", user.get("username"), resultado)
+    return {"ok": True, "resultado": resultado}

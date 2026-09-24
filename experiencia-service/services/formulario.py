@@ -102,3 +102,16 @@ def validate_respostas(respostas: dict, tipo: str) -> list[str]:
         erros.append(f"Parecer inválido ou não selecionado: {parecer}")
 
     return erros
+
+
+# ── Nota (alerta de nota insuficiente) ────────────────────────────────────────
+NOTA_MAXIMA = len(INDICADORES) * max(e["valor"] for e in ESCALA)  # 9 × 4 = 36
+LIMIAR_INSUFICIENTE_PCT = 50.0  # inferior a 50% da nota total → alerta ao RH
+
+
+def calcular_nota(respostas: dict) -> dict:
+    """Soma dos indicadores (1–4). Insuficiente = abaixo de 50% da nota máxima."""
+    valores = [v for v in (respostas.get("indicadores") or {}).values() if isinstance(v, int)]
+    total = sum(valores)
+    pct = round(100 * total / NOTA_MAXIMA, 2) if NOTA_MAXIMA else 0.0
+    return {"nota_total": total, "nota_percentual": pct, "nota_insuficiente": pct < LIMIAR_INSUFICIENTE_PCT}

@@ -12,9 +12,32 @@ router = APIRouter(prefix="/api/experiencia")
 log = logging.getLogger(__name__)
 
 
+DEMO_TOKEN = "demo"
+
+
+def _formulario_demo(tipo: str) -> dict:
+    return {
+        "avaliacao_id": "demo",
+        "tipo": tipo,
+        "data_prevista": "2026-10-31",
+        "demo": True,
+        "colaborador": {
+            "nome": "COLABORADOR EXEMPLO (DEMONSTRAÇÃO)",
+            "cargo": "Analista Administrativo",
+            "empresa": "Voetur Turismo",
+            "departamento": "Recursos Humanos",
+            "data_admissao": "2026-08-01",
+        },
+        "gestor_nome": "Gestor Exemplo",
+        "formulario": get_formulario(tipo),
+    }
+
+
 @router.get("/formulario/{token}")
-def get_formulario_by_token(token: str):
+def get_formulario_by_token(token: str, tipo: str = "45_dias"):
     """Carrega dados do colaborador + estrutura do formulário para o gestor preencher."""
+    if token == DEMO_TOKEN:
+        return _formulario_demo("90_dias" if tipo == "90_dias" else "45_dias")
     sb = get_supabase()
 
     av = (
@@ -69,6 +92,13 @@ class SubmitPayload(BaseModel):
 @router.post("/formulario/{token}")
 def submit_formulario(token: str, payload: SubmitPayload, request: Request):
     """Salva respostas + assinatura digital do gestor."""
+    if token == DEMO_TOKEN:
+        # demonstração: valida e calcula a nota, mas não grava nem envia nada
+        from services.formulario import calcular_nota
+        erros = validate_respostas(payload.respostas, "45_dias" if payload.respostas.get("parecer") in ("seguir", "interromper") else "90_dias")
+        if erros:
+            raise HTTPException(status_code=422, detail={"erros": erros})
+        return {"ok": True, "demo": True, "message": "Formulário de demonstração — nada foi gravado", **calcular_nota(payload.respostas)}
     sb = get_supabase()
 
     av = (
@@ -103,14 +133,29 @@ def submit_formulario(token: str, payload: SubmitPayload, request: Request):
 
     ip = request.client.host if request.client else "desconhecido"
 
+    from services.formulario import calcular_nota
+    nota = calcular_nota(payload.respostas)
+
     sb.table("exp_avaliacoes").update({
         "status":               "respondido",
         "respostas":            payload.respostas,
         "gestor_concordou":     True,
         "gestor_assinatura_at": payload.timestamp_assinatura,
         "gestor_ip":            ip,
+        **nota,
         "updated_at":           "now()",
     }).eq("id", avaliacao["id"]).execute()
+
+    # Nota inferior a 50% da nota total → alerta ao RH
+    if nota["nota_insuficiente"]:
+        try:
+            from services.email_service import send_alerta_nota_insuficiente, log_email, ALERTA_NOTA_EMAIL
+            ok = send_alerta_nota_insuficiente({**avaliacao, **nota, "respostas": payload.respostas}, emp)
+            log_email(sb, avaliacao["id"], ALERTA_NOTA_EMAIL, "alerta_nota_insuficiente", ok)
+            if ok:
+                sb.table("exp_avaliacoes").update({"alerta_rh_enviado_at": "now()"}).eq("id", avaliacao["id"]).execute()
+        except Exception as exc:
+            log.error("Falha ao enviar alerta de nota insuficiente: %s", exc)
 
     # E-mail de confirmação para o RH
     try:
