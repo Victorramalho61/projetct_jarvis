@@ -341,17 +341,23 @@ export default function PublicCienciaPresencialPage() {
                   const displayScore = wasCalibrated ? s.calibrated_score : s.score;
                   return (
                     <div key={s.indicator_id}>
-                      <div className="flex items-center justify-between px-5 py-3 gap-3">
+                      <div className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 min-w-0">{s.indicator_name}</span>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                          {/* Mesma ordem do quadro de notas finais: Autoavaliação | Gestor | Média */}
                           {s.self_score != null && (
                             <span className="text-[10px] font-semibold text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
-                              Nota Média Final: {((displayScore + s.self_score) / 2).toFixed(2)}
+                              Nota Autoavaliação: {Number(s.self_score).toFixed(2)}
                             </span>
                           )}
                           <span className="text-[10px] font-semibold text-[#00694E] dark:text-emerald-400 bg-[#E6F4F0] dark:bg-emerald-900/20 px-2 py-0.5 rounded-full whitespace-nowrap">
                             Nota Gestor: {Number(displayScore).toFixed(2)}
                           </span>
+                          {s.self_score != null && (
+                            <span className="text-[10px] font-semibold text-white bg-[#00694E] dark:bg-emerald-700 px-2 py-0.5 rounded-full whitespace-nowrap">
+                              Nota Média Final: {((displayScore + s.self_score) / 2).toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       </div>
                       {wasCalibrated ? (
