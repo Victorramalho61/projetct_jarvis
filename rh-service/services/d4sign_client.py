@@ -70,9 +70,27 @@ def _request(method: str, path: str, json: dict | None = None, timeout: float = 
 # ── Cofre / templates ─────────────────────────────────────────────────────
 
 def listar_templates() -> list[dict]:
+    """Templates do cofre. A API devolve um dict indexado ({"1": {id, name, type, variables}})."""
     _check_configurado()
     resp = _request("POST", "/templates")
-    return resp if isinstance(resp, list) else resp.get("templates", [])
+    if isinstance(resp, list):
+        return resp
+    if isinstance(resp, dict) and "templates" in resp:
+        return resp["templates"]
+    return [v for v in (resp or {}).values() if isinstance(v, dict)]
+
+
+def validar_template_id(template_id: str) -> None:
+    """O identificador aceito pelo makedocumentbytemplateword é o `id` do /templates (base64 curto,
+    ex.: "NDEyNA=="), NÃO o UUID que aparece no painel. Com o UUID a API respondia 200 com corpo
+    vazio e não criava nada — foi a causa do "bug" reportado à D4Sign em 08/2026."""
+    ids = {t.get("id"): t.get("name") for t in listar_templates()}
+    if template_id not in ids:
+        raise D4SignError(
+            422,
+            f"Template '{template_id}' não existe no D4Sign. Disponíveis: "
+            + ", ".join(f"{i} ({n})" for i, n in ids.items()),
+        )
 
 
 # ── Documento a partir de template ───────────────────────────────────────
@@ -84,14 +102,18 @@ def criar_documento_template(
     Retorna o uuid do documento criado."""
     _check_configurado()
     s = get_settings()
+    # Formato validado no sandbox em 2026-09-29: variáveis direto sob o id do template, dentro
+    # de "templates". Com {"tokens_gerais": {...}} o documento é criado com os campos em branco;
+    # com o id na raiz do JSON, nada é criado (200 com corpo vazio).
     payload = {
         "name_document": name_document,
-        template_uuid: {"tokens_gerais": tokens_gerais},
+        "templates": {template_uuid: {k: ("" if v is None else str(v)) for k, v in tokens_gerais.items()}},
     }
     resp = _request("POST", f"/documents/{s.d4sign_safe_uuid}/makedocumentbytemplateword", json=payload)
     document_uuid = resp.get("uuid") or resp.get("uuidDoc")
     if not document_uuid:
-        raise D4SignError(500, f"Resposta sem uuid de documento: {resp}")
+        validar_template_id(template_uuid)  # erro claro se o id configurado estiver errado
+        raise D4SignError(500, f"D4Sign não criou o documento (resposta: {resp or 'vazia'})")
     return document_uuid
 
 
