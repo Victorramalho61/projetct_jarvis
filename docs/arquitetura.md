@@ -2689,3 +2689,23 @@ Migration: `experiencia-service/migration_002_experiencia_v2.sql`.
 - **SMTP:** o Office 365 passou a limitar o remetente do Jarvis ("Sender throttled due to continuous invalid recipients") por causa do cliente de teste "Empresa Teste SGI" (`vithoria.andrade@voetur.com.br`, inexistente). O remetente é compartilhado por todos os serviços.
 - **financeiro-service:** login `usr_bi` recusado pelo Benner uma vez no job das 01:00.
 - **Disco C:** 82% usado (18 GB livres); a maior parte está em `AppData\Local\Packages`.
+
+### rh-service — D4Sign: causa real do "bug" encontrada (2026-09-29)
+A D4Sign pediu um novo teste (Diego Costa, suporte). No sandbox, a causa estava **no nosso payload**, não na API:
+- **O id do template não é o UUID do painel.** O `makedocumentbytemplateword` aceita o `id` que o `POST /templates` devolve (base64 curto, hoje **`NDEyNA==`** para `Template_Requisicao_de_Pessoal.docx`). Com o UUID `9bf798ab-…`, a API respondia 200 com corpo vazio e não criava nada. Era o sintoma reportado desde 12/08.
+- **Formato do corpo:** `{"name_document": "...", "templates": {"<id>": {"solicitante": "...", ...}}}`, com as variáveis direto sob o id.
+
+| Formato testado | Resultado |
+|---|---|
+| id na raiz do JSON (como o código fazia) | nada é criado |
+| `{"templates": {id: {"tokens_gerais": {...}}}}` | documento criado, campos **em branco** |
+| `{"templates": {id: {variáveis}}}` | documento criado com **os 24 campos preenchidos**, inclusive os 4 signatários (PDF conferido) |
+
+- **Correção** (`services/d4sign_client.py`, commit `9ca238c`):
+  - payload no formato certo;
+  - `D4SIGN_TEMPLATE_UUID=NDEyNA==` no `.env`, com backup em `E:\claudecode\backups\.env.bak-2026-09-29-d4sign`;
+  - `validar_template_id()` dá erro claro, com a lista de ids disponíveis, se a criação falhar.
+- **Limite de taxa do sandbox:** depois de umas 10 chamadas seguidas, a chave devolve `401 "Esta chave da API já atingiu o tempo limite para este método"`. É preciso espaçar os testes.
+- **Pendências:**
+  - **aditivo:** o template de aditivo (`D4SIGN_TEMPLATE_ADITIVO_UUID`) **não existe** no `/templates` do sandbox; só há o de Requisição. O fluxo de aditivo continua bloqueado até ele ser cadastrado;
+  - **produção:** o ambiente é o **sandbox** (documentos "sem validade jurídica"). Para usar de verdade, é preciso a conta de produção da D4Sign (`D4SIGN_BASE_URL`, token/cryptKey, cofre e template de produção, com o id do template consultado via `/templates` lá).
