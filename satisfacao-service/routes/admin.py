@@ -406,15 +406,20 @@ def create_plano_acao(campanha_id: str, payload: PlanoAcaoPayload, user=Depends(
     sb = get_supabase()
     from services.dashboard import build_campanha_dashboard
     dashboard = build_campanha_dashboard(sb, campanha_id)
-    pct = 0.0
-    for p in dashboard.get("perguntas", []):
-        if p["pergunta_id"] == payload.pergunta_id:
-            pct = p["percentual_ruim"]
-            break
+    perguntas = dashboard.get("perguntas", [])
+    # Aceita também o id da pergunta DA CAMPANHA (sat_campanha_perguntas): até 2026-09-29 a
+    # tela enviava esse id e o insert falhava com FK violada (sat_planos_acao_pergunta_id_fkey).
+    pergunta_id = next(
+        (p["pergunta_id"] for p in perguntas if payload.pergunta_id in (p["pergunta_id"], p.get("campanha_pergunta_id"))),
+        None,
+    )
+    if not pergunta_id:
+        raise HTTPException(status_code=422, detail="Pergunta não pertence a esta campanha")
+    pct = next((p["percentual_ruim"] for p in perguntas if p["pergunta_id"] == pergunta_id), 0.0)
 
     resp = sb.table("sat_planos_acao").insert({
         "campanha_id": campanha_id,
-        "pergunta_id": payload.pergunta_id,
+        "pergunta_id": pergunta_id,
         "percentual_notas_ruins": pct,
         "descricao": payload.descricao,
         "responsavel": payload.responsavel,

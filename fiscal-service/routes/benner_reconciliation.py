@@ -35,6 +35,11 @@ _logger = logging.getLogger(__name__)
 # de propósito: o usuário pediu dado fresco agora e espera o spinner.
 _TTL = 1800  # 30 min — dado muda pouco
 
+# Serializa os cálculos (NFe/CTe e NFSe) entre si: somados em paralelo passavam do limite de
+# 512 MB do container e o serviço era morto pelo kernel (13 reinícios entre 15 e 28/09/2026,
+# sempre ao abrir a tela de Conciliação Benner).
+_COMPUTE_LOCK = threading.Lock()
+
 
 class _StaleCache:
     """Cache com revalidação em segundo plano: serve o último dado pronto na hora
@@ -69,7 +74,8 @@ class _StaleCache:
             # aproveita o resultado dela em vez de recalcular de novo à toa.
             if self._at > requested_at:
                 return
-            self._data = self._compute_fn()
+            with _COMPUTE_LOCK:
+                self._data = self._compute_fn()
             self._at = time.monotonic()
 
     def _refresh_background(self) -> None:
@@ -80,7 +86,8 @@ class _StaleCache:
 
         def _run():
             try:
-                self._data = self._compute_fn()
+                with _COMPUTE_LOCK:
+                    self._data = self._compute_fn()
                 self._at = time.monotonic()
             except Exception:
                 _logger.exception("benner_reconciliation: falha ao atualizar cache em segundo plano")
@@ -195,14 +202,29 @@ def _enrich_from_xml(doc: dict) -> dict:
     return doc
 
 
-def _fetch_benner_chaves() -> set[str]:
+_CHAVES_POR_CONSULTA = 500
+
+
+def _fetch_benner_chaves(chaves: list[str]) -> set[str]:
+    """Quais das `chaves` do Jarvis existem no Benner. Antes carregava todas as chaves da
+    FN_DOCUMENTONFE (~280 MB de pico no processo) para cruzar com poucas centenas de documentos."""
+    unicas = sorted({c for c in chaves if c and len(c) == 44})
+    encontradas: set[str] = set()
+    if not unicas:
+        return encontradas
     conn = get_mssql()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT CHAVE FROM dbo.FN_DOCUMENTONFE WHERE LEN(CHAVE) = 44")
-        return {r["CHAVE"] for r in cur.fetchall() if r.get("CHAVE")}
+        for i in range(0, len(unicas), _CHAVES_POR_CONSULTA):
+            lote = unicas[i:i + _CHAVES_POR_CONSULTA]
+            cur.execute(
+                f"SELECT CHAVE FROM dbo.FN_DOCUMENTONFE WHERE CHAVE IN ({','.join(['%s'] * len(lote))})",
+                tuple(lote),
+            )
+            encontradas.update(r["CHAVE"] for r in cur.fetchall() if r.get("CHAVE"))
     finally:
         conn._conn.close()
+    return encontradas
 
 
 def _company_names() -> dict[str, str]:
@@ -213,7 +235,7 @@ def _company_names() -> dict[str, str]:
 
 def _compute() -> dict:
     docs = _fetch_fiscal_docs()
-    benner_chaves = _fetch_benner_chaves()
+    benner_chaves = _fetch_benner_chaves([d["chave_acesso"] for d in docs])
     names = _company_names()
 
     not_in_benner = []
@@ -299,19 +321,22 @@ def _fetch_filial_handles() -> list[int]:
     return [r["HANDLE"] for r in rows if _only_digits(r.get("CGC")) in wanted]
 
 
-def _fetch_gn_pessoas_cnpj_map() -> dict[str, list[int]]:
+def _fetch_gn_pessoas_cnpj_map(cnpjs_interesse: set[str] | None = None) -> dict[str, list[int]]:
+    """CNPJ (só dígitos) → handles em GN_PESSOAS. Lê em streaming e, se `cnpjs_interesse`
+    vier, guarda só esses (antes materializava as ~106 mil pessoas de uma vez)."""
     conn = get_mssql()
+    m: dict[str, list[int]] = {}
     try:
-        cur = conn.cursor()
+        # cursor bruto do pymssql: iterar sem fetchall; CNPJ/handle não precisam da
+        # correção de encoding CP850 do _FixedCursor
+        cur = conn._conn.cursor()
         cur.execute("SELECT HANDLE, CGCCPF FROM dbo.GN_PESSOAS WHERE CGCCPF IS NOT NULL")
-        rows = cur.fetchall()
+        for r in cur:
+            cnpj = _only_digits(r.get("CGCCPF"))
+            if cnpj and (cnpjs_interesse is None or cnpj in cnpjs_interesse):
+                m.setdefault(cnpj, []).append(r["HANDLE"])
     finally:
         conn._conn.close()
-    m: dict[str, list[int]] = {}
-    for r in rows:
-        cnpj = _only_digits(r.get("CGCCPF"))
-        if cnpj:
-            m.setdefault(cnpj, []).append(r["HANDLE"])
     return m
 
 
@@ -353,7 +378,7 @@ def _parse_date(s) -> "_date | None":
 
 def _compute_nfse_aproximado() -> dict:
     docs = _fetch_nfse_recebidas()
-    cnpj_pessoa = _fetch_gn_pessoas_cnpj_map()
+    cnpj_pessoa = _fetch_gn_pessoas_cnpj_map({_only_digits(d.get("emitente_cnpj")) for d in docs} - {""})
     filial_handles = _fetch_filial_handles()
     lancamentos = _fetch_benner_lancamentos_entrada(filial_handles)
     names = _company_names()
@@ -376,7 +401,7 @@ def _compute_nfse_aproximado() -> dict:
                     break
 
         if not found:
-            item = dict(d)
+            item = d  # sem cópia: 95 mil dicts duplicados custavam memória à toa
             item["company_nome"] = names.get(d.get("company_id"), "")
             item["motivo"] = (
                 "Fornecedor sem cadastro localizado no Benner" if not handles

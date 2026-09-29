@@ -2666,3 +2666,26 @@ Pedido do RH, com 9 itens, e revisão do gestor pelo Victor.
 - **E-mails de validação:** `POST /admin/emails-validacao` envia os 3 modelos **[TESTE]** (formulário, alerta D-10, nota insuficiente) com colaborador fictício.
 
 Migration: `experiencia-service/migration_002_experiencia_v2.sql`.
+
+## Health check e correções (2026-09-29)
+
+**fiscal-service reiniciava ao abrir a Conciliação Benner** (13 reinícios entre 15 e 28/09):
+- **Causa:** a tela chama `benner-reconciliation/nfe-cte` e `/nfse-recebida` juntas. Os dois cálculos rodavam em paralelo e passavam do limite de 512 MB do container, que era morto sem traceback.
+  - NFe/CTe carregava **todas** as chaves da `FN_DOCUMENTONFE` do Benner para cruzar com 712 documentos.
+  - NFSe materializava as ~106 mil `GN_PESSOAS` e duplicava os ~95 mil documentos.
+- **Correção** (`routes/benner_reconciliation.py`):
+  - consulta só as chaves do Jarvis, em lotes de 500;
+  - `GN_PESSOAS` lida em streaming, guardando só os ~4,6 mil CNPJs presentes nas notas;
+  - sem cópia dos dicts;
+  - `_COMPUTE_LOCK` serializa os dois cálculos, inclusive no pré-aquecimento do startup.
+- **Medido com `--memory 512m`, no cenário da tela (paralelo + 2ª atualização com caches cheios):** o pico caiu de **500 MB para 353 MB**, com resultados idênticos (712 NFe/CTe, 95.148 NFSe).
+- **Pendência de dados, não corrigida:** as 95.148 NFSe recebidas saem **todas** como "sem lançamento no Benner". O critério aproximado (CNPJ + valor ± R$ 0,05 + data ± 30 dias) não está casando nenhuma. Precisa ser investigado com a Controladoria.
+
+**Pesquisa de Satisfação — criar Plano de Ação dava 500:**
+- **Causa:** FK `sat_planos_acao_pergunta_id_fkey`. A tela enviava o id de `sat_campanha_perguntas` no campo `pergunta_id`.
+- **Correção:** a tela envia `pergunta_id`, e o backend aceita os dois ids (converte o da campanha e rejeita com 422 o que não pertence à campanha).
+
+**Outros achados do health check (sem mudança de código):**
+- **SMTP:** o Office 365 passou a limitar o remetente do Jarvis ("Sender throttled due to continuous invalid recipients") por causa do cliente de teste "Empresa Teste SGI" (`vithoria.andrade@voetur.com.br`, inexistente). O remetente é compartilhado por todos os serviços.
+- **financeiro-service:** login `usr_bi` recusado pelo Benner uma vez no job das 01:00.
+- **Disco C:** 82% usado (18 GB livres); a maior parte está em `AppData\Local\Packages`.

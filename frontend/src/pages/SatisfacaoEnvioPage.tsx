@@ -22,7 +22,8 @@ type Resposta = {
   sat_clientes: { id: string; empresa_nome: string; contato_nome: string; contato_email: string };
 };
 
-type CampanhaPergunta = { id: string; ordem: number; texto_snapshot: string };
+// id = campanha_pergunta_id (itens de resposta); pergunta_id = sat_perguntas.id (planos de ação)
+type CampanhaPergunta = { id: string; pergunta_id: string; ordem: number; texto_snapshot: string };
 
 type TriagemItem = {
   id: string; nota: number; comentario: string | null;
@@ -154,7 +155,7 @@ export default function SatisfacaoEnvioPage() {
     apiFetch<TriagemItem[]>(`/api/satisfacao/admin/campanhas/${campanhaId}/triagem`, { token }).then(setTriagem).catch(() => {});
     apiFetch<PlanoAcao[]>(`/api/satisfacao/admin/campanhas/${campanhaId}/planos-acao`, { token }).then(setPlanos).catch(() => {});
     apiFetch<any>(`/api/satisfacao/admin/campanhas/${campanhaId}/dashboard`, { token })
-      .then((d) => setCampanhaPerguntas((d.perguntas || []).map((p: any) => ({ id: p.campanha_pergunta_id, ordem: p.ordem, texto_snapshot: p.texto }))))
+      .then((d) => setCampanhaPerguntas((d.perguntas || []).map((p: any) => ({ id: p.campanha_pergunta_id, pergunta_id: p.pergunta_id, ordem: p.ordem, texto_snapshot: p.texto }))))
       .catch(() => {});
     reloadLogs();
   }, [campanhaId, token]);
@@ -435,7 +436,7 @@ export default function SatisfacaoEnvioPage() {
       {tab === "planos" && (
         <div className="space-y-3">
           <div className="flex justify-end">
-            <button onClick={() => setNovoPlano({ pergunta_id: campanhaPerguntas[0]?.id ?? "", descricao: "", responsavel: "", prazo: "" })}
+            <button onClick={() => setNovoPlano({ pergunta_id: campanhaPerguntas[0]?.pergunta_id ?? "", descricao: "", responsavel: "", prazo: "" })}
               className="bg-[#00694E] hover:bg-[#004F3A] text-white font-semibold px-4 py-2 rounded-lg text-sm">Novo plano de ação</button>
           </div>
           {planos.length === 0 && <p className="text-sm text-gray-400">Nenhum plano de ação criado.</p>}
@@ -592,7 +593,7 @@ export default function SatisfacaoEnvioPage() {
           <div className="space-y-3">
             <select value={novoPlano.pergunta_id} onChange={(e) => setNovoPlano({ ...novoPlano, pergunta_id: e.target.value })}
               className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
-              {campanhaPerguntas.map((cp) => <option key={cp.id} value={cp.id}>{cp.texto_snapshot}</option>)}
+              {campanhaPerguntas.map((cp) => <option key={cp.id} value={cp.pergunta_id}>{cp.texto_snapshot}</option>)}
             </select>
             <textarea placeholder="Descrição do plano de ação" value={novoPlano.descricao} onChange={(e) => setNovoPlano({ ...novoPlano, descricao: e.target.value })}
               rows={3} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
