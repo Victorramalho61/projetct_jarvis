@@ -2707,5 +2707,22 @@ A D4Sign pediu um novo teste (Diego Costa, suporte). No sandbox, a causa estava 
   - `validar_template_id()` dá erro claro, com a lista de ids disponíveis, se a criação falhar.
 - **Limite de taxa do sandbox:** depois de umas 10 chamadas seguidas, a chave devolve `401 "Esta chave da API já atingiu o tempo limite para este método"`. É preciso espaçar os testes.
 - **Pendências:**
-  - **aditivo:** o template de aditivo (`D4SIGN_TEMPLATE_ADITIVO_UUID`) **não existe** no `/templates` do sandbox; só há o de Requisição. O fluxo de aditivo continua bloqueado até ele ser cadastrado;
+  - ~~**aditivo:** o template de aditivo não existia no sandbox~~ **resolvido em 2026-09-29**, veja a seção abaixo;
   - **produção:** o ambiente é o **sandbox** (documentos "sem validade jurídica"). Para usar de verdade, é preciso a conta de produção da D4Sign (`D4SIGN_BASE_URL`, token/cryptKey, cofre e template de produção, com o id do template consultado via `/templates` lá).
+
+**Fluxo completo validado no sandbox (2026-09-29):** documento gerado pelo `d4sign_client` corrigido → 4 signatários (`createlist`) → envio sequencial (`sendtosigner`, com `skip_email=1` no teste) → status "Aguardando Assinaturas". Os documentos de teste foram cancelados em seguida.
+
+**Template de Aditivo criado e cadastrado via API (2026-09-29):**
+- **Arquivo:** `Template_Aditivo_Requisicao_de_Pessoal.docx`, gerado a partir do template de Requisição corrigido com python-docx.
+  - O título passa a ser "ADITIVO À REQUISIÇÃO DE PESSOAL".
+  - Os dados da requisição original ficam como referência.
+  - Entra um bloco "ADITIVO" com `${tipo_aditivo}` e `${justificativa_aditivo}`.
+  - As 4 assinaturas são as mesmas.
+  - Sai a linha "Custos da admissão", para caber numa página.
+  - Cada token fica num único run, com a mesma estrutura de runs do original (rótulo em negrito 9pt + token 9pt).
+- **Upload:** `POST /templates/upload` em **multipart** (`file` + `show_desk=1`). O envio em base64 foi recusado com 415 "Formato de arquivo inválido". A API devolve `id_template` e reconhece os 26 tokens.
+- **Id em uso:** **`NDI2Mw==`** (v3), configurado em `D4SIGN_TEMPLATE_ADITIVO_UUID`. Cabe numa página, com o PDF conferido. Versões anteriores, não usadas:
+  - v1 `NDI2MQ==`: bloco sem negrito, passava para a 2ª página;
+  - v2 `NDI2Mg==`: a assinatura da Diretoria ainda caía na 2ª página.
+  A v3 compacta os parágrafos vazios entre as seções.
+- **Atenção ao baixar o PDF logo após criar o documento:** com 3 s de espera, a URL de download devolveu a página "não encontrada" da D4Sign, porque o PDF ainda estava sendo montado. Esperar ou tentar de novo.
