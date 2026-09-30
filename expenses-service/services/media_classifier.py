@@ -101,12 +101,15 @@ async def classify_articles_llm(
 
 
 async def _gemini(prompt: str, api_key: str) -> str | None:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    # Chave no cabeçalho, nunca na URL: o httpx e as mensagens de erro registram a URL inteira
+    # nos logs (a chave aparecia em texto puro no log do container até 2026-09-30).
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
     for attempt in range(3):
         try:
             async with httpx.AsyncClient(timeout=40) as client:
                 resp = await client.post(
                     url,
+                    headers={"x-goog-api-key": api_key},
                     json={
                         "contents": [{"parts": [{"text": prompt}]}],
                         "generationConfig": {"temperature": 0.1, "maxOutputTokens": 8192},

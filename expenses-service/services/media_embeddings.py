@@ -20,7 +20,8 @@ async def embed_text(text: str, api_key: str) -> list[float] | None:
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/{_MODEL}:embedContent?key={api_key}",
+                f"https://generativelanguage.googleapis.com/v1beta/{_MODEL}:embedContent",
+                headers={"x-goog-api-key": api_key},  # chave fora da URL (não vai para os logs)
                 json={
                     "model": _MODEL,
                     "content": {"parts": [{"text": text[:2000]}]},

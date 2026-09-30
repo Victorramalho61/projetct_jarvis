@@ -2726,3 +2726,29 @@ A D4Sign pediu um novo teste (Diego Costa, suporte). No sandbox, a causa estava 
   - v2 `NDI2Mg==`: a assinatura da Diretoria ainda caía na 2ª página.
   A v3 compacta os parágrafos vazios entre as seções.
 - **Atenção ao baixar o PDF logo após criar o documento:** com 3 s de espera, a URL de download devolveu a página "não encontrada" da D4Sign, porque o PDF ainda estava sendo montado. Esperar ou tentar de novo.
+
+## Health check (2026-09-30) e correção: chave do Gemini nos logs
+
+**Estado geral:**
+
+| Área | Situação |
+|---|---|
+| Servidor | CPU 14%, RAM 60% de 32 GB, disco E: 78% livre. **Disco C: 82%** (17,6 GB livres), sem mudança |
+| Windows | Nenhum erro em 24h; só avisos DCOM 10016, que são inofensivos |
+| Containers | 26 de 26 no ar e saudáveis (hermes desligado de propósito) |
+| fiscal-service | 219 MB e **0 reinícios** depois da correção da Conciliação Benner (antes: 373 MB e 13 reinícios) |
+| Kong | nenhuma resposta 5xx em 24h |
+| Banco | 13 de 200 conexões, sem locks, sem deadlocks, sem tabelas com excesso de linhas mortas; log sem erros em 24h |
+
+**Externos (não é bug nosso):**
+- **Benner Cloud CORPORATIVO:** fora do ar entre 19h05 e 19h55 de 29/09, com 5 respostas 503.
+- **Gemini:** ~20 respostas 503 em 575 chamadas em 7 dias. O classificador cai no fallback.
+
+**Correção — chave do Gemini em texto puro nos logs** (`expenses-service`):
+- **Causa:** `services/media_classifier.py` e `services/media_embeddings.py` passavam a chave na query string (`...:generateContent?key=...`). O logger do httpx (INFO) e o `logger.warning` de erro registram a URL completa, então a chave aparecia no log do container.
+- **Onde vazou:** a tabela `app_logs` não recebeu a chave (0 registros), então o vazamento ficou restrito ao log do Docker.
+- **Correção:** a chave passou para o cabeçalho **`x-goog-api-key`**, forma suportada pela API do Google AI Studio.
+- **Teste com a chave real:** generateContent e embedContent responderam 200 (768 dimensões), e a chave não aparece no log.
+- O deploy recria o container, o que também descarta o log antigo do Docker.
+- **Recomendação:** **trocar a chave** no Google AI Studio e atualizar `GOOGLE_API_KEY` no `.env`. A chave antiga ficou exposta no log por dias.
+- Varredura no repositório: não há outro `?key=` / `&key=` em código Python.
