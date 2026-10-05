@@ -1,6 +1,6 @@
 """CRUD de vagas (processos de admissão) — núcleo do módulo de RH."""
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -276,6 +276,8 @@ def iniciar_processo(payload: IniciarPayload, user=Depends(_require_rh)):
         "empresa_id": payload.empresa_id,
         "data_recebimento": date.today().isoformat(),
         "status_id": status_inicial.data["id"],
+        "origem": "sistema",
+        "editado_sistema_em": datetime.now(timezone.utc).isoformat(),
         "created_by": user.get("id"),
         "updated_by": user.get("id"),
     }
@@ -337,7 +339,9 @@ def editar_vaga(vaga_id: str, payload: dict, user=Depends(_require_rh)):
 
     payload = {k: v for k, v in payload.items() if k not in ("id", "created_at", "created_by")}
     payload = _apply_automacao(sb, payload, current=existente.data[0])
-    payload["updated_at"] = datetime.utcnow().isoformat()
+    agora = datetime.now(timezone.utc).isoformat()
+    payload["updated_at"] = agora
+    payload["editado_sistema_em"] = agora  # import seguinte não sobrescreve esta edição
     payload["updated_by"] = user.get("id")
 
     sb.table("rh_vagas").update(payload).eq("id", vaga_id).execute()

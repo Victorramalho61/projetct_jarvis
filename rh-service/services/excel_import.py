@@ -8,7 +8,7 @@ número de requisição da planilha.
 """
 import io
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 import pandas as pd
 
@@ -50,6 +50,11 @@ _PRESERVAR_SE_VAZIO = {"data_inicio_etapa", "sla_etapa_externa_dias", "observaco
 def _normalizar_requisicao(req: str) -> str:
     """TUR.ADM.290.26 (digitado com ponto) -> TUR.ADM.290/26."""
     return re.sub(r"^([A-Z]{3}\.ADM\.\d{3})\.(\d{2})$", r"\1/\2", req)
+
+
+def _ts(v: str) -> str:
+    """timestamptz do PostgREST -> ISO UTC comparável como string."""
+    return pd.Timestamp(str(v)).tz_convert("UTC").isoformat()  # tolera microssegundos com < 6 dígitos
 
 
 def _sem_acento(s: str) -> str:
@@ -271,6 +276,7 @@ def importar_planilha(sb, conteudo: bytes, nome_arquivo: str, user: dict) -> dic
                     from services.numbering import gerar_numero_requisicao
                     payload["numero_requisicao"] = gerar_numero_requisicao(sb, empresa_id)
                 payload["created_by"] = user.get("id")
+                payload["origem"] = "planilha"
                 sb.table("rh_vagas").insert(payload).execute()
                 inseridas += 1
 
@@ -348,7 +354,7 @@ def _importar_tabela_sla(sb, xls: pd.ExcelFile) -> int:
             "exames": _int(r.get("EXAMES")),
             "documentos": _int(r.get("ENTREGA DE DOCUMENTOS AO DP")),
             "empresa": _upper(r.get("EMPRESA")),
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     linhas = list(vistos.values())
     for i in range(0, len(linhas), 200):
@@ -404,32 +410,42 @@ def _sincronizar_listas(sb, xls: pd.ExcelFile, cache: "_LookupCache") -> int:
     return total
 
 
-def _arquivar_fora_da_planilha(sb, ids_planilha: list[str], upload_id: str | None) -> int:
-    """Planilha = fonte da verdade: o que veio nela volta a valer (historico=false);
-    o resto vira histórico (fora das telas e indicadores, nada é apagado).
-    Exceção: vaga criada no Jarvis depois do upload anterior é processo novo que ainda não
-    entrou na planilha — continua visível até o próximo upload."""
+def _arquivar_fora_da_planilha(sb, ids_planilha: list[str], upload_id: str | None,
+                               upload_anterior_em: str | None) -> int:
+    """Planilha = fonte da verdade para o que veio dela: vaga na planilha volta a valer
+    (historico=false); vaga de origem 'planilha' que saiu dela vira histórico (nada é apagado).
+    Nunca arquiva o trabalho feito direto no Jarvis: vaga criada no sistema (origem='sistema')
+    ou editada na tela depois do upload anterior."""
+    from services.paginacao import buscar_todos
+
     if not ids_planilha or not upload_id:
         return 0  # import vazio/quebrado nunca arquiva a base inteira
     for i in range(0, len(ids_planilha), 100):
         sb.table("rh_vagas").update({"historico": False, "ultimo_upload_id": upload_id}).in_(
             "id", ids_planilha[i:i + 100]
         ).execute()
-    anterior = sb.table("rh_uploads").select("criado_em").neq("id", upload_id).order(
-        "criado_em", desc=True
-    ).limit(1).execute().data
-    query = sb.table("rh_vagas").update({"historico": True}).eq("historico", False).or_(
-        f"ultimo_upload_id.is.null,ultimo_upload_id.neq.{upload_id}"
+    na_planilha = set(ids_planilha)
+    candidatas = buscar_todos(
+        lambda: sb.table("rh_vagas").select("id,editado_sistema_em").eq("historico", False).eq("origem", "planilha")
     )
-    if anterior:
-        query = query.lt("created_at", anterior[0]["criado_em"])
-    resp = query.execute()
-    return len(resp.data or [])
+    arquivar = [
+        c["id"] for c in candidatas
+        if c["id"] not in na_planilha
+        and not (c.get("editado_sistema_em") and upload_anterior_em and _ts(c["editado_sistema_em"]) > upload_anterior_em)
+    ]
+    for i in range(0, len(arquivar), 100):
+        sb.table("rh_vagas").update({"historico": True}).in_("id", arquivar[i:i + 100]).execute()
+    return len(arquivar)
 
 
 def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dry_run: bool = False) -> dict:
     from routes.vagas import registrar_troca_etapa
     from services.numbering import gerar_numero_requisicao
+
+    # Edição no Jarvis depois do upload anterior prevalece sobre esta planilha (pedido do RH)
+    anterior = sb.table("rh_uploads").select("criado_em").order("criado_em", desc=True).limit(1).execute().data
+    upload_anterior_em = _ts(anterior[0]["criado_em"]) if anterior else None
+    mantidas_sistema: list[str] = []
 
     xls = pd.ExcelFile(io.BytesIO(conteudo))
     df = pd.read_excel(xls, sheet_name=_SHEET_NOVO, header=0, nrows=_MAX_LINHAS_SLA)
@@ -532,7 +548,7 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
                 "data_inicio_etapa": _iso(row.get("DATA INÍCIO ETAPA ATUAL")),
                 "sla_etapa_externa_dias": _int(row.get("SLA ETAPA EXTERNA (DIAS)")),
                 "updated_by": user.get("id"),
-                "updated_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
             }
             # A planilha é a fonte da verdade: célula vazia limpa o campo no Jarvis
             # (exceto os campos que só o Jarvis preenche — _PRESERVAR_SE_VAZIO)
@@ -545,18 +561,18 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
 
             existente = None
             if not req_invalido:
-                r = sb.table("rh_vagas").select("id,etapa_atual_id").eq("numero_requisicao", req).execute()
+                r = sb.table("rh_vagas").select("id,etapa_atual_id,editado_sistema_em").eq("numero_requisicao", req).execute()
                 existente = r.data[0] if r.data else None
             elif req_original:
                 # reimport: nº já gerado antes pra esse texto (marca nas observações)?
-                r = sb.table("rh_vagas").select("id,etapa_atual_id").ilike(
+                r = sb.table("rh_vagas").select("id,etapa_atual_id,editado_sistema_em").ilike(
                     "observacoes", f"Nº original na planilha: {req_original}%"
                 ).eq("data_recebimento", abertura).execute()
                 existente = r.data[0] if r.data else None
                 if not existente and payload.get("cargo_id"):
                     # vaga já cadastrada com sufixo (ex.: "PJ" da planilha = "PJ-024" no Jarvis,
                     # da correção de duplicados): mesmo prefixo + abertura + cargo, match único
-                    r = sb.table("rh_vagas").select("id,etapa_atual_id").ilike(
+                    r = sb.table("rh_vagas").select("id,etapa_atual_id,editado_sistema_em").ilike(
                         "numero_requisicao", f"{req_original}%"
                     ).eq("data_recebimento", abertura).eq("cargo_id", payload["cargo_id"]).execute()
                     existente = r.data[0] if len(r.data or []) == 1 else None
@@ -576,13 +592,25 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
                 })
                 continue
 
+            editada_no_jarvis = bool(
+                existente and existente.get("editado_sistema_em") and upload_anterior_em
+                and _ts(existente["editado_sistema_em"]) > upload_anterior_em
+            )
+            if editada_no_jarvis:
+                # o RH mexeu nesta vaga na tela depois do último upload: não sobrescreve
+                vaga_id = existente["id"]
+                mantidas_sistema.append(req or req_original or vaga_id)
+                ids_planilha.append(vaga_id)
+                continue
             if existente:
+                payload["origem"] = "planilha"
                 sb.table("rh_vagas").update(payload).eq("id", existente["id"]).execute()
                 vaga_id = existente["id"]
                 atualizadas += 1
             else:
                 payload["numero_requisicao"] = req if not req_invalido else gerar_numero_requisicao(sb, empresa_id)
                 payload["created_by"] = user.get("id")
+                payload["origem"] = "planilha"
                 payload.setdefault("status_id", status_map.get("ABERTA"))
                 payload = {k: v for k, v in payload.items() if v is not None}
                 vaga_id = sb.table("rh_vagas").insert(payload).execute().data[0]["id"]
@@ -610,7 +638,7 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
         "detalhes": erros[:500],
     }).execute()
     upload_id = registro.data[0]["id"] if registro.data else None
-    arquivadas = _arquivar_fora_da_planilha(sb, ids_planilha, upload_id)
+    arquivadas = _arquivar_fora_da_planilha(sb, ids_planilha, upload_id, upload_anterior_em)
 
     return {
         "upload_id": upload_id,
@@ -619,6 +647,7 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
         "linhas_atualizadas": atualizadas,
         "linhas_com_erro": com_erro,
         "vagas_arquivadas": arquivadas,
+        "mantidas_edicao_sistema": mantidas_sistema,
         "sla_cargos_importados": sla_cargos,
         "itens_de_lista_sincronizados": listas,
         "erros": erros,
