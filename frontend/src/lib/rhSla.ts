@@ -43,6 +43,21 @@ export const SLA_STATUS_BADGE: Record<string, string> = {
   "INFORMAR DATA DE INÍCIO": "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300",
 };
 
+// Status da vaga — mesmos nomes da planilha (rh-service/migrations/008)
+export const STATUS_VAGA_COR: Record<string, string> = {
+  "ABERTA": "#3b82f6",
+  "PREENCHIDA/FECHADA": "#22c55e",
+  "CANCELADA": "#ef4444",
+  "EM STANDBY": "#94a3b8",
+};
+
+export const STATUS_VAGA_BADGE: Record<string, string> = {
+  "ABERTA": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
+  "PREENCHIDA/FECHADA": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
+  "CANCELADA": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+  "EM STANDBY": "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300",
+};
+
 export type FaseSla = "rs" | "adm";
 
 export const FASE_LABEL: Record<FaseSla, string> = {

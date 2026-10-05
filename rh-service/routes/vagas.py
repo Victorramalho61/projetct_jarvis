@@ -76,9 +76,12 @@ def _serialize(v: dict) -> dict:
 
     # dias_corridos/sla_ok (campos legados da tela e do relatório semanal) passam a
     # refletir a fase de R&S — ver services/sla.py
+    from services.sla import pendencias_cadastro
+
     v["sla"] = _sla(v)
     v["dias_corridos"] = v["sla"]["rs"]["dias"]
     v["sla_ok"] = _sla_ok_de(v["sla"]["rs"]["status"])
+    v["pendencias"] = pendencias_cadastro(v)
     return v
 
 
@@ -120,8 +123,9 @@ def _apply_automacao(sb, payload: dict, current: Optional[dict] = None) -> dict:
             payload["data_confirmacao_contratacao"] = date.today().isoformat()
         if "secao_id" not in payload and etapa_data.get("secao_responsavel_id"):
             payload["secao_id"] = etapa_data["secao_responsavel_id"]
-        if "status_id" not in payload and etapa_data.get("nome") in ("CONCLUÍDO", "CANCELADO"):
-            status = sb.table("rh_status_vaga").select("id").eq("nome", etapa_data["nome"]).single().execute()
+        status_da_etapa = {"CONCLUÍDO": "PREENCHIDA/FECHADA", "CANCELADO": "CANCELADA"}.get(etapa_data.get("nome"))
+        if "status_id" not in payload and status_da_etapa:
+            status = sb.table("rh_status_vaga").select("id").eq("nome", status_da_etapa).single().execute()
             if status.data:
                 payload["status_id"] = status.data["id"]
 
@@ -198,6 +202,7 @@ def listar_vagas(
     requisitante_id: Optional[str] = Query(None),
     cargo_id: Optional[str] = Query(None),
     modalidade_id: Optional[str] = Query(None),
+    incluir_historico: bool = Query(False, description="Inclui vagas fora da última planilha importada"),
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     user=Depends(_require_rh),
@@ -210,6 +215,8 @@ def listar_vagas(
 
     def _query():
         query = sb.table("rh_vagas").select(_SELECT).order("data_recebimento", desc=True)
+        if not incluir_historico:
+            query = query.eq("historico", False)
         if status_id:
             query = query.in_("status_id", status_id)
         if data_inicio:

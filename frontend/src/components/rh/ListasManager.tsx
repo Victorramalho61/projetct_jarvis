@@ -62,6 +62,17 @@ export default function ListasManager({ token, lookups, onReload }: Props) {
     }
   }
 
+  // Recrutador que saiu: inativa (some do filtro Analista) sem perder o histórico das vagas
+  async function handleToggleAtivo(item: LookupItem) {
+    setError(null);
+    try {
+      await apiFetch(`/api/rh/lookups/${tipo}/${item.id}`, { method: "PATCH", json: { ativo: item.ativo === false }, token });
+      onReload();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Erro ao atualizar.");
+    }
+  }
+
   async function handleDelete(item: LookupItem) {
     setError(null);
     try {
@@ -208,9 +219,22 @@ export default function ListasManager({ token, lookups, onReload }: Props) {
                   </span>
                 )}
               </span>
-              <button onClick={() => handleDelete(item)} className="text-xs text-red-600 dark:text-red-400 hover:underline">
-                Remover
-              </button>
+              <span className="flex items-center gap-3">
+                {tipo === "analistas" && (
+                  <button
+                    onClick={() => handleToggleAtivo(item)}
+                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.ativo === false
+                      ? "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400"
+                      : "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"}`}
+                    title="Clique para alternar. Inativos não aparecem no filtro Analista."
+                  >
+                    {item.ativo === false ? "Inativo" : "Ativo"}
+                  </button>
+                )}
+                <button onClick={() => handleDelete(item)} className="text-xs text-red-600 dark:text-red-400 hover:underline">
+                  Remover
+                </button>
+              </span>
             </div>
           ))}
         </div>

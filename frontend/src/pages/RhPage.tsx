@@ -7,27 +7,59 @@ import { useAuth } from "../context/AuthContext";
 import { apiFetch } from "../lib/api";
 import { useRhLookups } from "../hooks/useRhLookups";
 import { filtrosToQueryString } from "../lib/rhFilters";
-import type { AlertaSla, DashboardData, SlaLinhaRelatorio, VagasFiltros } from "../types/rh";
+import type { AlertaSla, DashboardData, PendenciaCadastro, SlaLinhaRelatorio, VagasFiltros } from "../types/rh";
 import KPICard from "../components/expenses/KPICard";
 import FiltrosBar from "../components/rh/FiltrosBar";
 import EtapaFunnelChart from "../components/rh/EtapaFunnelChart";
 import SlaFasesPanel from "../components/rh/SlaFasesPanel";
 import EtapasSlaChart from "../components/rh/EtapasSlaChart";
 import SlaRelatorioTable from "../components/rh/SlaRelatorioTable";
-import { paraAlerta, type FaseSla } from "../lib/rhSla";
+import { fmtData, paraAlerta, STATUS_VAGA_COR, type FaseSla } from "../lib/rhSla";
 import ClickableTileWrapper from "../components/rh/ClickableTileWrapper";
 import DrillDownVagasModal from "../components/rh/DrillDownVagasModal";
 import VagaFormModal from "../components/rh/VagaFormModal";
 
 type DrillDown = { titulo: string; itens: AlertaSla[] };
 
-const STATUS_CORES: Record<string, string> = {
-  "ABERTA": "#3b82f6",
-  "REABERTO": "#f59e0b",
-  "CONCLUÍDO": "#22c55e",
-  "CANCELADO": "#ef4444",
-  "CONGELADO": "#94a3b8",
-};
+// Vagas sem dado mínimo na planilha: fora de todos os números, listadas para o R&S completar
+function PendenciasCadastro({ itens, onAbrirVaga }: { itens: PendenciaCadastro[]; onAbrirVaga: (id: string) => void }) {
+  if (!itens.length) return null;
+  return (
+    <div className="rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 p-4">
+      <h3 className="mb-1 text-sm font-semibold text-amber-900 dark:text-amber-200">Pendências de cadastro ({itens.length})</h3>
+      <p className="mb-3 text-[11px] text-amber-800/80 dark:text-amber-300/80">
+        Vagas sem dado mínimo na planilha. Não entram nos cards, gráficos, tabelas nem percentuais até serem corrigidas na planilha.
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-left text-[11px] uppercase tracking-wider text-gray-500 dark:text-gray-400">
+            <tr>
+              <th className="px-2 py-1.5">Requisição</th>
+              <th className="px-2 py-1.5">Cargo / Empresa</th>
+              <th className="px-2 py-1.5">Recrutador</th>
+              <th className="px-2 py-1.5">Abertura</th>
+              <th className="px-2 py-1.5">O que falta</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-amber-100 dark:divide-amber-900/40">
+            {itens.map((p) => (
+              <tr key={p.id} onClick={() => onAbrirVaga(p.id)} className="cursor-pointer align-top hover:bg-amber-100/50 dark:hover:bg-amber-900/20">
+                <td className="px-2 py-1.5 whitespace-nowrap font-medium text-gray-900 dark:text-gray-100">{p.numero_requisicao ?? "—"}</td>
+                <td className="px-2 py-1.5">
+                  <p className="text-gray-800 dark:text-gray-200">{p.cargo ?? "—"}</p>
+                  <p className="text-[11px] text-gray-500 dark:text-gray-400">{p.empresa ?? "—"}</p>
+                </td>
+                <td className="px-2 py-1.5 whitespace-nowrap text-gray-700 dark:text-gray-300">{p.responsavel ?? "—"}</td>
+                <td className="px-2 py-1.5 whitespace-nowrap tabular-nums text-gray-700 dark:text-gray-300">{fmtData(p.data_recebimento)}</td>
+                <td className="px-2 py-1.5 text-xs text-amber-900 dark:text-amber-200">{p.motivos.join(" · ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
 
 export default function RhPage() {
   const { token } = useAuth();
@@ -62,7 +94,8 @@ export default function RhPage() {
 
   function drillEtapa(etapa: string) {
     const itens = relatorio
-      .filter((l) => l.etapa_atual === etapa && (l.status === "ABERTA" || l.status === "REABERTO"))
+      // mesma regra do backend: sem filtro de status = vagas abertas; com filtro = o que o filtro trouxe
+      .filter((l) => l.etapa_atual === etapa && (filtros.status_id?.length || l.status === "ABERTA"))
       .map((l) => paraAlerta(l, l.etapa.fase === "ADMISSAO" ? "adm" : "rs"));
     setDrillDown({ titulo: `Vagas em ${etapa.toLowerCase()}`, itens });
   }
@@ -147,10 +180,15 @@ export default function RhPage() {
 
       <SlaFasesPanel data={data?.sla_fases} loading={loading} onDrill={drillFase} />
 
+      <PendenciasCadastro itens={data?.pendencias ?? []} onAbrirVaga={(id) => setVagaAberta(id)} />
+
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-5">
         <div className="2xl:col-span-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
           <h3 className="mb-1 text-sm font-semibold text-gray-700 dark:text-gray-300">Prazo por etapa do recrutamento</h3>
-          <p className="mb-3 text-[11px] text-gray-400">Vagas abertas em cada etapa do funil — clique na etapa para ver as vagas</p>
+          <p className="mb-3 text-[11px] text-gray-400">
+            {filtros.status_id?.length ? "Vagas do status filtrado" : "Vagas abertas"} em cada etapa do funil — clique na etapa para ver as vagas.
+            SLA próprio só nas etapas externas (Líder/DP/SESMT, até 3 dias); etapas do RH contam no SLA da fase.
+          </p>
           <EtapasSlaChart etapas={data?.sla_fases.etapas ?? []} onDrillEtapa={drillEtapa} />
         </div>
         <div className="2xl:col-span-2 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
@@ -222,8 +260,8 @@ export default function RhPage() {
         <ClickableTileWrapper hintSempreVisivel onClick={() => setDrillDown({ titulo: "Vagas com R&S atrasado", itens: data?.sla_estourado ?? [] })}>
           <KPICard title="R&S atrasadas" value={String(kpis?.atrasadas ?? "—")} loading={loading} accentColor="amber" />
         </ClickableTileWrapper>
-        <ClickableTileWrapper hintSempreVisivel onClick={() => setDrillDown({ titulo: "Canceladas / Congeladas", itens: data?.canceladas_congeladas_lista ?? [] })}>
-          <KPICard title="Canceladas/Congeladas" value={String((kpis?.canceladas ?? 0) + (kpis?.congeladas ?? 0))} loading={loading} accentColor="red" />
+        <ClickableTileWrapper hintSempreVisivel onClick={() => setDrillDown({ titulo: "Canceladas / Em standby", itens: data?.canceladas_congeladas_lista ?? [] })}>
+          <KPICard title="Canceladas/Em standby" value={String((kpis?.canceladas ?? 0) + (kpis?.congeladas ?? 0))} loading={loading} accentColor="red" />
         </ClickableTileWrapper>
       </div>
 
@@ -241,7 +279,7 @@ export default function RhPage() {
                 paddingAngle={2}
               >
                 {(data?.por_status ?? []).map((d) => (
-                  <Cell key={d.status} fill={STATUS_CORES[d.status] ?? "#94a3b8"} />
+                  <Cell key={d.status} fill={STATUS_VAGA_COR[d.status] ?? "#94a3b8"} />
                 ))}
               </Pie>
               <Legend />
@@ -272,7 +310,7 @@ export default function RhPage() {
           <div className="flex items-center gap-3 text-[11px] text-gray-500 dark:text-gray-400">
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#22c55e]" /> Concluída</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#3b82f6]" /> Aberta</span>
-            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#94a3b8]" /> Congelada</span>
+            <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#94a3b8]" /> Em standby</span>
             <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#ef4444]" /> Cancelada</span>
           </div>
         </div>
@@ -285,7 +323,7 @@ export default function RhPage() {
                 <th className="px-3 py-2">Progresso</th>
                 <th className="px-3 py-2 text-right">Concluídas</th>
                 <th className="px-3 py-2 text-right">Abertas</th>
-                <th className="px-3 py-2 text-right">Congeladas</th>
+                <th className="px-3 py-2 text-right">Em standby</th>
                 <th className="px-3 py-2 text-right">Canceladas</th>
               </tr>
             </thead>
@@ -358,7 +396,7 @@ export default function RhPage() {
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
               Carga atual — vagas abertas
             </h4>
-            <p className="mb-3 text-[11px] text-gray-400">% de quanto cada analista está atuando em relação ao total de vagas abertas da equipe (não inclui congelada)</p>
+            <p className="mb-3 text-[11px] text-gray-400">% de quanto cada analista está atuando em relação ao total de vagas abertas da equipe (não inclui em standby)</p>
             <div className="space-y-2">
               {rankingAbertas.map((a) => (
                 <div key={a.analista} className="flex items-center gap-2 text-xs">
@@ -377,9 +415,9 @@ export default function RhPage() {
 
           <div className="rounded-lg border border-gray-100 dark:border-gray-800 p-3">
             <h4 className="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-              Vagas congeladas
+              Vagas em standby
             </h4>
-            <p className="mb-3 text-[11px] text-gray-400">% de quanto cada analista tem parado em relação ao total congelado da equipe</p>
+            <p className="mb-3 text-[11px] text-gray-400">% de quanto cada analista tem parado em relação ao total em standby da equipe</p>
             <div className="space-y-2">
               {rankingCongeladas.map((a) => (
                 <div key={a.analista} className="flex items-center gap-2 text-xs">

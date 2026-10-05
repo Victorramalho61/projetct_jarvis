@@ -122,6 +122,8 @@ export type Vaga = {
   data_inicio_etapa: string | null;
   sla_etapa_externa_dias: number | null;
   sla?: SlaVaga;
+  pendencias?: string[];
+  historico?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -161,6 +163,7 @@ export type DashboardKPIs = {
   atrasadas: number;
   canceladas: number;
   congeladas: number;
+  pendencias: number;
 };
 
 // ── SLA por fase (R&S / Admissão) — espelha rh-service/services/sla.py ──────
@@ -172,7 +175,6 @@ export type SlaFase = {
   limite: string | null;
   dias: number | null;
   status: string;
-  estimado: boolean;
 };
 
 export type SlaEtapa = {
@@ -186,7 +188,9 @@ export type SlaEtapa = {
   status: string | null;
 };
 
-export type SlaVaga = { rs: SlaFase; adm: SlaFase; etapa: SlaEtapa; modelo_novo: boolean };
+export type FaseAtual = "R&S" | "ADMISSÃO" | null;
+
+export type SlaVaga = { rs: SlaFase; adm: SlaFase; etapa: SlaEtapa; modelo_novo: boolean; fase_atual: FaseAtual };
 
 export type SlaResumoFase = {
   por_status: Record<string, number>;
@@ -198,7 +202,6 @@ export type SlaResumoFase = {
   concluidas_com_atraso: number;
   media_dias_concluidas: number | null;
   media_sla: number | null;
-  estimadas: number;
 };
 
 export type SlaLinhaRelatorio = {
@@ -211,6 +214,7 @@ export type SlaLinhaRelatorio = {
   requisitante: string | null;
   status: string | null;
   etapa_atual: string | null;
+  fase_atual: FaseAtual;
   rs: SlaFase;
   adm: SlaFase;
   etapa: SlaEtapa;
@@ -252,8 +256,22 @@ export type SlaFasesData = {
   etapa_estourada: SlaLinhaRelatorio[];
 };
 
+// Vaga sem dado mínimo na planilha — fora de todos os cards/gráficos/percentuais
+export type PendenciaCadastro = {
+  id: string;
+  numero_requisicao: string | null;
+  cargo: string | null;
+  empresa: string | null;
+  responsavel: string | null;
+  status: string | null;
+  etapa_atual: string | null;
+  data_recebimento: string | null;
+  motivos: string[];
+};
+
 export type DashboardData = {
   sla_fases: SlaFasesData;
+  pendencias: PendenciaCadastro[];
   kpis: DashboardKPIs;
   por_status: { status: string; total: number }[];
   por_empresa: { empresa: string; total: number }[];

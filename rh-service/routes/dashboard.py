@@ -28,12 +28,14 @@ def enviar_relatorio_semanal_agora(user=Depends(_require_rh)):
 
 
 def _linhas_filtradas(sb, filtros: dict) -> list[dict]:
+    """Vagas da última planilha (historico=false) com TODOS os filtros combinados em E.
+    Inclui as pendências de cadastro — separar com _separar_pendencias."""
     from routes.vagas import _FILTER_COLS, _SELECT, _serialize
 
     from services.paginacao import buscar_todos
 
     def _query():
-        query = sb.table("rh_vagas").select(_SELECT)
+        query = sb.table("rh_vagas").select(_SELECT).eq("historico", False)
         if filtros.get("status_id"):
             query = query.in_("status_id", filtros["status_id"])
         if filtros.get("data_inicio"):
@@ -64,6 +66,22 @@ def _linhas_filtradas(sb, filtros: dict) -> list[dict]:
     return rows
 
 
+def _separar_pendencias(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """(válidas, pendências) — pendência não entra em nenhum card/gráfico/tabela/percentual."""
+    validas = [r for r in rows if not r.get("pendencias")]
+    pendentes = [r for r in rows if r.get("pendencias")]
+    return validas, pendentes
+
+
+def _linha_pendencia(r: dict) -> dict:
+    return {
+        "id": r.get("id"), "numero_requisicao": r.get("numero_requisicao"),
+        "cargo": r.get("cargo"), "empresa": r.get("empresa"), "responsavel": r.get("responsavel"),
+        "status": r.get("status"), "etapa_atual": r.get("etapa_atual"),
+        "data_recebimento": r.get("data_recebimento"), "motivos": r.get("pendencias") or [],
+    }
+
+
 def _filtros(
     q: Optional[str] = Query(None),
     status_id: Optional[list[str]] = Query(None),
@@ -80,6 +98,7 @@ def _filtros(
     responsavel_id: Optional[str] = Query(None),
     requisitante_id: Optional[str] = Query(None),
     cargo_id: Optional[str] = Query(None),
+    modalidade_id: Optional[str] = Query(None),
 ) -> dict:
     return dict(locals())
 
@@ -110,7 +129,6 @@ def _resumo_fase(rows: list[dict], fase: str) -> dict:
         "concluidas_com_atraso": por_status.get("CONCLUÍDA COM ATRASO", 0),
         "media_dias_concluidas": _media([r["sla"][fase]["dias"] for r in concluidas]),
         "media_sla": _media([r["sla"][fase]["sla"] for r in avaliaveis]),
-        "estimadas": sum(1 for r in avaliaveis if r["sla"][fase].get("estimado")),
     }
 
 
@@ -120,13 +138,13 @@ def _linha_relatorio(r: dict) -> dict:
         "id": r.get("id"), "numero_requisicao": r.get("numero_requisicao"),
         "cargo": r.get("cargo"), "empresa": r.get("empresa"), "nivel": r.get("nivel"),
         "responsavel": r.get("responsavel"), "requisitante": r.get("requisitante"),
-        "status": r.get("status"), "etapa_atual": r.get("etapa_atual"),
+        "status": r.get("status"), "etapa_atual": r.get("etapa_atual"), "fase_atual": s.get("fase_atual"),
         "rs": s["rs"], "adm": s["adm"], "etapa": s["etapa"],
     }
 
 
-def _bloco_sla(sb, rows: list[dict]) -> dict:
-    from services.sla import ATRASADO, AVALIAVEIS, NO_PRAZO_SET, referencias
+def _bloco_sla(sb, rows: list[dict], filtro_status: bool = False) -> dict:
+    from services.sla import ATRASADO, AVALIAVEIS, NO_PRAZO_SET, SLA_ETAPA_EXTERNA_PADRAO, referencias
 
     _, etapas = referencias(sb)
 
@@ -166,13 +184,14 @@ def _bloco_sla(sb, rows: list[dict]) -> dict:
         fim = _date.fromisoformat(h["fim"])
         dur_por_etapa[h["etapa_id"]].append(max((fim - ini).days, 0))
 
-    em_aberto = [r for r in rows if r.get("status_em_aberto")]
+    # Sem filtro de status: vagas abertas paradas em cada etapa. Com filtro: respeita o filtro.
+    em_aberto = rows if filtro_status else [r for r in rows if r.get("status_em_aberto")]
     etapas_saida = []
     for e in ativas:
         atuais = [r for r in em_aberto if r.get("etapa_atual_id") == e["id"]]
         etapas_saida.append({
             "etapa": e["nome"], "ordem": e["ordem"], "fase": e["fase"], "externa": bool(e.get("externa")),
-            "sla": 3 if e.get("externa") else None,
+            "sla": SLA_ETAPA_EXTERNA_PADRAO if e.get("externa") else None,
             "qtd_atual": len(atuais),
             "dias_medio_atual": _media([r["sla"]["etapa"]["dias"] for r in atuais]),
             "estouradas": sum(1 for r in atuais if r["sla"]["etapa"]["status"] == ATRASADO),
@@ -202,8 +221,9 @@ def sla_relatorio(
     filtros: dict = Depends(_filtros),
     user=Depends(_require_rh),
 ):
-    """Relatório vaga a vaga de SLA por fase (R&S / Admissão / etapa atual)."""
-    rows = _linhas_filtradas(get_supabase(), filtros)
+    """Relatório vaga a vaga de SLA por fase (R&S / Admissão / etapa atual) — só vagas válidas;
+    pendências de cadastro vão numa aba separada do xlsx (e no dashboard)."""
+    rows, pendentes = _separar_pendencias(_linhas_filtradas(get_supabase(), filtros))
     linhas = [_linha_relatorio(r) for r in rows]
     linhas.sort(key=lambda x: (x["rs"]["inicio"] or ""), reverse=True)
     if formato == "json":
@@ -232,13 +252,21 @@ def sla_relatorio(
         rs, adm, et = l["rs"], l["adm"], l["etapa"]
         ws.append([
             l["numero_requisicao"], l["cargo"], l["empresa"], l["nivel"], l["responsavel"], l["status"], l["etapa_atual"],
-            rs["inicio"], rs["sla"], rs["limite"], rs["fim"], rs["dias"], rs["status"] + (" (estimado)" if rs.get("estimado") else ""),
+            rs["inicio"], rs["sla"], rs["limite"], rs["fim"], rs["dias"], rs["status"],
             adm["inicio"], adm["sla"], adm["limite"], adm["fim"], adm["dias"], adm["status"],
             et["dias"], et["sla"], et["status"],
         ])
     for col in ws.columns:
         ws.column_dimensions[col[0].column_letter].width = max(12, min(40, max(len(str(c.value or "")) for c in col) + 2))
     ws.freeze_panes = "A2"
+    wp = wb.create_sheet("Pendências de cadastro")
+    wp.append(["Nº REQUISIÇÃO", "CARGO", "EMPRESA", "RECRUTADOR", "STATUS", "ETAPA ATUAL", "DATA DE ABERTURA", "PENDÊNCIAS"])
+    for c in wp[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="00694E")
+    for p in map(_linha_pendencia, pendentes):
+        wp.append([p["numero_requisicao"], p["cargo"], p["empresa"], p["responsavel"], p["status"],
+                   p["etapa_atual"], p["data_recebimento"], "; ".join(p["motivos"])])
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
@@ -251,13 +279,15 @@ def sla_relatorio(
 
 @router.get("")
 def dashboard(filtros: dict = Depends(_filtros), user=Depends(_require_rh)):
+    from services.sla import STATUS_CANCELADA, STATUS_STANDBY
+
     sb = get_supabase()
-    rows = _linhas_filtradas(sb, filtros)
+    rows, pendentes = _separar_pendencias(_linhas_filtradas(sb, filtros))
 
     abertas = [r for r in rows if r.get("status_em_aberto")]
     concluidas = [r for r in rows if r.get("status_concluido")]
-    canceladas = [r for r in rows if r.get("status") == "CANCELADO"]
-    congeladas = [r for r in rows if r.get("status") == "CONGELADO"]
+    canceladas = [r for r in rows if r.get("status") == STATUS_CANCELADA]
+    congeladas = [r for r in rows if r.get("status") == STATUS_STANDBY]
 
     slas_validos = [r["sla_ok"] for r in rows if r.get("sla_ok") is not None]
     pct_no_prazo = round(100 * sum(slas_validos) / len(slas_validos), 1) if slas_validos else None
@@ -300,9 +330,9 @@ def dashboard(filtros: dict = Depends(_filtros), user=Depends(_require_rh)):
             item["abertas"] += 1
         if r.get("status_concluido"):
             item["concluidas"] += 1
-        if r.get("status") == "CANCELADO":
+        if r.get("status") == STATUS_CANCELADA:
             item["canceladas"] += 1
-        if r.get("status") == "CONGELADO":
+        if r.get("status") == STATUS_STANDBY:
             item["congeladas"] += 1
 
     por_status = Counter(r.get("status") or "NÃO INFORMADO" for r in rows)
@@ -320,7 +350,9 @@ def dashboard(filtros: dict = Depends(_filtros), user=Depends(_require_rh)):
         if mes:
             tendencia[mes]["concluidas"] += 1
 
-    etapas_resp = sb.table("rh_etapas_processo").select("id,nome,ordem").eq("ativo", True).order("ordem").execute()
+    etapas_resp = sb.table("rh_etapas_processo").select("id,nome,ordem").eq("ativo", True).in_(
+        "fase", ["RS", "ADMISSAO"]
+    ).order("ordem").execute()
     contagem_etapa = Counter(r.get("etapa_atual_id") for r in rows if r.get("etapa_atual_id"))
     funil_etapas = [
         {"etapa": e["nome"], "ordem": e["ordem"], "total": contagem_etapa.get(e["id"], 0)}
@@ -328,9 +360,11 @@ def dashboard(filtros: dict = Depends(_filtros), user=Depends(_require_rh)):
     ]
 
     return {
-        "sla_fases": _bloco_sla(sb, rows),
+        "sla_fases": _bloco_sla(sb, rows, filtro_status=bool(filtros.get("status_id"))),
+        "pendencias": [_linha_pendencia(r) for r in pendentes],
         "kpis": {
             "total": len(rows),
+            "pendencias": len(pendentes),
             "abertas": len(abertas),
             "concluidas_periodo": len(concluidas),
             "sla_medio_dias": sla_medio_dias,

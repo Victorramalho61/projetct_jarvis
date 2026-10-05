@@ -30,7 +30,7 @@ LOOKUP_CONFIG: dict[str, dict[str, Any]] = {
     "secoes":        {"table": "rh_secoes",           "name_col": "nome",  "extra": [],                     "fk_col": "secao_id"},
     "status":        {"table": "rh_status_vaga",      "name_col": "nome",  "extra": ["em_aberto", "concluido"], "fk_col": "status_id"},
     "modalidades":   {"table": "rh_modalidades",      "name_col": "nome",  "extra": [],                     "fk_col": "modalidade_id"},
-    "analistas":     {"table": "rh_analistas",        "name_col": "nome",  "extra": [],                     "fk_col": "responsavel_id"},
+    "analistas":     {"table": "rh_analistas",        "name_col": "nome",  "extra": ["ativo"],              "fk_col": "responsavel_id"},
     "requisitantes": {"table": "rh_requisitantes",    "name_col": "nome",  "extra": [],                     "fk_col": "requisitante_id"},
     "etapas":        {"table": "rh_etapas_processo",  "name_col": "nome",  "extra": ["ordem", "secao_responsavel_id"], "fk_col": "etapa_atual_id"},
     "perfis-calculo": {"table": "rh_perfis_calculo",  "name_col": "nome",  "extra": [

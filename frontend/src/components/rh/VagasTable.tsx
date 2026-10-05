@@ -1,4 +1,5 @@
 import type { Vaga } from "../../types/rh";
+import { STATUS_VAGA_BADGE } from "../../lib/rhSla";
 
 type Props = {
   vagas: Vaga[];
@@ -10,24 +11,36 @@ type Props = {
   loading?: boolean;
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  "ABERTA": "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300",
-  "REABERTO": "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-  "CONCLUÍDO": "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300",
-  "CANCELADO": "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-  "CONGELADO": "bg-slate-200 text-slate-700 dark:bg-slate-700/40 dark:text-slate-300",
-};
 
-function StatusBadge({ status }: { status: string | null }) {
+// Status + fase em que a vaga aberta está (nunca "Aberta" sem dizer a fase)
+function StatusBadge({ vaga }: { vaga: Vaga }) {
+  const { status } = vaga;
   if (!status) return <span className="text-gray-400">—</span>;
-  const cls = STATUS_COLOR[status] ?? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
-  return <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${cls}`}>{status}</span>;
+  const cls = STATUS_VAGA_BADGE[status] ?? "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300";
+  const fase = vaga.sla?.fase_atual;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap ${cls}`}>{status}</span>
+      {fase && <span className="text-[10px] text-gray-500 dark:text-gray-400 whitespace-nowrap">fase: {fase}</span>}
+    </div>
+  );
+}
+
+function PendenciaBadge({ motivos }: { motivos?: string[] }) {
+  if (!motivos?.length) return null;
+  return (
+    <span title={motivos.join(" · ")}
+      className="mt-0.5 inline-block rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 whitespace-nowrap">
+      pendência de cadastro
+    </span>
+  );
 }
 
 // Fase corrente: Admissão se já começou, senão R&S (services/sla.py)
 function SlaBadge({ vaga }: { vaga: Vaga }) {
   const sla = vaga.sla;
   if (!sla) return <span className="text-gray-400 text-xs">—</span>;
+  if (vaga.pendencias?.length) return <PendenciaBadge motivos={vaga.pendencias} />;
   const emAdm = !!sla.adm.inicio;
   const f = emAdm ? sla.adm : sla.rs;
   const cor = f.status.includes("ATRAS") ? "text-red-600 dark:text-red-400"
@@ -77,7 +90,7 @@ export default function VagasTable({ vagas, total, page, pageSize, onPageChange,
                 <td className="px-4 py-2.5">{v.cargo ?? "—"}</td>
                 <td className="px-4 py-2.5">{v.candidato ?? "—"}</td>
                 <td className="px-4 py-2.5 text-xs text-gray-500 dark:text-gray-400">{v.etapa_atual ?? "—"}</td>
-                <td className="px-4 py-2.5"><StatusBadge status={v.status} /></td>
+                <td className="px-4 py-2.5"><StatusBadge vaga={v} /></td>
                 <td className="px-4 py-2.5">
                   <div className="flex flex-col">
                     <span className="text-xs text-gray-600 dark:text-gray-300">{(v.sla?.adm.inicio ? v.sla.adm.dias : v.dias_corridos) ?? "—"}/{(v.sla?.adm.inicio ? v.sla.adm.sla : v.sla?.rs.sla) ?? "—"} dias</span>

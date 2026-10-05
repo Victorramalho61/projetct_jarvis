@@ -57,7 +57,6 @@ function ResumoFase({ titulo, f }: { titulo: string; f: SlaFase }) {
       </span>
       <p className="mt-1 text-xs tabular-nums text-gray-600 dark:text-gray-300">
         {f.inicio ? <>{fmtData(f.inicio)} → {f.fim ? fmtData(f.fim) : "em aberto"} · {f.dias ?? "—"}/{f.sla ?? "—"} dias · limite {fmtData(f.limite)}</> : "Fase não iniciada"}
-        {f.estimado && " · fim estimado"}
       </p>
     </div>
   );

@@ -22,12 +22,14 @@ _SHEET_NOVO = "CONTROLE DE VAGAS"
 _SHEET_SLA = "SLA"
 _SHEET_LISTAS = "LISTAS SUSPENSAS"
 _MAX_LINHAS_SLA = 5000
+# Status com os mesmos nomes da planilha (aba LISTAS SUSPENSAS, "STATUS DA VAGA") —
+# migration 008 renomeou CONCLUÍDO/CANCELADO/CONGELADO. Fora desta lista: erro na linha.
 _STATUS_NOVO = {
     "ABERTA": "ABERTA",
     "EM ANDAMENTO": "ABERTA",
-    "PREENCHIDA/FECHADA": "CONCLUÍDO",
-    "CANCELADA": "CANCELADO",
-    "EM STANDBY": "CONGELADO",
+    "PREENCHIDA/FECHADA": "PREENCHIDA/FECHADA",
+    "CANCELADA": "CANCELADA",
+    "EM STANDBY": "EM STANDBY",
 }
 _CORRECOES_ETAPA = {
     "CONCLUIDO": "CONCLUÍDO",
@@ -37,7 +39,23 @@ _CORRECOES_ETAPA = {
 }
 # Nº de requisição válido: TUR.ADM.281/26 (aceita TUR.ADM.290.26, digitado com ponto)
 _RE_REQUISICAO = re.compile(r"^[A-Z]{3}\.ADM\.\d{3}[./]\d{2}$")
-_CORRECOES_STATUS = {"CONCLUIDA": "CONCLUÍDO", "CONGELADA": "CONGELADO", "EM ANDAMENTO": "ABERTA"}
+_CORRECOES_STATUS = {
+    "CONCLUIDA": "PREENCHIDA/FECHADA", "CONCLUÍDO": "PREENCHIDA/FECHADA", "CANCELADO": "CANCELADA",
+    "CONGELADA": "EM STANDBY", "CONGELADO": "EM STANDBY", "EM ANDAMENTO": "ABERTA",
+}
+# Colunas que a planilha não preenche sempre: célula vazia não apaga o que o Jarvis gravou
+_PRESERVAR_SE_VAZIO = {"data_inicio_etapa", "sla_etapa_externa_dias", "observacoes", "secao_id"}
+
+
+def _normalizar_requisicao(req: str) -> str:
+    """TUR.ADM.290.26 (digitado com ponto) -> TUR.ADM.290/26."""
+    return re.sub(r"^([A-Z]{3}\.ADM\.\d{3})\.(\d{2})$", r"\1/\2", req)
+
+
+def _sem_acento(s: str) -> str:
+    import unicodedata
+
+    return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
 class _LookupCache:
@@ -46,6 +64,7 @@ class _LookupCache:
     def __init__(self, sb):
         self.sb = sb
         self._cache: dict[tuple, str | None] = {}
+        self._analistas: dict[str, str] | None = None
 
     def get_or_create(self, table: str, col: str, valor, extra: dict | None = None) -> str | None:
         if valor is None:
@@ -58,6 +77,18 @@ class _LookupCache:
         if key in self._cache:
             return self._cache[key]
 
+        if table == "rh_analistas":
+            # MONICA NOBRE x MÔNICA NOBRE: mesma pessoa — compara sem acento/caixa
+            if self._analistas is None:
+                self._analistas = {
+                    _sem_acento(a["nome"]).upper(): a["id"]
+                    for a in self.sb.table("rh_analistas").select("id,nome").execute().data or []
+                }
+            item_id = self._analistas.get(_sem_acento(valor).upper())
+            if item_id:
+                self._cache[key] = item_id
+                return item_id
+
         existing = self.sb.table(table).select("id").eq(col, valor).execute()
         if existing.data:
             item_id = existing.data[0]["id"]
@@ -67,6 +98,8 @@ class _LookupCache:
                 row.update(extra)
             resp = self.sb.table(table).insert(row).execute()
             item_id = resp.data[0]["id"]
+            if table == "rh_analistas" and self._analistas is not None:
+                self._analistas[_sem_acento(valor).upper()] = item_id
 
         self._cache[key] = item_id
         return item_id
@@ -177,8 +210,9 @@ def importar_planilha(sb, conteudo: bytes, nome_arquivo: str, user: dict) -> dic
             requisitante_nome = _clean_str(row.get("REQUISITANTE (PRIMEIRO E ÚLTIMO NOME)"))
             requisitante_id = cache.get_or_create("rh_requisitantes", "nome", requisitante_nome.upper()) if requisitante_nome else None
 
-            responsavel_nome = _clean_str(row.get("RESPONSÁVEL PELA VAGA")) or "NÃO INFORMADO"
-            responsavel_id = cache.get_or_create("rh_analistas", "nome", responsavel_nome.upper())
+            # sem responsável: fica nulo e a vaga cai em "pendências de cadastro" no painel
+            responsavel_nome = _clean_str(row.get("RESPONSÁVEL PELA VAGA"))
+            responsavel_id = cache.get_or_create("rh_analistas", "nome", responsavel_nome.upper()) if responsavel_nome else None
 
             alocacao_nome = _clean_str(row.get("ALOCAÇÃO REAL"))
             alocacao_id = cache.get_or_create("rh_alocacoes", "nome", alocacao_nome.upper()) if alocacao_nome else None
@@ -345,6 +379,15 @@ def _sincronizar_listas(sb, xls: pd.ExcelFile, cache: "_LookupCache") -> int:
         for val in df[coluna].dropna().unique():
             if cache.get_or_create(tabela, campo, _upper(val)):
                 total += 1
+    # Recrutadores ativos = exatamente os da lista da planilha (filtro Analista e SLA por recrutador)
+    if "RECRUTADORES RESPONSÁVEIS" in df.columns:
+        ativos = {
+            cache.get_or_create("rh_analistas", "nome", _upper(v))
+            for v in df["RECRUTADORES RESPONSÁVEIS"].dropna().unique()
+        } - {None}
+        if ativos:
+            sb.table("rh_analistas").update({"ativo": True}).in_("id", list(ativos)).execute()
+            sb.table("rh_analistas").update({"ativo": False}).not_.in_("id", list(ativos)).execute()
     # Cargo -> nível padrão (preenche o NÍVEL automático no Jarvis)
     if "CARGO" in df.columns and "NÍVEL" in df.columns:
         for _, r in df[["CARGO", "NÍVEL"]].dropna(subset=["CARGO"]).iterrows():
@@ -359,6 +402,29 @@ def _sincronizar_listas(sb, xls: pd.ExcelFile, cache: "_LookupCache") -> int:
                 ).execute()
             total += 1
     return total
+
+
+def _arquivar_fora_da_planilha(sb, ids_planilha: list[str], upload_id: str | None) -> int:
+    """Planilha = fonte da verdade: o que veio nela volta a valer (historico=false);
+    o resto vira histórico (fora das telas e indicadores, nada é apagado).
+    Exceção: vaga criada no Jarvis depois do upload anterior é processo novo que ainda não
+    entrou na planilha — continua visível até o próximo upload."""
+    if not ids_planilha or not upload_id:
+        return 0  # import vazio/quebrado nunca arquiva a base inteira
+    for i in range(0, len(ids_planilha), 100):
+        sb.table("rh_vagas").update({"historico": False, "ultimo_upload_id": upload_id}).in_(
+            "id", ids_planilha[i:i + 100]
+        ).execute()
+    anterior = sb.table("rh_uploads").select("criado_em").neq("id", upload_id).order(
+        "criado_em", desc=True
+    ).limit(1).execute().data
+    query = sb.table("rh_vagas").update({"historico": True}).eq("historico", False).or_(
+        f"ultimo_upload_id.is.null,ultimo_upload_id.neq.{upload_id}"
+    )
+    if anterior:
+        query = query.lt("created_at", anterior[0]["criado_em"])
+    resp = query.execute()
+    return len(resp.data or [])
 
 
 def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dry_run: bool = False) -> dict:
@@ -390,6 +456,7 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
 
     inseridas = atualizadas = com_erro = 0
     erros, previa = [], []
+    ids_planilha: list[str] = []
 
     for idx, row in df.iterrows():
         linha_planilha = idx + 2
@@ -401,7 +468,7 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
                 continue
 
             req_original = _clean_str(row.get("Nº REQUISIÇÃO"))
-            req = req_original.upper().replace(" ", "") if req_original else None
+            req = _normalizar_requisicao(req_original.upper().replace(" ", "")) if req_original else None
             req_invalido = not req or not _RE_REQUISICAO.match(req)
 
             empresa_nome = _upper(row.get("EMPRESA")) or "NÃO INFORMADO"
@@ -410,7 +477,9 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
 
             status_planilha = _upper(row.get("STATUS POR VAGA")) or "ABERTA"
             status_nome = _STATUS_NOVO.get(status_planilha, status_planilha)
-            status_id = status_map.get(status_nome) or cache.get_or_create("rh_status_vaga", "nome", status_nome)
+            status_id = status_map.get(status_nome)
+            if not status_id:
+                erros.append({"linha": linha_planilha, "motivo": f"Status '{status_planilha}' não está na lista da planilha — status não atualizado"})
 
             etapa_nome = _upper(row.get("FUNIL DE VAGAS"))
             etapa_nome = _CORRECOES_ETAPA.get(etapa_nome, etapa_nome)
@@ -465,7 +534,14 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
                 "updated_by": user.get("id"),
                 "updated_at": datetime.utcnow().isoformat(),
             }
-            payload = {k: v for k, v in payload.items() if v is not None}
+            # A planilha é a fonte da verdade: célula vazia limpa o campo no Jarvis
+            # (exceto os campos que só o Jarvis preenche — _PRESERVAR_SE_VAZIO)
+            if etapa_nome and not etapa:
+                payload.pop("etapa_atual_id")  # etapa desconhecida: mantém a atual
+            payload = {
+                k: v for k, v in payload.items()
+                if v is not None or (k not in _PRESERVAR_SE_VAZIO and k != "status_id")
+            }
 
             existente = None
             if not req_invalido:
@@ -487,8 +563,6 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
                 if existente:
                     # vaga existente mantém as observações dela (sem a marca de nº gerado)
                     payload["observacoes"] = _clean_str(row.get("OBSERVAÇÕES"))
-                    if payload["observacoes"] is None:
-                        payload.pop("observacoes")
 
             etapa_mudou = bool(payload.get("etapa_atual_id")) and payload["etapa_atual_id"] != (existente or {}).get("etapa_atual_id")
             if etapa_mudou:
@@ -509,8 +583,11 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
             else:
                 payload["numero_requisicao"] = req if not req_invalido else gerar_numero_requisicao(sb, empresa_id)
                 payload["created_by"] = user.get("id")
+                payload.setdefault("status_id", status_map.get("ABERTA"))
+                payload = {k: v for k, v in payload.items() if v is not None}
                 vaga_id = sb.table("rh_vagas").insert(payload).execute().data[0]["id"]
                 inseridas += 1
+            ids_planilha.append(vaga_id)
 
             if etapa_mudou:
                 registrar_troca_etapa(sb, vaga_id, payload["etapa_atual_id"], payload["data_inicio_etapa"])
@@ -532,13 +609,16 @@ def _importar_modelo_novo(sb, conteudo: bytes, nome_arquivo: str, user: dict, dr
         "linhas_com_erro": com_erro,
         "detalhes": erros[:500],
     }).execute()
+    upload_id = registro.data[0]["id"] if registro.data else None
+    arquivadas = _arquivar_fora_da_planilha(sb, ids_planilha, upload_id)
 
     return {
-        "upload_id": registro.data[0]["id"] if registro.data else None,
+        "upload_id": upload_id,
         "linhas_processadas": len(df),
         "linhas_inseridas": inseridas,
         "linhas_atualizadas": atualizadas,
         "linhas_com_erro": com_erro,
+        "vagas_arquivadas": arquivadas,
         "sla_cargos_importados": sla_cargos,
         "itens_de_lista_sincronizados": listas,
         "erros": erros,

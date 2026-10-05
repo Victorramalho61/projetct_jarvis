@@ -7,9 +7,8 @@
 - Etapa atual: etapas externas (Líder/DP/SESMT) têm prazo próprio (3 dias, planilha
   "SLA ETAPA EXTERNA"), limitado ao prazo da fase; etapas do RH não são cobradas separadas.
 
-Vagas históricas (anteriores ao modelo novo, sem sla_rs_dias nem data de fechamento do R&S)
-que já foram concluídas usam a data de admissão como fim e o SLA total (sla_alvo_dias),
-marcadas com estimado=True — mantém o histórico no painel sem inventar precisão.
+Nada é estimado: vaga concluída sem data real de fechamento do R&S fica com
+"FALTA DATA DE FECHAMENTO DO R&S" e vai para as pendências de cadastro (fora do %).
 Dias sempre corridos, igual à planilha.
 """
 from datetime import date, datetime, timedelta
@@ -33,6 +32,12 @@ AVALIAVEIS = {NO_PRAZO, ATRASADO, CONCLUIDA_NO_PRAZO, CONCLUIDA_COM_ATRASO}
 NO_PRAZO_SET = {NO_PRAZO, CONCLUIDA_NO_PRAZO}
 
 SLA_ETAPA_EXTERNA_PADRAO = 3
+
+# Status da vaga — mesmos nomes da planilha (migration 008)
+STATUS_ABERTA = "ABERTA"
+STATUS_FECHADA = "PREENCHIDA/FECHADA"
+STATUS_CANCELADA = "CANCELADA"
+STATUS_STANDBY = "EM STANDBY"
 
 
 def normalizar_cargo(nome: Optional[str]) -> str:
@@ -90,8 +95,8 @@ def calc_sla(v: dict, sla_cargos: dict, etapas: dict, hoje: Optional[date] = Non
     hoje = hoje or date.today()
     status = v.get("status") or ""
     concluido = bool(v.get("status_concluido"))
-    cancelada = status == "CANCELADO"
-    congelada = status in ("CONGELADO", "EM STANDBY")
+    cancelada = status == STATUS_CANCELADA
+    congelada = status == STATUS_STANDBY
     etapa = etapas.get(v.get("etapa_atual_id")) or {}
     fase_etapa = etapa.get("fase")
 
@@ -108,18 +113,10 @@ def calc_sla(v: dict, sla_cargos: dict, etapas: dict, hoje: Optional[date] = Non
     sla_rs = v.get("sla_rs_dias")
     if sla_rs is None:
         sla_rs = cargo_sla.get("rs")
-    estimado = False
     fim_rs = fech_rs
     if not fim_rs and conf:
         fim_rs = conf  # já entrou na admissão: R&S terminou na confirmação
-    if not fim_rs and concluido:
-        if not modelo_novo and admissao:
-            # histórico: só temos a data de admissão — compara com o SLA total da vaga
-            fim_rs = admissao
-            estimado = True
-            if v.get("sla_alvo_dias"):
-                sla_rs = v.get("sla_alvo_dias")
-    rs = _fase(abertura, fim_rs, sla_rs, hoje, pausa=pausa, estimado=estimado)
+    rs = _fase(abertura, fim_rs, sla_rs, hoje, pausa=pausa)
     if not pausa and concluido and not fim_rs:
         rs["status"] = FALTA_FECHAMENTO_RS
 
@@ -157,7 +154,34 @@ def calc_sla(v: dict, sla_cargos: dict, etapas: dict, hoje: Optional[date] = Non
             etapa_info["limite"] = limite.isoformat()
             etapa_info["status"] = NO_PRAZO if hoje <= limite else ATRASADO
 
-    return {"rs": rs, "adm": adm, "etapa": etapa_info, "modelo_novo": modelo_novo}
+    if pausa or concluido:
+        fase_atual = None
+    elif conf or fase_etapa == "ADMISSAO":
+        fase_atual = "ADMISSÃO"
+    else:
+        fase_atual = "R&S"
+
+    return {"rs": rs, "adm": adm, "etapa": etapa_info, "modelo_novo": modelo_novo, "fase_atual": fase_atual}
+
+
+def pendencias_cadastro(v: dict) -> list[str]:
+    """Motivos que impedem a vaga de entrar nas telas/indicadores como válida.
+    v: vaga serializada (com v["sla"] já calculado)."""
+    s = v["sla"]
+    motivos = []
+    if not v.get("cargo"):
+        motivos.append("Sem cargo")
+    if not v.get("responsavel"):
+        motivos.append("Sem recrutador responsável")
+    if s["rs"]["status"] == SEM_DADOS:
+        motivos.append("Sem SLA de R&S (cargo fora da aba SLA)")
+    if s["rs"]["status"] == FALTA_FECHAMENTO_RS:
+        motivos.append("Preenchida/fechada sem data de fechamento do R&S")
+    if DATAS_INCONSISTENTES in (s["rs"]["status"], s["adm"]["status"]):
+        motivos.append("Datas inconsistentes (fim antes do início)")
+    if v.get("status_em_aberto") and s["adm"]["fim"] and s["adm"]["status"] != DATAS_INCONSISTENTES:
+        motivos.append("Admissão concluída mas a vaga continua ABERTA")
+    return motivos
 
 
 def carregar_referencias(sb) -> tuple[dict, dict]:

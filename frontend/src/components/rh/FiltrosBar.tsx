@@ -33,6 +33,30 @@ function Select({
   );
 }
 
+// Etapas do funil da planilha, separadas em R&S e Admissão. Concluído/Cancelado são status
+// (filtro de Status), não etapas.
+function SelectEtapa({ value, onChange, etapas }: { value: string; onChange: (v: string) => void; etapas: RhLookups["etapas"] }) {
+  const grupos = [
+    { fase: "RS", label: "Recrutamento & Seleção" },
+    { fase: "ADMISSAO", label: "Admissão" },
+  ];
+  return (
+    <div>
+      <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">Etapa do processo</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)} className={FIELD_CLASS}>
+        <option value="">Todas</option>
+        {grupos.map((g) => (
+          <optgroup key={g.fase} label={g.label}>
+            {etapas.filter((e) => e.ativo !== false && e.fase === g.fase).map((e) => (
+              <option key={e.id} value={e.id}>{e.nome}</option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 export default function FiltrosBar({ lookups, value, onChange, showSearch = true }: Props) {
   function set<K extends keyof VagasFiltros>(key: K, v: VagasFiltros[K]) {
     onChange({ ...value, [key]: v || undefined });
@@ -87,11 +111,11 @@ export default function FiltrosBar({ lookups, value, onChange, showSearch = true
         )}
 
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">De</label>
+          <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400" title="O período filtra pela DATA DE ABERTURA da vaga">De (data de abertura)</label>
           <input type="date" value={value.data_inicio ?? ""} onChange={(e) => set("data_inicio", e.target.value)} className={FIELD_CLASS} />
         </div>
         <div>
-          <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400">Até</label>
+          <label className="mb-1 block text-[11px] font-medium text-gray-500 dark:text-gray-400" title="O período filtra pela DATA DE ABERTURA da vaga">Até (data de abertura)</label>
           <input type="date" value={value.data_fim ?? ""} onChange={(e) => set("data_fim", e.target.value)} className={FIELD_CLASS} />
         </div>
 
@@ -101,8 +125,8 @@ export default function FiltrosBar({ lookups, value, onChange, showSearch = true
         <Select label="Nível" value={value.nivel_id ?? ""} onChange={(v) => set("nivel_id", v)} options={lookups.niveis} />
         <Select label="Hierarquia" value={value.hierarquia_id ?? ""} onChange={(v) => set("hierarquia_id", v)} options={lookups.hierarquias} />
         <Select label="Seção" value={value.secao_id ?? ""} onChange={(v) => set("secao_id", v)} options={lookups.secoes} />
-        <Select label="Etapa do processo" value={value.etapa_atual_id ?? ""} onChange={(v) => set("etapa_atual_id", v)} options={lookups.etapas.filter((e) => e.ativo !== false)} />
-        <Select label="Analista" value={value.responsavel_id ?? ""} onChange={(v) => set("responsavel_id", v)} options={lookups.analistas} />
+        <SelectEtapa value={value.etapa_atual_id ?? ""} onChange={(v) => set("etapa_atual_id", v)} etapas={lookups.etapas} />
+        <Select label="Analista" value={value.responsavel_id ?? ""} onChange={(v) => set("responsavel_id", v)} options={lookups.analistas.filter((a) => a.ativo !== false)} />
         <Select label="Requisitante" value={value.requisitante_id ?? ""} onChange={(v) => set("requisitante_id", v)} options={lookups.requisitantes} />
       </div>
 
@@ -128,9 +152,10 @@ export default function FiltrosBar({ lookups, value, onChange, showSearch = true
             </button>
           );
         })}
-        {(Object.keys(value).some((k) => (value as Record<string, unknown>)[k])) && (
+        {(Object.keys(value).some((k) => k !== "ano" && (value as Record<string, unknown>)[k])) && (
           <button
-            onClick={() => onChange({})}
+            // zera tudo (inclusive De/Até) e volta ao ano corrente — sem ano o painel misturava todos os anos
+            onClick={() => onChange({ ano: [ANO_ATUAL] })}
             className="ml-auto rounded-full border border-gray-300 dark:border-gray-700 px-3 py-1 text-xs text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
           >
             Limpar filtros

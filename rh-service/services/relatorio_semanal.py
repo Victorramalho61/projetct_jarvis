@@ -16,8 +16,9 @@ def gerar_e_enviar():
     sb = get_supabase()
     from services.paginacao import buscar_todos
 
-    rows = [_serialize(r) for r in buscar_todos(lambda: sb.table("rh_vagas").select(_SELECT))]
-    rows = [r for r in rows if (r.get("data_recebimento") or "")[:4] >= "2026"]
+    # mesmas vagas do painel: última planilha (historico=false), sem pendências de cadastro
+    rows = [_serialize(r) for r in buscar_todos(lambda: sb.table("rh_vagas").select(_SELECT).eq("historico", False))]
+    rows = [r for r in rows if (r.get("data_recebimento") or "")[:4] >= "2026" and not r.get("pendencias")]
 
     abertas = [r for r in rows if r.get("status_em_aberto")]
     concluidas_total = [r for r in rows if r.get("status_concluido")]

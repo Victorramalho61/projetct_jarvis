@@ -103,11 +103,6 @@ function Fase({ fase, resumo, loading, onDrill }: { fase: FaseSla; resumo?: SlaR
         {resumo && <BarraStatus resumo={resumo} onDrill={(s) => onDrill(fase, [s], `${titulo} — ${s.toLowerCase()}`)} />}
       </div>
 
-      {!!resumo?.estimadas && (
-        <p className="mt-2 text-[11px] text-gray-400">
-          {resumo.estimadas} vaga(s) do histórico sem data de fechamento do R&S: fim estimado pela data de admissão e comparado ao SLA total.
-        </p>
-      )}
     </div>
   );
 }

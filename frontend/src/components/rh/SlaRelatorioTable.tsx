@@ -38,7 +38,6 @@ function CelFase({ f }: { f: SlaFase }) {
       {f.inicio && (
         <p className="text-[11px] tabular-nums text-gray-500 dark:text-gray-400 whitespace-nowrap">
           {f.dias ?? "—"}/{f.sla ?? "—"} dias · limite {fmtData(f.limite)}
-          {f.estimado && <span title="Fim estimado pela data de admissão"> *</span>}
         </p>
       )}
     </div>
@@ -54,7 +53,7 @@ export default function SlaRelatorioTable({ linhas, loading, exportando, onExpor
     if (filtro === "rs_atrasadas") l = l.filter((x) => x.rs.status === "ATRASADO");
     if (filtro === "adm_atrasadas") l = l.filter((x) => x.adm.status === "ATRASADO");
     if (filtro === "etapa_estourada") l = l.filter((x) => x.etapa.status === "ATRASADO");
-    if (filtro === "abertas") l = l.filter((x) => x.status === "ABERTA" || x.status === "REABERTO");
+    if (filtro === "abertas") l = l.filter((x) => x.status === "ABERTA");
     const b = busca.trim().toLowerCase();
     if (b) {
       l = l.filter((x) =>
@@ -105,7 +104,10 @@ export default function SlaRelatorioTable({ linhas, loading, exportando, onExpor
                   <p className="text-[11px] text-gray-500 dark:text-gray-400">{l.empresa ?? "—"}</p>
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap text-gray-700 dark:text-gray-300">{l.responsavel ?? "—"}</td>
-                <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">{l.etapa_atual ?? "—"}</td>
+                <td className="px-3 py-2 text-xs text-gray-700 dark:text-gray-300">
+                  {l.etapa_atual ?? "—"}
+                  {l.fase_atual && <p className="text-[10px] text-gray-400">fase: {l.fase_atual}</p>}
+                </td>
                 <td className="px-3 py-2"><CelFase f={l.rs} /></td>
                 <td className="px-3 py-2"><CelFase f={l.adm} /></td>
                 <td className="px-3 py-2">
@@ -130,7 +132,7 @@ export default function SlaRelatorioTable({ linhas, loading, exportando, onExpor
         </table>
       </div>
       <p className="mt-2 text-[11px] text-gray-400">
-        {filtradas.length} de {linhas.length} vagas · dias/SLA = dias corridos na fase / prazo da fase · * fim estimado (histórico)
+        {filtradas.length} de {linhas.length} vagas · dias/SLA = dias corridos na fase / prazo da fase · vagas da última planilha importada
       </p>
     </div>
   );
