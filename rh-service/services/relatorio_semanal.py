@@ -5,8 +5,8 @@ from db import get_supabase
 
 log = logging.getLogger(__name__)
 
-DESTINATARIO_EMAIL = "renata.facundo@voetur.com.br"
-DESTINATARIO_NOME = "Renata Facundo"
+DESTINATARIO_EMAIL = "rh@voetur.com.br"
+DESTINATARIO_NOME = "Equipe de RH"
 
 
 def gerar_e_enviar():
