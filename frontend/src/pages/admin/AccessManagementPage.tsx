@@ -266,6 +266,21 @@ type Profile = {
   role: "admin" | "user" | "rh" | "gerente" | "coordenador_supervisor" | "administrativo_operacional" | "sgi";
   active: boolean;
   created_at: string;
+  deactivated_at: string | null;
+};
+
+// Pendente = pediu acesso e aguarda aprovação. Desativado = admin tirou o acesso
+// (fica fora do quadro de pendentes; voltar exige "Reativar" explícito).
+type StatusConta = "ativo" | "pendente" | "desativado";
+function statusConta(p: Profile): StatusConta {
+  if (p.active) return "ativo";
+  return p.deactivated_at ? "desativado" : "pendente";
+}
+const STATUS_ORDEM: Record<StatusConta, number> = { pendente: 0, ativo: 1, desativado: 2 };
+const STATUS_BADGE: Record<StatusConta, { label: string; cls: string }> = {
+  ativo: { label: "Ativo", cls: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
+  pendente: { label: "Pendente", cls: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" },
+  desativado: { label: "Desativado", cls: "bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300" },
 };
 
 type ProfileData = { display_name: string; email: string; whatsapp_phone: string };
@@ -374,7 +389,8 @@ export default function AccessManagementPage() {
     try {
       const data = await apiFetch<Profile[]>("/api/users", { token });
       data.sort((a, b) => {
-        if (a.active !== b.active) return a.active ? 1 : -1;
+        const oa = STATUS_ORDEM[statusConta(a)], ob = STATUS_ORDEM[statusConta(b)];
+        if (oa !== ob) return oa - ob;
         return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
       });
       setProfiles(data);
@@ -419,7 +435,9 @@ export default function AccessManagementPage() {
     }
   }
 
-  async function handleToggleActive(username: string, active: boolean) {
+  async function handleToggleActive(username: string, active: boolean, status?: StatusConta) {
+    if (!active && !confirm(`Desativar "${username}"?\n\nO acesso é cortado na hora: sessões abertas encerradas e senha invalidada.`)) return;
+    if (active && status === "desativado" && !confirm(`Reativar "${username}"?\n\nA senha antiga continua inválida: defina uma nova senha para o usuário (ou ele usa "Esqueci minha senha").`)) return;
     setBusy(username);
     setError(null);
     try {
@@ -442,7 +460,7 @@ export default function AccessManagementPage() {
     );
   }
 
-  const pending = profiles.filter((p) => !p.active);
+  const pending = profiles.filter((p) => statusConta(p) === "pendente");
   const selectedProfile = profiles.find((p) => p.username === selectedUsername);
 
   return (
@@ -509,7 +527,7 @@ export default function AccessManagementPage() {
                   <tr
                     key={p.id}
                     onClick={() => setSelectedUsername(p.username)}
-                    className={`cursor-pointer transition-colors ${isSelected ? "bg-voetur-50 dark:bg-voetur-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"} ${isDisabled ? "opacity-50" : ""} ${!p.active ? "bg-amber-50/40 dark:bg-amber-900/10" : ""}`}
+                    className={`cursor-pointer transition-colors ${isSelected ? "bg-voetur-50 dark:bg-voetur-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-800/50"} ${isDisabled ? "opacity-50" : ""} ${statusConta(p) === "pendente" ? "bg-amber-50/40 dark:bg-amber-900/10" : ""} ${statusConta(p) === "desativado" ? "opacity-60" : ""}`}
                   >
                     <td className="px-6 py-4">
                       <p className="font-medium text-gray-900 dark:text-gray-100">{p.display_name}</p>
@@ -535,17 +553,17 @@ export default function AccessManagementPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
-                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${p.active ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"}`}>
-                          {p.active ? "Ativo" : "Pendente"}
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_BADGE[statusConta(p)].cls}`}>
+                          {STATUS_BADGE[statusConta(p)].label}
                         </span>
                         {isAdmin && (
                           <button
                             disabled={isSelf || isDisabled || (p.active && p.role === "admin")}
                             title={p.active && p.role === "admin" ? "Não é possível desativar um usuário administrador" : undefined}
-                            onClick={(e) => { e.stopPropagation(); handleToggleActive(p.username, !p.active); }}
+                            onClick={(e) => { e.stopPropagation(); handleToggleActive(p.username, !p.active, statusConta(p)); }}
                             className="rounded-lg border border-gray-300 dark:border-gray-700 px-2.5 py-1 text-xs font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
                           >
-                            {isDisabled ? "..." : p.active ? "Desativar" : "Ativar"}
+                            {isDisabled ? "..." : p.active ? "Desativar" : statusConta(p) === "desativado" ? "Reativar" : "Aprovar"}
                           </button>
                         )}
                       </div>

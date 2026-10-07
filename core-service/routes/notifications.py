@@ -115,7 +115,7 @@ async def notifications_summary(current_user: dict = Depends(get_current_user)):
             critical_findings  = admin_cached["critical_findings"]
         else:
             try:
-                result = db.table("profiles").select("id", count="exact").eq("active", False).execute()
+                result = db.table("profiles").select("id", count="exact").eq("active", False).is_("deactivated_at", "null").execute()
                 pending_users = result.count or 0
             except Exception as exc:
                 logger.warning("notifications/summary: falha ao buscar pending users — %s", exc)

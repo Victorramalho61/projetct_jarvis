@@ -1795,6 +1795,19 @@ Todos os containers passaram a ter `memswap_limit` explícito (= `mem_limit`) �
 
 ---
 
+## Desativação de usuário e revogação de sessão — 2026-10-07
+
+Incidente: ao desativar `renata.facundo` e `pedro.fernandes`, os dois caíram no quadro "Solicitações pendentes" (`active=false` servia para pendente **e** desativado) e o clique seguinte em "Aprovar" devolveu o acesso. Além disso o JWT (8h) seguia válido após a desativação, porque os serviços só checavam a assinatura.
+
+- **Migration `core-service/migrations/004_desativacao_usuario.sql`:** `profiles.deactivated_at`, `deactivated_by`, `token_version`. Pendente = `active=false AND deactivated_at IS NULL`; desativado = `deactivated_at IS NOT NULL`.
+- **Desativar** (`PATCH /api/users/{u}/active {active:false}`): `deactivated_at`, `token_version+1` (derruba todas as sessões), `password_hash=NULL` (senha inválida), apaga `password_reset_tokens`, registra em `app_logs`. Não aparece em pendentes nem pode ser "recusado".
+- **Reativar** (mesma rota, `active:true` em conta desativada): limpa `deactivated_at`, `token_version+1`; a senha continua nula — admin redefine (`POST /api/users/{u}/reset-password`) ou o usuário usa "Esqueci minha senha". UI pede confirmação para desativar e para reativar.
+- **Login/acesso:** conta desativada = "Credenciais inválidas" (não revela que existe); `request-access`, `forgot-password` e `reset-password` recusam conta desativada (link emitido antes da desativação não reabre a conta).
+- **Revalidação em todos os serviços (`auth.py`, código compartilhado nos 15 serviços):** `get_current_user` exige `exp`, exige `id` UUID, consulta `profiles` (cache de 30 s por processo) e responde 401 se a conta não existe, está inativa/desativada ou `token_version` ≠ claim `tv`. `role`/`allowed_modules` passam a vir do banco, não do token. Falha ao consultar o banco = 503 (falha fechada). Efeito da desativação: ≤ 30 s.
+- **Consequência:** tokens de serviço forjados (`agents-service`: `id="agents-service"`/`"cto-agent"`, este sem `exp`) deixam de ser aceitos — agents-service está desligado; se voltar, precisa de uma conta de serviço real em `profiles`.
+- **`GET /api/users`** deixou de devolver `select *` (expunha `password_hash` e `anthropic_api_key` ao navegador): lista só campos de exibição.
+- Deploy de vários serviços de uma vez pode deixar o Kong com IP antigo em cache (50% de 502 no performance em 07/10): `docker restart jarvis-kong-1` resolve.
+
 ## Hardening de Segurança — 2026-05-29
 
 ### Vulnerabilidades corrigidas

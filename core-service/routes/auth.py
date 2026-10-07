@@ -77,7 +77,7 @@ async def login(request: Request, body: LoginRequest) -> LoginResponse:
     identifier = body.username.strip().lower()
     profile = _lookup_profile(identifier)
 
-    if not profile or not profile.get("password_hash"):
+    if not profile or not profile.get("password_hash") or profile.get("deactivated_at"):
         log_event("warning", "auth", f"Falha de login: {identifier}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Credenciais inválidas")
 
@@ -99,6 +99,8 @@ async def login(request: Request, body: LoginRequest) -> LoginResponse:
         "role": profile["role"],
         "active": profile["active"],
         "allowed_modules": profile.get("allowed_modules") or [],
+        # versão das sessões: desativar/reativar incrementa e derruba tokens antigos (auth.py)
+        "tv": profile.get("token_version") or 0,
     }
     log_event("info", "auth", f"Login: {profile['username']}", user_id=profile["id"])
     return LoginResponse(access_token=create_access_token(payload), user=UserInfo(**payload))
@@ -133,6 +135,11 @@ async def request_access(request: Request, body: AccessRequest) -> dict:
 
     if result.data:
         profile = result.data[0]
+        if profile.get("deactivated_at"):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Não foi possível concluir a solicitação. Procure o administrador do sistema.",
+            )
         if profile["active"]:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Você já tem acesso. Faça login normalmente.")
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Sua solicitação já está pendente de aprovação.")
@@ -264,7 +271,7 @@ def _send_reset_whatsapp_bg(phone: str, display_name: str, reset_url: str) -> No
 async def forgot_password(request: Request, body: ForgotPasswordRequest, bg: BackgroundTasks) -> dict:
     email = body.email.strip().lower()
     profile = _lookup_profile(email)
-    if not profile or not profile.get("active"):
+    if not profile or not profile.get("active") or profile.get("deactivated_at"):
         return {"ok": True}
     db = get_supabase()
     db.table("password_reset_tokens").delete().eq("user_id", profile["id"]).is_("used_at", "null").execute()
@@ -299,6 +306,9 @@ async def reset_password(request: Request, body: ResetPasswordRequest) -> dict:
         raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
     expires_at = datetime.fromisoformat(token_row["expires_at"].replace("Z", "+00:00"))
     if expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
+    dono = db.table("profiles").select("active,deactivated_at").eq("id", token_row["user_id"]).execute().data
+    if not dono or not dono[0].get("active") or dono[0].get("deactivated_at"):
         raise HTTPException(status_code=400, detail="Link inválido ou expirado.")
     new_hash = await _hash_password(body.new_password)
     db.table("profiles").update({"password_hash": new_hash}).eq("id", token_row["user_id"]).execute()

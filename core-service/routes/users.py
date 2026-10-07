@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime, timezone
 from typing import Annotated
 
 import bcrypt
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 
 from auth import require_role
 from db import get_supabase
+from services.app_logger import log_event
 
 router = APIRouter(prefix="/users")
 logger = logging.getLogger(__name__)
@@ -36,7 +38,9 @@ async def list_users(
     _: Annotated[dict, Depends(require_role("admin"))],
 ) -> list[dict]:
     db = get_supabase()
-    result = db.table("profiles").select("*").order("created_at").execute()
+    result = db.table("profiles").select(
+        "id,username,display_name,email,role,active,created_at,deactivated_at,allowed_modules"
+    ).order("created_at").execute()
     return result.data
 
 
@@ -57,7 +61,8 @@ async def update_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
 
     logger.info("Role de %s alterada para %s por %s", username, body.role, current_user["username"])
-    return result.data[0]
+    row = result.data[0]
+    return {k: row.get(k) for k in ("id", "username", "display_name", "email", "role", "active", "deactivated_at")}
 
 
 @router.get("/{username}/profile")
@@ -101,19 +106,42 @@ async def update_active(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível desativar seu próprio usuário")
 
     db = get_supabase()
-    if not body.active:
-        target = db.table("profiles").select("role").eq("username", username).execute()
-        if not target.data:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
-        if target.data[0]["role"] == "admin":
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível desativar um usuário administrador")
-
-    result = db.table("profiles").update({"active": body.active}).eq("username", username).execute()
-    if not result.data:
+    target = db.table("profiles").select("id,role,active,deactivated_at,token_version").eq("username", username).execute()
+    if not target.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
+    alvo = target.data[0]
+    versao = int(alvo.get("token_version") or 0)
 
-    logger.info("Usuário %s %s por %s", username, "ativado" if body.active else "desativado", current_user["username"])
-    return result.data[0]
+    if not body.active:
+        # Desativar != pendente: marca deactivated_at (não volta para "Solicitações pendentes"),
+        # invalida a senha e derruba todas as sessões (token_version) imediatamente.
+        if alvo["role"] == "admin":
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível desativar um usuário administrador")
+        updates = {
+            "active": False,
+            "deactivated_at": datetime.now(timezone.utc).isoformat(),
+            "deactivated_by": current_user["id"],
+            "token_version": versao + 1,
+            "password_hash": None,
+        }
+        acao = "desativado"
+    elif alvo.get("deactivated_at"):
+        # Reativação explícita: senha continua inválida — admin redefine ou usuário usa "esqueci a senha"
+        updates = {"active": True, "deactivated_at": None, "deactivated_by": None, "token_version": versao + 1}
+        acao = "reativado"
+    else:
+        updates = {"active": True}
+        acao = "aprovado"
+
+    result = db.table("profiles").update(updates).eq("id", alvo["id"]).execute()
+    if not body.active:
+        db.table("password_reset_tokens").delete().eq("user_id", alvo["id"]).execute()
+
+    logger.info("Usuário %s %s por %s", username, acao, current_user["username"])
+    log_event("warning" if acao != "aprovado" else "info", "auth",
+              f"Usuário {username} {acao} por {current_user['username']}", user_id=alvo["id"])
+    row = result.data[0]
+    return {k: row.get(k) for k in ("id", "username", "display_name", "email", "role", "active", "deactivated_at")}
 
 
 class ResetPasswordRequest(BaseModel):
@@ -176,10 +204,10 @@ async def delete_user(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Não é possível excluir seu próprio usuário")
 
     db = get_supabase()
-    result = db.table("profiles").select("active").eq("username", username).execute()
+    result = db.table("profiles").select("active,deactivated_at").eq("username", username).execute()
     if not result.data:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado")
-    if result.data[0]["active"]:
+    if result.data[0]["active"] or result.data[0].get("deactivated_at"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Só é possível recusar solicitações pendentes")
 
     db.table("profiles").delete().eq("username", username).execute()
