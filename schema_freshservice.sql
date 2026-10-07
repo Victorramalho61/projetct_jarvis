@@ -52,6 +52,12 @@ CREATE INDEX IF NOT EXISTS idx_fst_company     ON public.freshservice_tickets (c
 CREATE INDEX IF NOT EXISTS idx_fst_created_at  ON public.freshservice_tickets (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fst_resolved_at ON public.freshservice_tickets (resolved_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fst_updated_at  ON public.freshservice_tickets (updated_at DESC);
+-- Data efetiva de fechamento usada por todas as funções de analytics abaixo. Sem ele a
+-- freshservice_summary fazia seq scan da tabela inteira e estourava o statement_timeout (8s)
+-- no sync das 06:00, concorrendo com o sync NFS-e do fiscal (falhou 03–07/10/2026).
+-- Em produção foi criado com CONCURRENTLY.
+CREATE INDEX IF NOT EXISTS idx_fst_fechamento_resolvidos ON public.freshservice_tickets
+  ((COALESCE(resolved_at, closed_at, updated_at))) WHERE status IN (4, 5);
 
 CREATE TABLE IF NOT EXISTS public.freshservice_agents (
     id          bigint PRIMARY KEY,
@@ -164,36 +170,25 @@ CREATE OR REPLACE FUNCTION public.freshservice_summary(p_from timestamptz, p_to 
 RETURNS json
 LANGUAGE sql STABLE SECURITY DEFINER
 AS $$
-  SELECT json_build_object(
-    'total_closed',       COALESCE(COUNT(*), 0),
-    'csat_avg',           ROUND(AVG(csat_rating::numeric), 2),
-    'sla_breach_pct',     ROUND(
-                            100.0 * SUM(CASE WHEN sla_breached THEN 1 ELSE 0 END)::numeric
-                            / NULLIF(COUNT(*)::numeric, 0), 1),
-    'avg_resolution_min', ROUND(AVG(resolution_time_min::numeric), 0),
-    'avg_fr_min',         ROUND(AVG(fr_time_min::numeric), 0),
-    'by_priority', (
-      SELECT COALESCE(json_agg(r ORDER BY r.priority NULLS LAST), '[]'::json)
-      FROM (
-        SELECT
-          priority,
-          COUNT(*) AS count,
-          ROUND(
-            100.0 * SUM(CASE WHEN sla_breached THEN 1 ELSE 0 END)::numeric
-            / NULLIF(COUNT(*)::numeric, 0), 1
-          ) AS breach_pct
-        FROM public.freshservice_tickets
-        WHERE COALESCE(resolved_at, closed_at, updated_at) >= p_from
-          AND COALESCE(resolved_at, closed_at, updated_at) < p_to
-          AND status IN (4, 5)
-        GROUP BY priority
-      ) r
-    )
+  -- uma leitura só (CTE) via idx_fst_fechamento_resolvidos
+  WITH base AS (
+    SELECT priority, csat_rating, sla_breached, resolution_time_min, fr_time_min
+    FROM public.freshservice_tickets
+    WHERE COALESCE(resolved_at, closed_at, updated_at) >= p_from
+      AND COALESCE(resolved_at, closed_at, updated_at) <  p_to
+      AND status IN (4, 5)
   )
-  FROM public.freshservice_tickets
-  WHERE COALESCE(resolved_at, closed_at, updated_at) >= p_from
-    AND COALESCE(resolved_at, closed_at, updated_at) < p_to
-    AND status IN (4, 5)
+  SELECT json_build_object(
+    'total_closed',       (SELECT COUNT(*) FROM base),
+    'csat_avg',           (SELECT ROUND(AVG(csat_rating::numeric), 2) FROM base),
+    'sla_breach_pct',     (SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE sla_breached) / NULLIF(COUNT(*), 0), 1) FROM base),
+    'avg_resolution_min', (SELECT ROUND(AVG(resolution_time_min::numeric), 0) FROM base),
+    'avg_fr_min',         (SELECT ROUND(AVG(fr_time_min::numeric), 0) FROM base),
+    'by_priority', (SELECT COALESCE(json_agg(r ORDER BY r.priority NULLS LAST), '[]'::json) FROM (
+        SELECT priority, COUNT(*) AS count,
+               ROUND(100.0 * COUNT(*) FILTER (WHERE sla_breached) / NULLIF(COUNT(*), 0), 1) AS breach_pct
+        FROM base GROUP BY priority) r)
+  )
 $$;
 
 CREATE OR REPLACE FUNCTION public.freshservice_sla_by_group(p_from timestamptz, p_to timestamptz)
