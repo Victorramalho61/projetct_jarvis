@@ -71,9 +71,9 @@ Browser
 
 Inter-serviço (Docker app_net):
   agents-service → freshservice-service:8003 (HTTP interno + JWT gerado em agent_runner.py)
-  expenses-service → SQL Server externo 10.141.0.111:1444 (BennerSistemaCorporativo — leitura)
-  performance-service → SQL Server externo 10.141.0.111:1444 (BennerRH — leitura para sync)
-  financeiro-service → SQL Server 10.141.0.111\VOETUR (BennerSistemaCorporativo — leitura BI via usr_bi)
+  expenses-service → SQL Server externo 10.141.0.111:1444 (instância BI, VOET-SVM141111) (BennerSistemaCorporativo — leitura)
+  performance-service → SQL Server externo 10.141.0.111:1444 (instância BI, VOET-SVM141111) (BennerRH — leitura para sync)
+  financeiro-service → SQL Server 10.141.0.110\VOETUR (BennerSistemaCorporativo — leitura BI via usr_bi)
 
 Supabase Self-Hosted (Docker app_net):
   Kong:8000 → postgrest, gotrue, realtime, storage
@@ -1236,7 +1236,7 @@ Ver `docs/BACKUP.md` — `backup.ps1` agora envia os dumps pro OneDrive do Victo
 
 ## Módulo Gastos TI — expenses-service:8006
 
-Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444`, `BennerSistemaCorporativo`).
+Lê ERP Benner via `pyodbc` (SQL Server `10.141.0.111:1444 (instância BI)`, `BennerSistemaCorporativo`).
 
 - **Filtro base**: `PAR.EMPRESA = 1` + `K_GESTOR = 23` (gestor de TI)
 - **Endpoints**: `GET /api/expenses/dashboard?year=&filial=&tipo=` · `GET /api/expenses/forecast` · `GET /api/expenses/empresas` · `GET /api/expenses/comparativo?ano1=&ano2=`
@@ -1649,8 +1649,8 @@ Após isso: `_get_ndd_token(company_id)` em `nfse_fetcher.py` auto-renova usando
 ## Integrações externas
 
 - **Microsoft 365 / Azure AD**: app Moneypenny, tenant `fb902eca-dc08-4dec-9e2c-7ce70ee14cf5`
-- **ERP Benner**: SQL Server `10.141.0.111:1444`, banco `BennerSistemaCorporativo`, user `usr_jarvis_read`
-- **Benner RH**: SQL Server `10.141.0.111:1444`, banco configurado via `SQL_SERVER_BENNER_HR_DB`, user `usr_jarvis_read`
+- **ERP Benner**: SQL Server `10.141.0.111:1444 (instância BI)`, banco `BennerSistemaCorporativo`, user `usr_jarvis_read`
+- **Benner RH**: SQL Server `10.141.0.111:1444 (instância BI)`, banco configurado via `SQL_SERVER_BENNER_HR_DB`, user `usr_jarvis_read`
 - **Freshservice**: `voetur1.freshservice.com`, autenticação via API key
 - **Freshdesk Omni**: `voeturomni.freshdesk.com` (API — login em `voeturomni.myfreshworks.com`), autenticação via API key (`FRESHDESK_API_KEY`). Relatório mensal ACCIONA: ver `docs/relatorio-acciona-freshdesk.md`
 - **WhatsApp**: WAHA (sessions `voetur` e `voetur-support`)
@@ -1794,6 +1794,17 @@ Migração concluída do servidor antigo (`10.61.10.100`) para o novo (`10.140.0
 Todos os containers passaram a ter `memswap_limit` explícito (= `mem_limit`) — swap desabilitado por container, evitando degradação silenciosa de performance. Hermes-service e evolution-api movidos para `profiles: ["disabled"]` — nunca sobem no `docker compose up -d` padrão.
 
 ---
+
+## SQL Server Benner — instância VOETUR mudou de servidor (2026-10-08)
+
+O DBA migrou a instância `VOETUR` de `10.141.0.111` para **`10.141.0.110`** (VOET-SVM141110), mesmas credenciais. A instância `BI` (porta 1444, `usr_jarvis_read`) **continua em `10.141.0.111`** (VOET-SVM141111).
+
+| Instância | Host | Login | Serviços | Config |
+|---|---|---|---|---|
+| VOETUR (1433) | 10.141.0.110 | usr_bi | fiscal, financeiro (`MSSQL_HOST` no `.env`), experiencia (`SQL_SERVER_HOST` fixo no `docker-compose.yml`) | trocado |
+| BI (1444) | 10.141.0.111 | usr_jarvis_read | expenses, performance, monitoring (`SQL_SERVER_HOST`/`SQL_SERVER_PORT` no `.env`) | inalterado |
+
+Sintoma antes da troca (03–08/10): `Adaptive Server is unavailable` (financeiro `_dashboard_nightly`, conciliação Benner do fiscal) e `Login timeout expired` (sync Benner da experiência). Backup do `.env` anterior: `E:\claudecode\backups\env_2026-10-08.bak`.
 
 ## Desativação de usuário e revogação de sessão — 2026-10-07
 
@@ -2049,7 +2060,7 @@ financeiro-service TTL Cache:
 ### Variáveis de ambiente
 
 ```
-MSSQL_HOST=10.141.0.111\VOETUR   # instância nomeada — SQL Server Browser resolve a porta
+MSSQL_HOST=10.141.0.110\VOETUR   # instância nomeada — SQL Server Browser resolve a porta
 MSSQL_USER=usr_bi
 MSSQL_PASSWORD=<no .env>
 MSSQL_DATABASE=BennerSistemaCorporativo
@@ -2073,7 +2084,7 @@ exp_email_log   -- log auditável de cada e-mail disparado
 
 ### Sync Benner
 
-- **Banco**: `BennerRh` em `10.141.0.111\VOETUR` porta **1433** (instância VOETUR — não confundir com porta 1444 da instância BI)
+- **Banco**: `BennerRh` em `10.141.0.110\VOETUR` porta **1433** (instância VOETUR — não confundir com porta 1444 da instância BI)
 - **Credencial**: `usr_bi` / `BENNER_RH_PASSWORD` no `.env`
 - **Scheduler**: sync às 03:00 · cobranças às 08:00 (America/Sao_Paulo)
 - **Join crítico**: `DO_FUNCIONARIOS.SUPERVISOR` → `RH_PESSOAS.HANDLE` → `DO_FUNCIONARIOS.HANDLE` (supervisor não aponta direto para DO_FUNCIONARIOS)
@@ -2110,7 +2121,7 @@ Os endpoints de listagem retornam `colaborador` (objeto aninhado), **não** `exp
 ### Variáveis de ambiente
 
 ```
-SQL_SERVER_HOST=10.141.0.111
+SQL_SERVER_HOST=10.141.0.110
 SQL_SERVER_PORT=1433
 SQL_SERVER_DB=BennerRh
 SQL_SERVER_USER=usr_bi
