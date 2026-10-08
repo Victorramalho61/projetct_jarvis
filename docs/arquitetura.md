@@ -1709,6 +1709,8 @@ Scripts: `fix_missing_columns.sql` e `optimize_queries.sql` na raiz do projeto.
 | `payfly_reservations` | `idx_pf_res_company_choice_date` | filtro por empresa |
 | `freshservice_tickets` | `idx_fst_updated_at` | sync incremental por updated_at |
 | `freshservice_tickets` | `idx_fst_workspace_updated` | sync por workspace_id |
+| `freshservice_tickets` | `idx_fst_fechamento_resolvidos` (parcial, `COALESCE(resolved_at, closed_at, updated_at)` WHERE `status IN (4,5)`) | `freshservice_summary` e demais funções de analytics — sem ele, seq scan e statement_timeout no sync das 06:00 (2026-10-07) |
+| `freshservice_tickets` | `idx_fst_group`, `idx_fst_responder`, `idx_fst_company`, `idx_fst_created_at`, `idx_fst_resolved_at` | declarados no `schema_freshservice.sql` mas ausentes em produção; criados com CONCURRENTLY em 2026-10-07 |
 
 ### Índices removidos (duplicatas)
 
@@ -2789,3 +2791,25 @@ A D4Sign pediu um novo teste (Diego Costa, suporte). No sandbox, a causa estava 
 - O deploy recria o container, o que também descarta o log antigo do Docker.
 - **Recomendação:** **trocar a chave** no Google AI Studio e atualizar `GOOGLE_API_KEY` no `.env`. A chave antiga ficou exposta no log por dias.
 - Varredura no repositório: não há outro `?key=` / `&key=` em código Python.
+
+## Health check e correções (2026-10-06 a 2026-10-08)
+
+**Estado geral (08/10):** servidor com CPU 15%, RAM 62% de 32 GB, uptime 56 dias; Windows sem erros em 24h; 26 containers no ar e saudáveis (hermes desligado de propósito); banco com 14 de 200 conexões, sem locks, sem deadlocks, log sem erros. Cache hit do Postgres segue em ~94% (ideal > 99%).
+
+| Data | Item | O que foi feito | Onde está documentado |
+|---|---|---|---|
+| 06–07/10 | `freshservice_summary` estourava o statement_timeout (8s) todo dia às 06:00 desde 03/10 | Índice parcial `idx_fst_fechamento_resolvidos` + função reescrita com CTE única (54 ms → 0,5 ms, JSON idêntico em 3 períodos). Confirmado em 08/10: `rpc/freshservice_summary 200`, 495 tickets | `schema_freshservice.sql`, tabela de índices acima |
+| 07/10 | 5 índices da `freshservice_tickets` declarados no schema e ausentes no banco | Criados com `CREATE INDEX CONCURRENTLY` + `ANALYZE` | tabela de índices acima |
+| 07/10 | Linhas mortas | `VACUUM (ANALYZE)` em `freshservice_tickets` (9,3 mil), `payfly_reservations` (2,4 mil + 5,4 mil no TOAST), `payfly_media_posts`, `exp_avaliacoes`, `performance_reviews`, `performance_self_evaluation_tokens`, `app_logs` | — |
+| 07/10 | Disco C: com 19,2 GB livres | `npm cache clean --force` (5,2 GB) + temporários do usuário com mais de 7 dias (1,3 GB) → 25,6 GB livres. **O disco do Docker fica em `E:\Docker\wsl\disk\docker_data.vhdx`**: `docker builder prune` não libera espaço no C: | — |
+| 07/10 | Desativar usuário não cortava o acesso e reabria como pendente | Ver "Desativação de usuário e revogação de sessão — 2026-10-07" | seção própria |
+| 07/10 | Relatório semanal de vagas ia para `renata.facundo@voetur.com.br` (usuária desativada) | Destinatário passou a `rh@voetur.com.br` ("Equipe de RH") em `rh-service/services/relatorio_semanal.py` | — |
+| 07–08/10 | Kong com IP antigo após recriar containers (502 em ~50–60% das chamadas ao serviço recriado: performance em 07/10, fiscal em 08/10) | `docker restart jarvis-kong-1`. **Procedimento:** depois de recriar serviços, sondar a rota pelo Kong; se houver `Connection refused` no log do Kong, reiniciar o Kong | também em "Desativação de usuário…" |
+| 08/10 | SQL Server Benner inacessível (`Adaptive Server is unavailable`, `Login timeout expired`) | Instância VOETUR migrou para `10.141.0.110`; BI continua em `10.141.0.111` | "SQL Server Benner — instância VOETUR mudou de servidor" |
+| 08/10 | Jobs que falharam durante a indisponibilidade do Benner | Rodados manualmente: `experiencia` `_job_sync_benner` (352 colaboradores, 4 avaliações criadas, 0 erros; os 2 admitidos de 07/10 entraram — a carga de 90 dias confirmou que nenhum outro faltava) e `financeiro` `_dashboard_nightly` (OK em 6,3 s) | — |
+
+**Pendente / achados sem correção:**
+- **financeiro — cache do job noturno nunca é usado:** `_dashboard_nightly` grava `cache_set("dashboard", "empresa=<h>")`, mas `GET /api/financeiro/dashboard` lê `"empresa=<h>&ini=<ini>&fim=<fim>"`. As chaves não batem, então o pré-cálculo das 01:00 não acelera nada (a rota calcula na hora). Além disso o cache é em memória do processo: rodar o job por `docker exec` não aquece o servidor.
+- **experiencia — sync incremental só olha 1 dia** (`DATAADMISSAO >= ontem`): se o Benner ficar fora mais de um dia, admitidos do período ficam de fora até alguém rodar `run_sync(completo=True)`.
+- **Erros externos recorrentes:** Gemini 503 (expenses, com fallback), Reddit 403 no media_fetcher.
+
